@@ -17,7 +17,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r jeonghan-daily-review-bot-v2/requirements.txt
 
       - name: Run bot
         env:
@@ -26,4 +26,4 @@ jobs:
           TELEGRAM_REVIEW_CHAT_ID: ${{ secrets.TELEGRAM_REVIEW_CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           X_COOKIE: ${{ secrets.X_COOKIE }}
-        run: python -m src.bot
+        run: cd jeonghan-daily-review-bot-v2 && python -m src.bot
