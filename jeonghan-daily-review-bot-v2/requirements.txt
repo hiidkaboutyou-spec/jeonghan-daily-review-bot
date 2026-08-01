@@ -1,0 +1,5 @@
+# Keep twscrape on current main because X changes frequently and fixes land there first.
+twscrape[curl] @ git+https://github.com/vladkens/twscrape.git@main
+requests>=2.32.0
+PyYAML>=6.0.2
+yt-dlp>=2026.6.9

@@ -1,0 +1,39 @@
+# Accounts to watch on X. Replace/add the accounts you actually trust.
+# Keep usernames without @.
+sources:
+  - username: "REPLACE_WITH_SOURCE_1"
+    enabled: false
+    require_keywords: true
+  - username: "REPLACE_WITH_SOURCE_2"
+    enabled: false
+    require_keywords: true
+
+# A post from a source with require_keywords=true must contain at least one of these.
+keywords:
+  - "jeonghan"
+  - "yoon jeonghan"
+  - "정한"
+  - "윤정한"
+  - "ジョンハン"
+  - "جونگهان"
+
+polling:
+  tweets_per_source: 12
+  first_run_lookback_hours: 2
+  include_replies: false
+  include_retweets: false
+  max_new_drafts_per_run: 8
+
+ai:
+  # gemini = تصویر را هم می‌بیند؛ groq = جایگزین متن‌محور رایگان
+  provider: "gemini"
+  gemini_model: "gemini-3.5-flash-lite"
+  groq_model: "llama-3.3-70b-versatile"
+  minimum_relevance_confidence: 0.60
+  # 0 = خبری و ساده، 1 = لحن معمول کانال، 2 = فنگرلی/بامزه‌تر
+  default_humor_level: 1
+
+telegram:
+  # اگر true باشد لینک منبع داخل کپشن آمادهٔ فوروارد هم می‌آید.
+  source_link_in_channel: false
+  max_album_items: 10
