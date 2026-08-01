@@ -10,6 +10,7 @@ import re
 import subprocess
 import tempfile
 import time
+from difflib import SequenceMatcher
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -298,6 +299,8 @@ class Gemini:
 - شوخی نباید معنی خبر یا ترجمه را تغییر دهد.
 - اگر پست واقعاً دربارهٔ جونگهان نیست، relevant=false بده.
 - اگر فقط به دلیل تصویر احتمال می‌دهی مربوط است، عدم قطعیت را در notes بنویس.
+- اگر discovery_only=true است، آن را خبر رسمی معرفی نکن مگر خود منبع رسمی باشد.
+- اگر چند منبع مقایسه شده‌اند و با هم تعارض دارند، تعارض را در notes بگو و چیزی را قطعی نکن.
 - caption باید آمادهٔ کپی در تلگرام، کوتاه و بدون توضیح متا باشد.
 - لینک منبع را داخل caption نگذار.
 - سطح هیومر: {humor_level} از ۲.
@@ -316,6 +319,12 @@ class Gemini:
 
 تعداد عکس: {tweet['photo_count']}
 تعداد ویدیو/GIF: {tweet['video_count']}
+
+وضعیت کشف: {tweet.get('origin', 'trusted')}
+فقط خارج از منابع اصلی پیدا شده: {bool(tweet.get('discovery_only', False))}
+نسخه با کمک جست‌وجوی عمومی کامل‌تر شده: {bool(tweet.get('completed_from_discovery', False))}
+منابع مقایسه‌شده:
+{truncate(str(tweet.get('source_context', '')), 3500) or 'فقط همان منبع'}
 
 فقط JSON معتبر با این کلیدها برگردان:
 {{
@@ -388,6 +397,8 @@ class Groq:
 - شوخی نباید معنی خبر یا ترجمه را تغییر دهد.
 - اگر پست واقعاً دربارهٔ جونگهان نیست، relevant=false بده.
 - چون این مدل تصویر را نمی‌بیند، دربارهٔ محتوای عکس چیزی را حدس نزن.
+- اگر discovery_only=true است، آن را خبر رسمی معرفی نکن مگر خود منبع رسمی باشد.
+- اگر چند منبع مقایسه شده‌اند و با هم تعارض دارند، تعارض را در notes بگو و چیزی را قطعی نکن.
 - caption باید آمادهٔ کپی در تلگرام، کوتاه و بدون توضیح متا باشد.
 - لینک منبع را داخل caption نگذار.
 - سطح هیومر: {humor_level} از ۲.
@@ -406,6 +417,12 @@ class Groq:
 
 تعداد عکس: {tweet['photo_count']}
 تعداد ویدیو/GIF: {tweet['video_count']}
+
+وضعیت کشف: {tweet.get('origin', 'trusted')}
+فقط خارج از منابع اصلی پیدا شده: {bool(tweet.get('discovery_only', False))}
+نسخه با کمک جست‌وجوی عمومی کامل‌تر شده: {bool(tweet.get('completed_from_discovery', False))}
+منابع مقایسه‌شده:
+{truncate(str(tweet.get('source_context', '')), 3500) or 'فقط همان منبع'}
 
 فقط JSON معتبر با این کلیدها برگردان:
 {{
@@ -488,29 +505,75 @@ def media_from_tweet(tweet: Any) -> list[dict[str, str]]:
     return items
 
 
+def _append_unique_media(
+    target: list[dict[str, str]],
+    extra: list[dict[str, str]],
+) -> None:
+    existing: set[tuple[str, str]] = {
+        (str(item.get("type", "")), media_key(item)) for item in target
+    }
+    for item in extra:
+        key = (str(item.get("type", "")), media_key(item))
+        if not key[1] or key in existing:
+            continue
+        target.append(item)
+        existing.add(key)
+
+
 def tweet_to_record(tweet: Any) -> dict[str, Any]:
     media = media_from_tweet(tweet)
     quoted = getattr(tweet, "quotedTweet", None)
+    retweeted = getattr(tweet, "retweetedTweet", None)
+
+    # Fan accounts often quote the original update. Include the quoted media so
+    # the review copy can be complete even when the wrapper tweet has no media.
+    if quoted:
+        _append_unique_media(media, media_from_tweet(quoted))
+    if retweeted:
+        _append_unique_media(media, media_from_tweet(retweeted))
+
     text = getattr(tweet, "rawContent", "") or ""
     if quoted and getattr(quoted, "rawContent", ""):
         text += f"\n\nQuoted post: {quoted.rawContent}"
+
     preview = ""
     for item in media:
         preview = item.get("url", "") if item["type"] == "photo" else item.get("thumbnail", "")
         if preview:
             break
+
+    user = getattr(tweet, "user", None)
+    links = [
+        str(getattr(item, "url", "") or "")
+        for item in (getattr(tweet, "links", None) or [])
+        if getattr(item, "url", None)
+    ]
+    hashtags = [str(item) for item in (getattr(tweet, "hashtags", None) or [])]
+
     return {
         "tweet_id": str(tweet.id),
-        "source_username": tweet.user.username,
-        "source_url": tweet.url,
+        "source_username": str(getattr(user, "username", "") or ""),
+        "source_url": str(getattr(tweet, "url", "") or ""),
         "date": tweet.date.astimezone(timezone.utc).isoformat(),
         "text": text.strip(),
         "is_reply": getattr(tweet, "inReplyToTweetId", None) is not None,
-        "is_retweet": getattr(tweet, "retweetedTweet", None) is not None,
+        "is_retweet": retweeted is not None,
         "media": media,
         "photo_count": sum(item["type"] == "photo" for item in media),
         "video_count": sum(item["type"] == "video" for item in media),
         "preview_image_url": preview,
+        "conversation_id": str(getattr(tweet, "conversationId", "") or ""),
+        "quoted_tweet_id": str(getattr(quoted, "id", "") or "") if quoted else "",
+        "retweeted_tweet_id": str(getattr(retweeted, "id", "") or "") if retweeted else "",
+        "lang": str(getattr(tweet, "lang", "") or ""),
+        "hashtags": hashtags,
+        "links": links,
+        "followers_count": int(getattr(user, "followersCount", 0) or 0),
+        "verified": bool(getattr(user, "verified", False) or getattr(user, "blue", False)),
+        "like_count": int(getattr(tweet, "likeCount", 0) or 0),
+        "retweet_count": int(getattr(tweet, "retweetCount", 0) or 0),
+        "quote_count": int(getattr(tweet, "quoteCount", 0) or 0),
+        "view_count": int(getattr(tweet, "viewCount", 0) or 0),
     }
 
 
@@ -518,6 +581,344 @@ def contains_keyword(text: str, keywords: list[str]) -> bool:
     haystack = text.casefold()
     return any(keyword.casefold() in haystack for keyword in keywords if keyword.strip())
 
+
+def normalize_match_text(text: str) -> str:
+    text = text.casefold()
+    text = re.sub(r"https?://\S+", " ", text)
+    text = text.replace("quoted post:", " ")
+    text = re.sub(r"[@#]([\w_]+)", r"\1", text, flags=re.UNICODE)
+    text = re.sub(r"[^\w]+", " ", text, flags=re.UNICODE)
+    return " ".join(text.split())
+
+
+def media_key(item: dict[str, str]) -> str:
+    raw = str(item.get("thumbnail") or item.get("url") or "").strip()
+    if not raw:
+        return ""
+    parsed = urlparse(raw)
+    # Query parameters on X media URLs usually describe size/format and should
+    # not make the same image look different.
+    return f"{parsed.netloc.casefold()}{parsed.path.casefold()}"
+
+
+def record_media_keys(record: dict[str, Any]) -> set[str]:
+    cached = record.get("media_keys")
+    if isinstance(cached, list):
+        return {str(item) for item in cached if str(item)}
+    return {
+        key
+        for item in record.get("media", [])
+        if (key := media_key(item))
+    }
+
+
+def record_date(record: dict[str, Any]) -> datetime:
+    value = str(record.get("date", "") or "")
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return datetime(1970, 1, 1, tzinfo=timezone.utc)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def text_similarity(first: str, second: str) -> float:
+    a = normalize_match_text(first)
+    b = normalize_match_text(second)
+    if not a or not b:
+        return 0.0
+    if a == b:
+        return 1.0
+    sequence = SequenceMatcher(None, a, b).ratio()
+    left = set(a.split())
+    right = set(b.split())
+    union = left | right
+    jaccard = len(left & right) / len(union) if union else 0.0
+    return max(sequence, jaccard)
+
+
+def records_are_same_update(
+    first: dict[str, Any],
+    second: dict[str, Any],
+    *,
+    similarity_threshold: float,
+    merge_window_hours: float,
+) -> bool:
+    if str(first.get("tweet_id")) == str(second.get("tweet_id")):
+        return True
+
+    first_quoted = str(first.get("quoted_tweet_id", "") or "")
+    second_quoted = str(second.get("quoted_tweet_id", "") or "")
+    if first_quoted and first_quoted == second_quoted:
+        return True
+
+    first_keys = record_media_keys(first)
+    second_keys = record_media_keys(second)
+    if first_keys and second_keys and first_keys.intersection(second_keys):
+        return True
+
+    time_gap = abs((record_date(first) - record_date(second)).total_seconds()) / 3600
+    if time_gap > merge_window_hours:
+        return False
+
+    first_text = normalize_match_text(str(first.get("text", "")))
+    second_text = normalize_match_text(str(second.get("text", "")))
+    if not first_text or not second_text:
+        return False
+
+    score = text_similarity(first_text, second_text)
+    minimum_length = min(len(first_text), len(second_text))
+    if minimum_length >= 24 and score >= similarity_threshold:
+        return True
+
+    # Reposts with media often add a short reaction or a translation. Permit a
+    # lower text threshold only when both sides contain media.
+    if first_keys and second_keys and minimum_length >= 12 and score >= 0.66:
+        return True
+    return False
+
+
+def record_completeness_score(record: dict[str, Any]) -> float:
+    media_count = len(record.get("media", []))
+    video_count = sum(item.get("type") == "video" for item in record.get("media", []))
+    text_length = min(len(str(record.get("text", ""))), 1600)
+    trusted_bonus = 7.0 if record.get("origin") == "trusted" else 0.0
+    verified_bonus = 3.0 if record.get("verified") else 0.0
+    followers = max(int(record.get("followers_count", 0) or 0), 0)
+    engagement = (
+        int(record.get("like_count", 0) or 0)
+        + int(record.get("retweet_count", 0) or 0) * 2
+        + int(record.get("quote_count", 0) or 0) * 2
+    )
+    return (
+        media_count * 28.0
+        + video_count * 8.0
+        + text_length / 45.0
+        + trusted_bonus
+        + verified_bonus
+        + min(followers, 1_000_000) / 100_000.0
+        + min(engagement, 10_000) / 2_000.0
+    )
+
+
+def merge_record_group(
+    group: list[tuple[dict[str, Any], dict[str, Any]]],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    records = [record for record, _ in group]
+    sources = [source for _, source in group]
+    primary = max(records, key=record_completeness_score)
+    merged = dict(primary)
+
+    merged_media: list[dict[str, str]] = []
+    for record in sorted(records, key=record_completeness_score, reverse=True):
+        _append_unique_media(merged_media, list(record.get("media", [])))
+    merged["media"] = merged_media
+    merged["photo_count"] = sum(item.get("type") == "photo" for item in merged_media)
+    merged["video_count"] = sum(item.get("type") == "video" for item in merged_media)
+    merged["preview_image_url"] = next(
+        (
+            item.get("url", "") if item.get("type") == "photo" else item.get("thumbnail", "")
+            for item in merged_media
+            if item.get("url") or item.get("thumbnail")
+        ),
+        "",
+    )
+
+    # Prefer the most informative text while giving trusted sources a modest
+    # advantage. Media completeness remains the strongest factor overall.
+    def text_score(record: dict[str, Any]) -> float:
+        return min(len(str(record.get("text", ""))), 2500) + (
+            250 if record.get("origin") == "trusted" else 0
+        )
+
+    text_record = max(records, key=text_score)
+    merged["text"] = str(text_record.get("text", "")).strip()
+
+    source_urls: list[str] = []
+    source_usernames: list[str] = []
+    source_context: list[str] = []
+    search_queries: list[str] = []
+    member_ids: list[str] = []
+    for record in records:
+        url = str(record.get("source_url", "") or "")
+        username = str(record.get("source_username", "") or "")
+        tweet_id = str(record.get("tweet_id", "") or "")
+        query = str(record.get("search_query", "") or "")
+        if url and url not in source_urls:
+            source_urls.append(url)
+        if username and username.casefold() not in {u.casefold() for u in source_usernames}:
+            source_usernames.append(username)
+        if tweet_id and tweet_id not in member_ids:
+            member_ids.append(tweet_id)
+        if query and query not in search_queries:
+            search_queries.append(query)
+        text = str(record.get("text", "") or "").strip()
+        if text:
+            block = f"@{username}: {truncate(text, 900)}"
+            if block not in source_context:
+                source_context.append(block)
+
+    trusted_records = [record for record in records if record.get("origin") == "trusted"]
+    discovery_records = [record for record in records if record.get("origin") == "discovery"]
+    trusted_max_media = max((len(record.get("media", [])) for record in trusted_records), default=0)
+    trusted_max_text = max((len(str(record.get("text", ""))) for record in trusted_records), default=0)
+
+    merged["source_urls"] = source_urls
+    merged["source_usernames"] = source_usernames
+    merged["source_context"] = "\n\n".join(source_context[:6])
+    merged["search_queries"] = search_queries
+    merged["member_tweet_ids"] = member_ids
+    merged["discovery_only"] = bool(discovery_records and not trusted_records)
+    merged["completed_from_discovery"] = bool(
+        trusted_records
+        and discovery_records
+        and (
+            len(merged_media) > trusted_max_media
+            or len(str(merged.get("text", ""))) > trusted_max_text + 80
+        )
+    )
+    merged["origin"] = (
+        "mixed"
+        if trusted_records and discovery_records
+        else "discovery"
+        if discovery_records
+        else "trusted"
+    )
+    merged["date"] = min(record_date(record) for record in records).isoformat()
+    merged["media_keys"] = sorted(record_media_keys(merged))
+
+    # Keep the primary URL first, then alternatives.
+    primary_url = str(primary.get("source_url", "") or "")
+    if primary_url:
+        merged["source_url"] = primary_url
+        merged["source_urls"] = [primary_url] + [
+            item for item in source_urls if item != primary_url
+        ]
+
+    require_keywords = True
+    if merged["discovery_only"]:
+        # The search query itself already required a Jeonghan term.
+        require_keywords = False
+    elif any(not source.get("require_keywords", True) for source in sources):
+        require_keywords = False
+
+    merged_source = {
+        "username": merged.get("source_username", ""),
+        "enabled": True,
+        "require_keywords": require_keywords,
+        "origin": merged["origin"],
+    }
+    return merged, merged_source
+
+
+def merge_related_records(
+    pairs: list[tuple[dict[str, Any], dict[str, Any]]],
+    config: dict[str, Any],
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    discovery = config.get("discovery", {})
+    threshold = float(discovery.get("similarity_threshold", 0.82))
+    window = float(discovery.get("merge_window_hours", 24))
+    groups: list[list[tuple[dict[str, Any], dict[str, Any]]]] = []
+
+    for pair in sorted(pairs, key=lambda item: record_date(item[0])):
+        record, _ = pair
+        matched: list[tuple[dict[str, Any], dict[str, Any]]] | None = None
+        for group in groups:
+            if any(
+                records_are_same_update(
+                    record,
+                    existing,
+                    similarity_threshold=threshold,
+                    merge_window_hours=window,
+                )
+                for existing, _ in group
+            ):
+                matched = group
+                break
+        if matched is None:
+            groups.append([pair])
+        else:
+            matched.append(pair)
+
+    return [merge_record_group(group) for group in groups]
+
+
+def recent_update_summary(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "tweet_id": str(record.get("tweet_id", "")),
+        "date": str(record.get("date", "")),
+        "text": str(record.get("text", "")),
+        "media_keys": sorted(record_media_keys(record)),
+        "media_count": len(record.get("media", [])),
+        "video_count": sum(item.get("type") == "video" for item in record.get("media", [])),
+        "text_length": len(str(record.get("text", ""))),
+        "source_count": len(record.get("source_urls", []) or [record.get("source_url", "")]),
+        "quoted_tweet_id": str(record.get("quoted_tweet_id", "") or ""),
+        "last_seen": iso_now(),
+    }
+
+
+def find_recent_update(
+    record: dict[str, Any],
+    recent: list[dict[str, Any]],
+    config: dict[str, Any],
+) -> dict[str, Any] | None:
+    discovery = config.get("discovery", {})
+    threshold = float(discovery.get("similarity_threshold", 0.82))
+    window = float(discovery.get("cross_run_merge_window_hours", 48))
+    for old in reversed(recent):
+        if records_are_same_update(
+            record,
+            old,
+            similarity_threshold=threshold,
+            merge_window_hours=window,
+        ):
+            return old
+    return None
+
+
+def is_more_complete_than(
+    record: dict[str, Any],
+    previous: dict[str, Any],
+) -> bool:
+    media_count = len(record.get("media", []))
+    video_count = sum(item.get("type") == "video" for item in record.get("media", []))
+    text_length = len(str(record.get("text", "")))
+    source_count = len(record.get("source_urls", []) or [record.get("source_url", "")])
+    return bool(
+        media_count > int(previous.get("media_count", 0) or 0)
+        or video_count > int(previous.get("video_count", 0) or 0)
+        or text_length > int(previous.get("text_length", 0) or 0) + 100
+        or (
+            source_count > int(previous.get("source_count", 0) or 0)
+            and media_count >= int(previous.get("media_count", 0) or 0)
+        )
+    )
+
+
+def remember_recent_update(
+    state: dict[str, Any],
+    record: dict[str, Any],
+    config: dict[str, Any],
+) -> None:
+    recent = list(state.get("recent_updates", []))
+    existing = find_recent_update(record, recent, config)
+    summary = recent_update_summary(record)
+    if existing is not None:
+        try:
+            recent.remove(existing)
+        except ValueError:
+            pass
+    recent.append(summary)
+
+    cutoff = utc_now() - timedelta(days=14)
+    retained = [
+        item
+        for item in recent
+        if record_date(item) >= cutoff
+    ]
+    state["recent_updates"] = retained[-400:]
 
 def review_keyboard(tweet_id: str) -> dict[str, Any]:
     return {
@@ -534,21 +935,36 @@ def review_keyboard(tweet_id: str) -> dict[str, Any]:
 def review_text(pending: dict[str, Any]) -> str:
     translation = pending.get("translation", "").strip()
     notes = pending.get("notes", "").strip()
+
+    if pending.get("is_upgrade"):
+        headline = "🧩 نسخهٔ کامل‌تر از یک آپدیت قبلی"
+    elif pending.get("completed_from_discovery"):
+        headline = "🧩 آپدیت کامل‌تر با مقایسهٔ منابع"
+    elif pending.get("discovery_only"):
+        headline = "🔎 کشف‌شده خارج از منابع اصلی"
+    else:
+        headline = "🪽 پیش‌نویس جدید"
+
+    usernames = pending.get("source_usernames", []) or [pending.get("source_username", "")]
+    source_urls = pending.get("source_urls", []) or [pending.get("source_url", "")]
     sections = [
-        "🪽 پیش‌نویس جدید",
-        f"منبع: @{pending['source_username']}",
-        pending["source_url"],
-        "",
-        "متن اصلی:",
-        truncate(pending.get("source_text", ""), 1000) or "—",
+        headline,
+        "منبع/منابع: " + "، ".join(f"@{item}" for item in usernames[:6] if item),
     ]
+    sections.extend(url for url in source_urls[:4] if url)
+    sections.extend(
+        [
+            "",
+            "متن اصلی:",
+            truncate(pending.get("source_text", ""), 1000) or "—",
+        ]
+    )
     if translation:
         sections.extend(["", "ترجمه:", truncate(translation, 1000)])
     sections.extend(["", "کپشن پیشنهادی:", truncate(pending["caption"], 1400)])
     if notes:
-        sections.extend(["", "یادداشت:", truncate(notes, 500)])
+        sections.extend(["", "یادداشت:", truncate(notes, 700)])
     return "\n".join(sections)
-
 
 def download_media_item(item: dict[str, str], directory: Path, index: int) -> tuple[Path, str]:
     url = item["url"]
@@ -692,6 +1108,10 @@ def process_action(
             "text": pending["source_text"],
             "photo_count": sum(item["type"] == "photo" for item in pending.get("media", [])),
             "video_count": sum(item["type"] == "video" for item in pending.get("media", [])),
+            "origin": pending.get("origin", "trusted"),
+            "discovery_only": pending.get("discovery_only", False),
+            "completed_from_discovery": pending.get("completed_from_discovery", False),
+            "source_context": pending.get("source_context", ""),
             "preview_image_url": next(
                 (
                     item.get("url") if item["type"] == "photo" else item.get("thumbnail")
@@ -796,7 +1216,10 @@ def process_telegram_updates(
                 telegram.send_message(review_chat_id, f"⚠️ خطا: {exc}")
 
 
-async def fetch_records(config: dict[str, Any], x_cookie: str) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+async def fetch_records(
+    config: dict[str, Any],
+    x_cookie: str,
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
     from twscrape import API, gather
 
     db_path = Path(tempfile.gettempdir()) / "jeonghan-twscrape.db"
@@ -805,50 +1228,147 @@ async def fetch_records(config: dict[str, Any], x_cookie: str) -> list[tuple[dic
     except FileNotFoundError:
         pass
 
-    api = API(str(db_path), raise_when_no_account=True, wait_timeout=20)
+    api = API(str(db_path), raise_when_no_account=True, wait_timeout=25)
     await api.pool.add_account_cookies("reader", x_cookie)
 
     polling = config.get("polling", {})
     limit = int(polling.get("tweets_per_source", 12))
     results: list[tuple[dict[str, Any], dict[str, Any]]] = []
 
+    # 1) Trusted source timelines.
     for source in config.get("sources", []):
         if not source.get("enabled", False):
             continue
         username = str(source.get("username", "")).lstrip("@").strip()
         if not username or username.startswith("REPLACE_"):
             continue
+        source_meta = dict(source)
+        source_meta["origin"] = "trusted"
         try:
             user = await api.user_by_login(username)
             tweets = await gather(api.user_tweets(user.id, limit=limit))
             for tweet in tweets:
-                results.append((tweet_to_record(tweet), source))
+                record = tweet_to_record(tweet)
+                record["origin"] = "trusted"
+                record["trusted_source"] = True
+                results.append((record, source_meta))
         except Exception as exc:
             log.exception("Could not fetch @%s", username)
-            results.append(({"fetch_error": str(exc), "source_username": username}, source))
+            results.append(
+                (
+                    {
+                        "fetch_error": str(exc),
+                        "source_username": username,
+                        "error_kind": "trusted_source",
+                    },
+                    source_meta,
+                )
+            )
 
-    return results
+    # 2) General X search as a safety net for missed or incomplete updates.
+    discovery = config.get("discovery", {})
+    if bool(discovery.get("enabled", True)):
+        default_queries = [
+            '(JEONGHAN OR "Yoon Jeonghan" OR #JEONGHAN OR #YOONJEONGHAN) '
+            '-filter:replies -filter:retweets',
+            '(윤정한 OR #윤정한 OR (#정한 세븐틴) OR ("정한" "SEVENTEEN")) '
+            '-filter:replies -filter:retweets',
+        ]
+        configured = discovery.get("queries")
+        queries = configured if isinstance(configured, list) and configured else default_queries
+        query_limit = int(discovery.get("results_per_query", 25))
+        max_queries = int(discovery.get("max_queries_per_run", 3))
 
+        for query in [str(item).strip() for item in queries[:max_queries] if str(item).strip()]:
+            source_meta = {
+                "username": "X search",
+                "enabled": True,
+                "require_keywords": False,
+                "origin": "discovery",
+                "search_query": query,
+            }
+            try:
+                tweets = await gather(api.search(query, limit=query_limit))
+                for tweet in tweets:
+                    record = tweet_to_record(tweet)
+                    record["origin"] = "discovery"
+                    record["trusted_source"] = False
+                    record["search_query"] = query
+                    results.append((record, source_meta))
+            except Exception as exc:
+                log.exception("Could not search X for %s", query)
+                results.append(
+                    (
+                        {
+                            "fetch_error": str(exc),
+                            "source_username": "X search",
+                            "error_kind": "discovery_search",
+                            "search_query": query,
+                        },
+                        source_meta,
+                    )
+                )
+
+    # Exact tweet IDs can appear both in a trusted timeline and in general search.
+    # Prefer the trusted copy while preserving any discovery metadata.
+    by_id: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
+    errors: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for record, source in results:
+        if record.get("fetch_error"):
+            errors.append((record, source))
+            continue
+        tweet_id = str(record.get("tweet_id", ""))
+        previous = by_id.get(tweet_id)
+        if previous is None:
+            by_id[tweet_id] = (record, source)
+            continue
+        old_record, old_source = previous
+        if old_record.get("origin") == "discovery" and record.get("origin") == "trusted":
+            by_id[tweet_id] = (record, source)
+        elif record.get("search_query") and not old_record.get("search_query"):
+            old_record["search_query"] = record["search_query"]
+
+    return errors + list(by_id.values())
 
 def make_pending(record: dict[str, Any], ai: dict[str, Any]) -> dict[str, Any]:
     caption = str(ai.get("caption", "")).strip()
     if not caption:
         caption = record["text"].strip() or "آپدیت جدید جونگهان 🪽"
+
+    ai_notes = str(ai.get("notes", "")).strip()
+    system_notes: list[str] = []
+    if record.get("is_upgrade"):
+        system_notes.append("این نسخه نسبت به آپدیت قبلی مدیا یا اطلاعات کامل‌تری دارد.")
+    elif record.get("completed_from_discovery"):
+        system_notes.append("چند منبع مقایسه شدند و جست‌وجوی عمومی نسخهٔ کامل‌تری پیدا کرد.")
+    elif record.get("discovery_only"):
+        system_notes.append(
+            "این مورد در منابع اصلی دیده نشد و از جست‌وجوی عمومی X پیدا شده؛ قبل از انتشار منبع را بررسی کن."
+        )
+    notes = "\n".join([item for item in system_notes + [ai_notes] if item])
+
     return {
         "tweet_id": record["tweet_id"],
+        "member_tweet_ids": record.get("member_tweet_ids", [record["tweet_id"]]),
         "source_username": record["source_username"],
+        "source_usernames": record.get("source_usernames", [record["source_username"]]),
         "source_url": record["source_url"],
+        "source_urls": record.get("source_urls", [record["source_url"]]),
+        "source_context": record.get("source_context", ""),
         "source_text": record["text"],
         "date": record["date"],
         "media": record["media"],
         "caption": caption,
         "translation": str(ai.get("translation", "")).strip(),
-        "notes": str(ai.get("notes", "")).strip(),
+        "notes": notes,
         "category": str(ai.get("category", "other")),
         "confidence": float(ai.get("confidence", 0.0) or 0.0),
+        "origin": record.get("origin", "trusted"),
+        "discovery_only": bool(record.get("discovery_only", False)),
+        "completed_from_discovery": bool(record.get("completed_from_discovery", False)),
+        "is_upgrade": bool(record.get("is_upgrade", False)),
         "created_at": iso_now(),
     }
-
 
 def run() -> None:
     config = load_config()
@@ -857,12 +1377,14 @@ def run() -> None:
         {
             "initialized": False,
             "seen_tweet_ids": [],
+            "recent_updates": [],
             "pending": {},
             "telegram_update_offset": 0,
             "last_heartbeat_week": "",
         },
     )
     state.setdefault("seen_tweet_ids", [])
+    state.setdefault("recent_updates", [])
     state.setdefault("pending", {})
 
     token = env("TELEGRAM_BOT_TOKEN")
@@ -896,27 +1418,33 @@ def run() -> None:
     )
 
     enabled_sources = [s for s in config.get("sources", []) if s.get("enabled", False)]
-    if not enabled_sources:
-        log.warning("No enabled X sources in config.yml")
-        current_week = utc_now().strftime("%G-W%V")
-        if state.get("last_heartbeat_week") != current_week:
-            state["last_heartbeat_week"] = current_week
+    discovery_enabled = bool(config.get("discovery", {}).get("enabled", True))
+    if not enabled_sources and not discovery_enabled:
+        log.warning("No enabled X sources or discovery search in config.yml")
         save_state(state)
         return
 
     records = asyncio.run(fetch_records(config, x_cookie))
     for record, _source in records:
-        if record.get("fetch_error"):
-            telegram.send_message(
-                review_chat_id,
-                f"⚠️ دریافت @{record['source_username']} ناموفق بود:\n{record['fetch_error']}",
-            )
+        if not record.get("fetch_error"):
+            continue
+        kind = record.get("error_kind", "")
+        if kind == "discovery_search":
+            label = "جست‌وجوی عمومی X"
+        else:
+            label = f"@{record.get('source_username', 'unknown')}"
+        telegram.send_message(
+            review_chat_id,
+            f"⚠️ دریافت {label} ناموفق بود:\n{record['fetch_error']}",
+        )
 
-    valid_records = [pair for pair in records if not pair[0].get("fetch_error")]
-    valid_records.sort(key=lambda pair: pair[0]["date"])
+    valid_pairs = [pair for pair in records if not pair[0].get("fetch_error")]
+    valid_pairs = merge_related_records(valid_pairs, config)
+    valid_pairs.sort(key=lambda pair: record_date(pair[0]))
 
     seen = set(str(item) for item in state.get("seen_tweet_ids", []))
     polling = config.get("polling", {})
+    discovery = config.get("discovery", {})
     keywords = [str(item) for item in config.get("keywords", [])]
     include_replies = bool(polling.get("include_replies", False))
     include_retweets = bool(polling.get("include_retweets", False))
@@ -924,34 +1452,52 @@ def run() -> None:
         hours=float(polling.get("first_run_lookback_hours", 2))
     )
     max_drafts = int(polling.get("max_new_drafts_per_run", 8))
-    minimum_confidence = float(config.get("ai", {}).get("minimum_relevance_confidence", 0.6))
-    humor_level = int(config.get("ai", {}).get("default_humor_level", 1))
+    minimum_confidence = float(ai_config.get("minimum_relevance_confidence", 0.6))
+    discovery_confidence = float(
+        discovery.get("minimum_discovery_confidence", max(minimum_confidence, 0.68))
+    )
+    humor_level = int(ai_config.get("default_humor_level", 1))
     drafts_created = 0
 
-    for record, source in valid_records:
-        tweet_id = record["tweet_id"]
-        if tweet_id in seen:
-            continue
+    for record, source in valid_pairs:
+        member_ids = [
+            str(item)
+            for item in record.get("member_tweet_ids", [record.get("tweet_id", "")])
+            if str(item)
+        ]
+        all_seen = bool(member_ids) and all(item in seen for item in member_ids)
 
-        # Mark every fetched tweet as seen even when filtered, so it is not reconsidered forever.
-        seen.add(tweet_id)
-
-        date = datetime.fromisoformat(record["date"])
+        date = record_date(record)
         if not state.get("initialized", False) and date < first_cutoff:
+            seen.update(member_ids)
             continue
         if record["is_reply"] and not include_replies:
+            seen.update(member_ids)
             continue
         if record["is_retweet"] and not include_retweets:
+            seen.update(member_ids)
             continue
         if source.get("require_keywords", True) and not contains_keyword(record["text"], keywords):
+            seen.update(member_ids)
             continue
+
+        recent_match = find_recent_update(record, list(state.get("recent_updates", [])), config)
+        if recent_match is not None:
+            if not is_more_complete_than(record, recent_match):
+                seen.update(member_ids)
+                continue
+            record["is_upgrade"] = True
+        elif all_seen:
+            continue
+
+        # Keep overflow for the next run rather than losing it permanently.
         if drafts_created >= max_drafts:
             continue
 
         try:
             ai = gemini.generate(record, humor_level=humor_level)
         except BotError as exc:
-            log.exception("Gemini generation failed for %s", tweet_id)
+            log.exception("AI generation failed for %s", record["tweet_id"])
             ai = {
                 "relevant": True,
                 "confidence": 0.5,
@@ -963,23 +1509,34 @@ def run() -> None:
 
         relevant = bool(ai.get("relevant", False))
         confidence = float(ai.get("confidence", 0.0) or 0.0)
-        if not relevant or confidence < minimum_confidence:
-            log.info("Skipped low-confidence/non-relevant tweet %s", tweet_id)
+        required_confidence = (
+            discovery_confidence if record.get("discovery_only") else minimum_confidence
+        )
+        if not relevant or confidence < required_confidence:
+            log.info(
+                "Skipped low-confidence/non-relevant update %s (%.2f < %.2f)",
+                record["tweet_id"],
+                confidence,
+                required_confidence,
+            )
+            seen.update(member_ids)
             continue
 
         pending = make_pending(record, ai)
         message = telegram.send_message(
             review_chat_id,
             review_text(pending) + "\n\n⬇️ پست تمیز و آمادهٔ فوروارد در پیام بعدی است.",
-            reply_markup=review_keyboard(tweet_id),
+            reply_markup=review_keyboard(record["tweet_id"]),
         )
         pending["review_message_id"] = message["message_id"]
-        state["pending"][tweet_id] = pending
+        state["pending"][record["tweet_id"]] = pending
         publish_pending(telegram, pending, review_chat_id, config)
         drafts_created += 1
+        seen.update(member_ids)
+        remember_recent_update(state, record, config)
 
     state["initialized"] = True
-    state["seen_tweet_ids"] = list(seen)[-5000:]
+    state["seen_tweet_ids"] = list(seen)[-12000:]
     current_week = utc_now().strftime("%G-W%V")
     if state.get("last_heartbeat_week") != current_week:
         state["last_heartbeat_week"] = current_week
