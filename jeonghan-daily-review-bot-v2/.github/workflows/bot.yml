@@ -3,7 +3,7 @@ name: Jeonghan Daily Review Bot
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "17 * * * *"
 
 jobs:
   run-bot:
