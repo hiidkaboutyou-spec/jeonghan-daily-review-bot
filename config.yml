@@ -21,6 +21,13 @@ sources:
     require_keywords: false
     trust_score: 0.86
 
+  - username: "couphanfiles"
+    enabled: true
+    # این اکانت محتوای سونگچول هم دارد؛ در دریافت خودکار فقط موارد مرتبط با
+    # جونگهان می‌آیند، ولی /source24 همهٔ محتوای بازه را بدون حذف نشان می‌دهد.
+    require_keywords: true
+    trust_score: 0.84
+
 keywords:
   - "jeonghan"
   - "yoon jeonghan"
@@ -30,9 +37,11 @@ keywords:
   - "جونگهان"
 
 polling:
-  tweets_per_source: 15
+  # replyهای فن‌بیس‌ها برای رشته‌های ترجمهٔ لایو لازم‌اند. ۴۰ مورد آخر
+  # بررسی می‌شود تا بخش‌های اول رشته با شلوغی تایم‌لاین جا نمانند.
+  tweets_per_source: 40
   first_run_lookback_hours: 2
-  include_replies: false
+  include_replies: true
   include_retweets: false
   # جلوگیری از سیل پیش‌نویس، بدون حذف دائمی موارد اضافه
   max_new_drafts_per_run: 8
@@ -47,10 +56,11 @@ discovery:
   enabled: true
   queries:
     - '(JEONGHAN OR "Yoon Jeonghan" OR #JEONGHAN OR #YOONJEONGHAN) -filter:replies -filter:retweets'
-    - '(윤정한 OR #윤정한 OR ("정한" "SEVENTEEN")) -filter:replies -filter:retweets'
-    - '("Jeonghan" "SEVENTEEN") -filter:replies -filter:retweets'
-  results_per_query: 30
-  max_queries_per_run: 3
+    - '(윤정한 OR #윤정한 OR #정한 OR #세븐틴정한 OR ("정한" "세븐틴")) -filter:replies -filter:retweets'
+    - '(ジョンハン OR #ジョンハン OR (JEONGHAN SEVENTEEN)) -filter:replies -filter:retweets'
+    - '(#JEONGHAN OR #윤정한 OR #정한 OR #ジョンハン) filter:media -filter:retweets'
+  results_per_query: 35
+  max_queries_per_run: 4
   minimum_discovery_confidence: 0.72
   similarity_threshold: 0.82
   merge_window_hours: 24
@@ -58,14 +68,55 @@ discovery:
 
 memory:
   enabled: true
-  retrieval_candidates: 40
-  examples_sent_to_ai: 15
-  max_example_chars: 520
-  # سهم واقعی نمونه‌های ارسالی به مدل، نه فقط امتیاز رتبه‌بندی.
+  # اول تعداد زیادی نمونه با مفهوم مشترک پیدا می‌شود، بعد فقط نزدیک‌ترین‌ها
+  # برای پرامپت انتخاب می‌شوند تا لحن با مثال‌های پراکنده رقیق نشود.
+  retrieval_candidates: 140
+  examples_sent_to_ai: 11
+  max_example_chars: 420
+  # صدای فعلی کانال باید غالب باشد؛ نمونه‌های قدیمی فقط برای تنوع می‌آیند.
   era_weights:
-    2025_2026: 0.60
-    "2023": 0.25
-    "2024": 0.15
+    2025_2026: 0.80
+    "2023": 0.08
+    "2024": 0.12
+
+interactive:
+  # درخواست‌های بزرگ بین چند اجرای ۱۵دقیقه‌ای ادامه پیدا می‌کنند تا timeout
+  # یا محدودیت AI باعث ناقص ماندنشان نشود.
+  max_items_per_run: 8
+  recent_source_limit: 90
+  recent_search_limit: 80
+  source_window_limit: 220
+
+archive:
+  suggestion_results_per_query: 55
+  collect_results_per_query: 140
+  max_suggestions: 8
+
+themes:
+  enabled: true
+  timezone: "Asia/Tehran"
+  # انتخاب قالب برای هر event_key پایدار است: همهٔ پیام‌های یک لایو/روز یک
+  # هدر می‌گیرند. RLM نامرئی و «،،» در کد به شکل قطعی RTL را حفظ می‌کنند.
+  templates:
+    live:
+      - "،، ᘒ🪁 ִ˒˒ {date} {actor}’s weverse live"
+      - "،، ♥︎₊ ִ˒˒ {date} {actor}’s weverse live"
+      - "،، ഒ˚🫟 ִ˒˒ {date} {actor}’s weverse live"
+    instagram_jeonghan:
+      - "،، 🧸 #IG ׂ ✧ ﹫ jeonghaniyoo_n"
+    instagram_member:
+      - "،، ✧ #IG ׂ ﹫ {account}"
+      - "،، 🤍🌸໑ ִ˒˒ {account}’s instagram"
+    news:
+      - "،، ࣪˖ ⌕ ִ˒˒ {date} HANNIE NEWS"
+    reminder:
+      - "،، ꒱ ریمایندر به زمانی که ♥︎ 🖇️"
+    photo:
+      - "،، 🪽⌕໋ ִ˒˒ {date} HANNIE UPDATE"
+    video:
+      - "،، 🎞️⌕໋ ִ˒˒ {date} HANNIE VIDEO"
+    general:
+      - "،، 🪽⌕໋ ִ˒˒ {date} HANNIE UPDATE"
 
 ai:
   provider: "gemini"
@@ -83,6 +134,9 @@ ai:
 telegram:
   source_link_in_clean_copy: false
   max_album_items: 10
+  # اگر یک رویداد بعد از ادغام بیش از ۱۰ مدیا داشته باشد، در چند آلبوم
+  # پشت‌سرهم می‌آید و فقط به خاطر سقف هر آلبوم حذف نمی‌شود.
+  max_total_media_items: 80
   # سقف رسمی عکس 10MB و فایل‌های دیگر 50MB است؛ این اعداد حاشیهٔ امن دارند.
   max_photo_upload_mb: 9
   max_video_upload_mb: 44

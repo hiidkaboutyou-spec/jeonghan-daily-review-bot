@@ -33,7 +33,7 @@ def valid_config() -> dict:
         },
         "memory": {
             "enabled": True,
-            "era_weights": {"2025_2026": 0.6, "2023": 0.25, "2024": 0.15},
+            "era_weights": {"2025_2026": 0.8, "2023": 0.08, "2024": 0.12},
         },
         "ai": {
             "provider": "gemini",
@@ -132,6 +132,19 @@ class SafetyTests(unittest.TestCase):
         self.assertIn("غیرقابل‌اعتماد", prompt)
         self.assertIn("کاملاً نادیده بگیر", prompt)
 
+    def test_prompt_rejects_generic_ai_caption_voice(self) -> None:
+        prompt = bot.build_ai_prompt(
+            style_guide="لحن واقعی",
+            memory_examples="نمونهٔ واقعی",
+            tweet=record(text="new Jeonghan photo"),
+            humor_level=1,
+            rewrite_instruction="",
+            can_see_image=True,
+        )
+        self.assertIn("در ذهنت سه نسخهٔ کوتاه بساز", prompt)
+        self.assertIn("دوباره ثابت کرد", prompt)
+        self.assertIn("فرم نوشتن‌اند، نه محتوا", prompt)
+
     def test_error_redaction(self) -> None:
         clean = bot.redact_text("token=very-secret cookie:also-secret normal detail")
         self.assertNotIn("very-secret", clean)
@@ -140,9 +153,9 @@ class SafetyTests(unittest.TestCase):
 
 
 class MemoryTests(unittest.TestCase):
-    def test_memory_retrieval_preserves_era_mix(self) -> None:
+    def test_memory_retrieval_prioritizes_current_voice(self) -> None:
         entries = []
-        for year, count in ((2026, 7), (2023, 4), (2024, 3)):
+        for year, count in ((2026, 10), (2023, 4), (2024, 3)):
             for index in range(count):
                 entries.append(
                     {
@@ -156,9 +169,91 @@ class MemoryTests(unittest.TestCase):
         selected = memory.retrieve(record(text="عکس جدید جونگهان خیلی نازه"), humor_level=2)
         years = [item["year"] for item in selected]
         self.assertEqual(len(selected), 10)
-        self.assertGreaterEqual(sum(year >= 2025 for year in years), 5)
-        self.assertGreaterEqual(years.count(2023), 2)
+        self.assertGreaterEqual(sum(year >= 2025 for year in years), 8)
+        self.assertGreaterEqual(years.count(2023), 0)
         self.assertGreaterEqual(years.count(2024), 1)
+
+    def test_english_source_uses_persian_style_examples(self) -> None:
+        memory = bot.ChannelMemory(
+            [
+                {
+                    "id": "en",
+                    "year": 2026,
+                    "language": "english",
+                    "concepts": ["photo", "cute"],
+                    "category": "reaction",
+                    "text": "new Jeonghan photos he looks so cute",
+                },
+                {
+                    "id": "fa",
+                    "year": 2026,
+                    "language": "persian",
+                    "concepts": ["photo", "cute"],
+                    "category": "reaction",
+                    "text": "خیلی عسلیه خیلی نازه 😭",
+                },
+            ],
+            examples_sent_to_ai=1,
+            retrieval_candidates=5,
+            era_weights={"2025_2026": 1, "2023": 0, "2024": 0},
+        )
+        selected = memory.retrieve(
+            record(text="new Jeonghan photos he looks so cute", photo_count=2),
+            humor_level=1,
+        )
+        self.assertEqual(selected[0]["language"], "persian")
+
+    def test_multilingual_concepts_find_instagram_comment_voice(self) -> None:
+        memory = bot.ChannelMemory(
+            [
+                {
+                    "id": "comment",
+                    "year": 2026,
+                    "language": "persian",
+                    "category": "comment_or_story",
+                    "concepts": ["instagram"],
+                    "text": "✧ کامنت هانی زیر پست مینگیو ❕",
+                },
+                {
+                    "id": "generic",
+                    "year": 2026,
+                    "language": "persian",
+                    "category": "general",
+                    "text": "امروز یه آپدیت جدید داشتیم",
+                },
+            ],
+            examples_sent_to_ai=1,
+            retrieval_candidates=5,
+            era_weights={"2025_2026": 1, "2023": 0, "2024": 0},
+        )
+        selected = memory.retrieve(
+            record(text="Jeonghan commented under Mingyu's Instagram post"),
+            humor_level=1,
+        )
+        self.assertEqual(selected[0]["category"], "comment_or_story")
+
+    def test_formatted_memory_contains_style_fingerprint(self) -> None:
+        memory = bot.ChannelMemory(
+            [
+                {
+                    "id": "seq",
+                    "year": 2026,
+                    "language": "mixed",
+                    "category": "dialogue_translation",
+                    "concepts": ["live"],
+                    "kind": "reply_sequence",
+                    "text": "260714 weverse live\n🪽: سلام\n\nخیلی بامزه بود 😭",
+                }
+            ],
+            examples_sent_to_ai=1,
+            retrieval_candidates=2,
+            era_weights={"2025_2026": 1, "2023": 0, "2024": 0},
+        )
+        formatted = memory.format_examples(
+            record(text="Jeonghan Weverse live"), humor_level=1
+        )
+        self.assertIn("اثر انگشت", formatted)
+        self.assertIn("توالی واقعی دوپیامی", formatted)
 
 
 class GeminiPreviewTests(unittest.TestCase):
@@ -297,6 +392,54 @@ class MediaTelegram(FakeTelegram):
 
 
 class MediaDeliveryTests(unittest.TestCase):
+    def test_video_download_falls_back_from_oversized_to_good_variant(self) -> None:
+        class Response:
+            def __init__(self, size: int, content: bytes) -> None:
+                self.headers = {"content-length": str(size)}
+                self.content = content
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args) -> None:
+                return None
+
+            def raise_for_status(self) -> None:
+                return None
+
+            def iter_content(self, chunk_size: int):
+                del chunk_size
+                yield self.content
+
+        calls: list[str] = []
+
+        def fake_get(url: str, **_kwargs):
+            calls.append(url)
+            if url.endswith("high.mp4"):
+                return Response(11, b"too-large")
+            return Response(4, b"good")
+
+        item = {
+            "type": "video",
+            "url": "https://video.example/high.mp4",
+            "variants": [
+                {"url": "https://video.example/low.mp4", "bitrate": 256000},
+                {"url": "https://video.example/high.mp4", "bitrate": 2048000},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+            bot.requests, "get", side_effect=fake_get
+        ):
+            path, media_type = bot.download_media_item(
+                item, Path(tmp), 0, max_bytes=10
+            )
+            self.assertEqual(path.read_bytes(), b"good")
+        self.assertEqual(media_type, "video")
+        self.assertEqual(
+            calls,
+            ["https://video.example/high.mp4", "https://video.example/low.mp4"],
+        )
+
     def test_large_album_is_split_by_aggregate_request_size(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -434,7 +577,8 @@ class ActionTests(unittest.TestCase):
             review_chat_id="1",
         )
         self.assertIn("نرم‌تر", result)
-        self.assertEqual(state["pending"]["100"]["caption"], "نسخهٔ تازه سطح 1")
+        self.assertTrue(state["pending"]["100"]["caption"].endswith("نسخهٔ تازه سطح 1"))
+        self.assertTrue(state["pending"]["100"]["caption"].startswith("\u200f،،"))
         self.assertTrue(telegram.messages)
         self.assertTrue(telegram.edits)
 
@@ -527,11 +671,178 @@ class TelegramUpdateIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(state["telegram_update_offset"], 2)
         self.assertEqual(state["awaiting_custom_edit"], {})
-        self.assertEqual(state["pending"]["100"]["caption"], "نسخهٔ تازه سطح 1")
+        self.assertTrue(state["pending"]["100"]["caption"].endswith("نسخهٔ تازه سطح 1"))
         self.assertTrue(telegram.edits)
 
+    def test_recent_button_queues_replay_even_when_items_were_seen(self) -> None:
+        state = bot.normalize_state({"seen_tweet_ids": ["100"]})
+        telegram = UpdateTelegram(
+            [
+                {
+                    "update_id": 4,
+                    "callback_query": {
+                        "id": "recent",
+                        "from": {"id": 7},
+                        "message": {"chat": {"id": 9}},
+                        "data": "recent:2h",
+                    },
+                }
+            ]
+        )
+        bot.process_telegram_updates(
+            state=state,
+            telegram=telegram,
+            gemini=FakeAI(),
+            config=valid_config(),
+            review_chat_id="9",
+            admin_user_id="7",
+        )
+        self.assertEqual(state["interactive_jobs"][0]["type"], "recent_window")
+        self.assertEqual(state["interactive_jobs"][0]["hours"], 2)
+
+    def test_search_button_then_description_queues_archive_suggestions(self) -> None:
+        state = bot.default_state()
+        telegram = UpdateTelegram(
+            [
+                {
+                    "update_id": 5,
+                    "callback_query": {
+                        "id": "search",
+                        "from": {"id": 7},
+                        "message": {"chat": {"id": 9}},
+                        "data": "search:new",
+                    },
+                },
+                {
+                    "update_id": 6,
+                    "message": {
+                        "from": {"id": 7},
+                        "chat": {"id": 9},
+                        "text": "لایوی که جونگهان رامن درست کرد",
+                    },
+                },
+            ]
+        )
+        bot.process_telegram_updates(
+            state=state,
+            telegram=telegram,
+            gemini=FakeAI(),
+            config=valid_config(),
+            review_chat_id="9",
+            admin_user_id="7",
+        )
+        self.assertEqual(state["awaiting_archive_search"], {})
+        self.assertEqual(state["interactive_jobs"][0]["type"], "archive_suggest")
+        self.assertIn("رامن", state["interactive_jobs"][0]["request_text"])
+
+    def test_picking_archive_suggestion_queues_full_collection(self) -> None:
+        state = bot.normalize_state(
+            {
+                "search_sessions": {
+                    "deadbeef": {
+                        "suggestions": [{"title": "لایو — 2026-07-14"}],
+                    }
+                }
+            }
+        )
+        telegram = UpdateTelegram(
+            [
+                {
+                    "update_id": 7,
+                    "callback_query": {
+                        "id": "pick",
+                        "from": {"id": 7},
+                        "message": {"chat": {"id": 9}},
+                        "data": "pick:deadbeef.0",
+                    },
+                }
+            ]
+        )
+        bot.process_telegram_updates(
+            state=state,
+            telegram=telegram,
+            gemini=FakeAI(),
+            config=valid_config(),
+            review_chat_id="9",
+            admin_user_id="7",
+        )
+        job = state["interactive_jobs"][0]
+        self.assertEqual(job["type"], "archive_collect")
+        self.assertEqual(job["session_id"], "deadbeef")
+
+
+class InteractiveJobTests(unittest.TestCase):
+    def test_archive_plan_is_sanitized_and_multilingual_identity_is_added(self) -> None:
+        plan = bot.normalize_archive_plan(
+            {
+                "kind": "live",
+                "date_from": "2026-07-14",
+                "date_to": "2026-07-14",
+                "queries": ["ramen since:2020-01-01 -filter:replies"],
+            },
+            "لایو رامن",
+        )
+        self.assertEqual(plan["date_to"], "2026-07-15")
+        self.assertNotIn("since:", plan["queries"][0])
+        self.assertNotIn("filter:replies", plan["queries"][0])
+        self.assertIn("JEONGHAN", plan["queries"][0])
+
+    def test_preloaded_replay_delivers_seen_items_oldest_first(self) -> None:
+        pairs = bot.organize_record_pairs(
+            [
+                (
+                    record(
+                        tweet_id="2",
+                        source_url="https://x.com/jihanhour/status/2",
+                        date="2026-08-02T02:00:00+00:00",
+                        text="jeonghan's weverse live second translation",
+                        conversation_id="live-thread",
+                    ),
+                    {},
+                ),
+                (
+                    record(
+                        tweet_id="1",
+                        source_url="https://x.com/jihanhour/status/1",
+                        date="2026-08-02T01:00:00+00:00",
+                        text="jeonghan's weverse live first translation",
+                        conversation_id="live-thread",
+                    ),
+                    {},
+                ),
+            ]
+        )
+        state = bot.normalize_state({"seen_tweet_ids": ["1", "2"]})
+        job = bot.new_interactive_job(state, "recent_window", hours=2)
+        job["records"] = [item for item, _source in pairs]
+        job["label"] = "همهٔ دو ساعت اخیر"
+        job["status"] = "delivering"
+        telegram = FakeTelegram()
+        with patch.object(bot, "save_state"):
+            bot.process_interactive_jobs(
+                state=state,
+                telegram=telegram,
+                ai=FakeAI(),
+                config=valid_config(),
+                review_chat_id="9",
+                x_cookie="cookie",
+            )
+        first_card = next(
+            index for index, text in enumerate(telegram.messages) if "status/1" in text
+        )
+        second_card = next(
+            index for index, text in enumerate(telegram.messages) if "status/2" in text
+        )
+        self.assertLess(first_card, second_card)
+        self.assertIn(f"j{job['id']}-1", state["pending"])
+        self.assertIn(f"j{job['id']}-2", state["pending"])
+        self.assertEqual(state["interactive_jobs"], [])
+        self.assertEqual(state["stats"]["interactive_jobs_completed"], 1)
+
     def test_reply_to_review_card_is_a_one_cycle_custom_edit(self) -> None:
-        state = bot.normalize_state({"pending": {"100": self.pending_item()}})
+        state = bot.normalize_state(
+            {"pending": {"100": ActionTests.pending_item(self)}}
+        )
         telegram = UpdateTelegram(
             [
                 {
@@ -554,7 +865,7 @@ class TelegramUpdateIntegrationTests(unittest.TestCase):
             admin_user_id="7",
         )
         self.assertEqual(state["telegram_update_offset"], 3)
-        self.assertEqual(state["pending"]["100"]["caption"], "نسخهٔ تازه سطح 1")
+        self.assertTrue(state["pending"]["100"]["caption"].endswith("نسخهٔ تازه سطح 1"))
         self.assertTrue(telegram.edits)
 
 

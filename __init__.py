@@ -1,2 +1,2 @@
-"""Jeonghan Daily Review Bot package."""
+"""Offline tests for the review bot."""
 

@@ -1,18 +1,22 @@
 {
   "awaiting_custom_edit": {},
+  "awaiting_archive_search": {},
   "fetch_error_notifications": {},
   "initialized": false,
+  "interactive_jobs": [],
   "last_heartbeat_week": "",
   "last_successful_run_at": "",
   "pending": {},
   "recent_updates": [],
+  "search_sessions": {},
   "seen_tweet_ids": [],
-  "state_version": 4,
+  "state_version": 5,
   "stats": {
     "delivery_errors": 0,
     "last_run_ai_candidates": 0,
     "last_run_drafts": 0,
     "media_fallbacks": 0,
+    "interactive_jobs_completed": 0,
     "total_drafts": 0
   },
   "telegram_update_offset": 0
