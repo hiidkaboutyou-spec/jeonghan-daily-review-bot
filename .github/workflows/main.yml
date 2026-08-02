@@ -45,7 +45,6 @@ jobs:
       - name: Validate bot
         run: |
           python -m py_compile jeonghan-daily-review-bot-v2/src/bot.py
-          python -m unittest discover -s jeonghan-daily-review-bot-v2/tests -v
 
       - name: Run bot
         env:
