@@ -22,6 +22,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / "config.yml"
 STYLE_PATH = ROOT / "style_guide.md"
+MEMORY_PATH = ROOT / "data" / "channel_memory.jsonl"
 STATE_PATH = ROOT / "state" / "state.json"
 
 logging.basicConfig(
@@ -101,6 +102,262 @@ def safe_json_from_text(text: str) -> dict[str, Any]:
             return value if isinstance(value, dict) else {}
         except json.JSONDecodeError:
             return {}
+
+
+def _memory_normalize(text: str) -> str:
+    text = text.casefold()
+    text = re.sub(r"https?://\S+", " ", text)
+    text = re.sub(r"[@#]([\w_]+)", r"\1", text, flags=re.UNICODE)
+    text = re.sub(r"[^\w\u0600-\u06ff\u3131-\u318e\uac00-\ud7a3]+", " ", text)
+    return " ".join(text.split())
+
+
+def _memory_tokens(text: str) -> set[str]:
+    stopwords = {
+        "the", "a", "an", "and", "or", "to", "of", "in", "on", "for", "is", "are",
+        "این", "اون", "یک", "یه", "که", "و", "از", "به", "رو", "را", "توی", "برای",
+        "은", "는", "이", "가", "을", "를", "에", "의", "도", "와", "과",
+    }
+    return {
+        token
+        for token in _memory_normalize(text).split()
+        if len(token) > 1 and token not in stopwords
+    }
+
+
+def _memory_category_hints(tweet: dict[str, Any], humor_level: int) -> set[str]:
+    text = str(tweet.get("text", "") or "").casefold()
+    photo_count = int(tweet.get("photo_count", 0) or 0)
+    video_count = int(tweet.get("video_count", 0) or 0)
+    hints: set[str] = set()
+
+    if any(word in text for word in ("instagram", "ig story", "insta", "인스타", "comment", "댓글")):
+        hints.add("comment_or_story")
+    if any(word in text for word in ("reminder", "ریمایندر", "یادآوری", "throwback", "on this day")):
+        hints.add("reminder")
+    if any(word in text for word in ("weverse live", "live", "라이브", "💎", "🪽:", "🍒:", "🐯:")):
+        hints.add("dialogue_translation")
+    if any(word in text for word in ("magazine", "cover", "official", "announcement", "released", "مجله", "منتشر", "اعلام", "공식")):
+        hints.add("news")
+    # Only use a generic media-reaction category when no more specific
+    # semantic type (news, dialogue, story, reminder) was detected.
+    if not hints and (video_count or photo_count):
+        hints.add("reaction")
+    if humor_level >= 2:
+        hints.add("fandom_humor")
+    if not hints:
+        hints.add("general")
+    return hints
+
+
+class ChannelMemory:
+    """Small local retrieval layer over real historical channel posts.
+
+    It first ranks 40 candidates locally, then sends only the 15 strongest and
+    most diverse examples to the language model. The examples are style-only:
+    the prompt explicitly forbids copying their facts into the new update.
+    """
+
+    def __init__(
+        self,
+        entries: list[dict[str, Any]],
+        *,
+        retrieval_candidates: int = 40,
+        examples_sent_to_ai: int = 15,
+        max_example_chars: int = 520,
+    ) -> None:
+        self.retrieval_candidates = max(1, retrieval_candidates)
+        self.examples_sent_to_ai = max(
+            1, min(examples_sent_to_ai, self.retrieval_candidates)
+        )
+        self.max_example_chars = max(120, max_example_chars)
+        self.entries: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for raw in entries:
+            text = str(raw.get("text", "") or "").strip()
+            normalized = _memory_normalize(text)
+            if len(normalized) < 6 or normalized in seen:
+                continue
+            seen.add(normalized)
+            try:
+                year = int(raw.get("year", 0) or 0)
+            except (TypeError, ValueError):
+                year = 0
+            self.entries.append(
+                {
+                    "id": str(raw.get("id", "") or ""),
+                    "date": str(raw.get("date", "") or ""),
+                    "year": year,
+                    "category": str(raw.get("category", "general") or "general"),
+                    "text": text,
+                    "normalized": normalized,
+                    "tokens": _memory_tokens(text),
+                    "length": len(text),
+                }
+            )
+
+    @classmethod
+    def from_jsonl(
+        cls,
+        path: Path,
+        *,
+        retrieval_candidates: int = 40,
+        examples_sent_to_ai: int = 15,
+        max_example_chars: int = 520,
+    ) -> "ChannelMemory":
+        entries: list[dict[str, Any]] = []
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                for line_number, line in enumerate(handle, start=1):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        value = json.loads(line)
+                    except json.JSONDecodeError as exc:
+                        log.warning("Invalid channel memory line %d: %s", line_number, exc)
+                        continue
+                    if isinstance(value, dict):
+                        entries.append(value)
+        except FileNotFoundError:
+            log.warning("Channel memory not found at %s; continuing with style guide only", path)
+        memory = cls(
+            entries,
+            retrieval_candidates=retrieval_candidates,
+            examples_sent_to_ai=examples_sent_to_ai,
+            max_example_chars=max_example_chars,
+        )
+        log.info("Loaded %d unique channel-memory examples", len(memory.entries))
+        return memory
+
+    @staticmethod
+    def _year_weight(year: int) -> float:
+        if year >= 2025:
+            return 1.0
+        if year == 2023:
+            return 0.55
+        if year == 2024:
+            return 0.35
+        return 0.2
+
+    def _score(
+        self,
+        entry: dict[str, Any],
+        *,
+        query_tokens: set[str],
+        query_normalized: str,
+        target_length: int,
+        category_hints: set[str],
+        humor_level: int,
+    ) -> float:
+        entry_tokens: set[str] = entry["tokens"]
+        overlap = len(query_tokens & entry_tokens)
+        union = len(query_tokens | entry_tokens)
+        jaccard = overlap / union if union else 0.0
+        containment = overlap / max(1, min(len(query_tokens), len(entry_tokens)))
+        sequence = 0.0
+        if query_normalized and entry["normalized"]:
+            sequence = SequenceMatcher(
+                None,
+                query_normalized[:900],
+                entry["normalized"][:900],
+            ).ratio()
+
+        category = str(entry["category"])
+        category_score = 2.6 if category in category_hints else 0.0
+        if category == "general":
+            category_score += 0.35
+        if humor_level >= 2 and category in {"reaction", "fandom_humor"}:
+            category_score += 1.1
+
+        length_ratio = min(target_length, entry["length"]) / max(
+            1, max(target_length, entry["length"])
+        )
+        recency = self._year_weight(int(entry["year"]))
+
+        # Category and recency remain useful when the source is Korean/English
+        # and therefore has little lexical overlap with historical Persian text.
+        return (
+            jaccard * 4.0
+            + containment * 2.0
+            + sequence * 1.15
+            + category_score
+            + length_ratio * 0.65
+            + recency * 1.35
+        )
+
+    def retrieve(
+        self,
+        tweet: dict[str, Any],
+        *,
+        humor_level: int,
+    ) -> list[dict[str, Any]]:
+        if not self.entries:
+            return []
+        source_text = " ".join(
+            [
+                str(tweet.get("text", "") or ""),
+                str(tweet.get("source_context", "") or ""),
+            ]
+        ).strip()
+        query_normalized = _memory_normalize(source_text)
+        query_tokens = _memory_tokens(source_text)
+        target_length = max(20, min(len(source_text), 1200))
+        category_hints = _memory_category_hints(tweet, humor_level)
+
+        ranked: list[tuple[float, dict[str, Any]]] = []
+        for entry in self.entries:
+            score = self._score(
+                entry,
+                query_tokens=query_tokens,
+                query_normalized=query_normalized,
+                target_length=target_length,
+                category_hints=category_hints,
+                humor_level=humor_level,
+            )
+            ranked.append((score, entry))
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        candidates = ranked[: self.retrieval_candidates]
+
+        # Maximal-marginal-relevance style selection prevents 15 near-identical
+        # captions from crowding out the broader voice of the channel.
+        selected: list[tuple[float, dict[str, Any]]] = []
+        while candidates and len(selected) < self.examples_sent_to_ai:
+            best_index = 0
+            best_adjusted = float("-inf")
+            for index, (base_score, entry) in enumerate(candidates):
+                redundancy = 0.0
+                if selected:
+                    redundancy = max(
+                        SequenceMatcher(
+                            None,
+                            entry["normalized"][:700],
+                            chosen["normalized"][:700],
+                        ).ratio()
+                        for _, chosen in selected
+                    )
+                adjusted = base_score - redundancy * 1.45
+                if adjusted > best_adjusted:
+                    best_adjusted = adjusted
+                    best_index = index
+            selected.append(candidates.pop(best_index))
+
+        return [entry for _, entry in selected]
+
+    def format_examples(self, tweet: dict[str, Any], *, humor_level: int) -> str:
+        examples = self.retrieve(tweet, humor_level=humor_level)
+        if not examples:
+            return "نمونهٔ مشابهی از حافظه در دسترس نیست."
+        lines = [
+            "نمونه‌های واقعی و مشابه از کانال خود ادمین:",
+            "این نمونه‌ها فقط مرجع لحن، طول، ریتم و ایموجی‌اند؛ هیچ واقعیت، اسم، تاریخ یا جزئیاتشان را وارد آپدیت جدید نکن.",
+        ]
+        for index, entry in enumerate(examples, start=1):
+            text = truncate(str(entry["text"]), self.max_example_chars)
+            lines.append(
+                f"{index}. [{entry['category']} | {entry['year']}] {text}"
+            )
+        return "\n".join(lines)
 
 
 class Telegram:
@@ -251,10 +508,17 @@ class Telegram:
 
 
 class Gemini:
-    def __init__(self, api_key: str, model: str, style_guide: str) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        style_guide: str,
+        memory: ChannelMemory | None = None,
+    ) -> None:
         self.api_key = api_key
         self.model = model
         self.style_guide = style_guide
+        self.memory = memory
         self.session = requests.Session()
 
     def _image_part(self, url: str | None) -> dict[str, Any] | None:
@@ -289,6 +553,11 @@ class Gemini:
         humor_level: int,
         rewrite_instruction: str = "",
     ) -> dict[str, Any]:
+        memory_examples = (
+            self.memory.format_examples(tweet, humor_level=humor_level)
+            if self.memory is not None
+            else "نمونهٔ مشابهی از حافظه در دسترس نیست."
+        )
         prompt = f"""
 تو ادیتور و مترجم کانال دیلی یون جونگهان از گروه SEVENTEEN هستی.
 بر اساس منبع، یک پیش‌نویس فارسی دقیق و طبیعی تولید کن.
@@ -309,6 +578,11 @@ class Gemini:
 راهنمای لحن ادمین:
 ---
 {self.style_guide}
+---
+
+حافظهٔ نمونه‌های مشابه:
+---
+{memory_examples}
 ---
 
 اطلاعات منبع:
@@ -374,10 +648,17 @@ class Gemini:
 class Groq:
     """Text-only free-tier fallback with the same generate() interface as Gemini."""
 
-    def __init__(self, api_key: str, model: str, style_guide: str) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        style_guide: str,
+        memory: ChannelMemory | None = None,
+    ) -> None:
         self.api_key = api_key
         self.model = model
         self.style_guide = style_guide
+        self.memory = memory
         self.session = requests.Session()
 
     def generate(
@@ -387,6 +668,11 @@ class Groq:
         humor_level: int,
         rewrite_instruction: str = "",
     ) -> dict[str, Any]:
+        memory_examples = (
+            self.memory.format_examples(tweet, humor_level=humor_level)
+            if self.memory is not None
+            else "نمونهٔ مشابهی از حافظه در دسترس نیست."
+        )
         prompt = f"""
 تو ادیتور و مترجم کانال دیلی یون جونگهان از گروه SEVENTEEN هستی.
 بر اساس منبع، یک پیش‌نویس فارسی دقیق و طبیعی تولید کن.
@@ -407,6 +693,11 @@ class Groq:
 راهنمای لحن ادمین:
 ---
 {self.style_guide}
+---
+
+حافظهٔ نمونه‌های مشابه:
+---
+{memory_examples}
 ---
 
 اطلاعات منبع:
@@ -1394,16 +1685,26 @@ def run() -> None:
 
     style_guide = STYLE_PATH.read_text(encoding="utf-8")
     ai_config = config.get("ai", {})
+    memory_config = config.get("memory", {})
+    memory: ChannelMemory | None = None
+    if bool(memory_config.get("enabled", True)):
+        memory = ChannelMemory.from_jsonl(
+            MEMORY_PATH,
+            retrieval_candidates=int(memory_config.get("retrieval_candidates", 40)),
+            examples_sent_to_ai=int(memory_config.get("examples_sent_to_ai", 15)),
+            max_example_chars=int(memory_config.get("max_example_chars", 520)),
+        )
+
     provider = str(ai_config.get("provider", "gemini")).strip().lower()
     telegram = Telegram(token)
     if provider == "gemini":
         api_key = env("GEMINI_API_KEY")
         model = str(ai_config.get("gemini_model", "gemini-3.5-flash-lite"))
-        gemini: Any = Gemini(api_key, model, style_guide)
+        gemini: Any = Gemini(api_key, model, style_guide, memory)
     elif provider == "groq":
         api_key = env("GROQ_API_KEY")
         model = str(ai_config.get("groq_model", "llama-3.3-70b-versatile"))
-        gemini = Groq(api_key, model, style_guide)
+        gemini = Groq(api_key, model, style_guide, memory)
     else:
         raise BotError("ai.provider must be either 'gemini' or 'groq'")
 
