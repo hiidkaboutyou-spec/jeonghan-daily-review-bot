@@ -1,27 +1,26 @@
-# منابع اصلی و مورد اعتماد
+# منابع اصلی و مورد اعتماد. این چهار اکانت تخصصی جونگهان‌اند، پس پست‌های
+# تصویری یا بدون نام صریح جونگهان هم برای بررسی فرستاده می‌شوند.
 sources:
   - username: "jihanhour"
     enabled: true
-    require_keywords: true
+    require_keywords: false
     trust_score: 0.90
 
   - username: "flamehanie"
     enabled: true
-    require_keywords: true
+    require_keywords: false
     trust_score: 0.88
 
   - username: "dearhani2"
     enabled: true
-    require_keywords: true
+    require_keywords: false
     trust_score: 0.88
 
   - username: "jeonghan_moment"
     enabled: true
-    require_keywords: true
+    require_keywords: false
     trust_score: 0.86
 
-
-# کلیدواژه‌های اصلی جونگهان
 keywords:
   - "jeonghan"
   - "yoon jeonghan"
@@ -30,61 +29,45 @@ keywords:
   - "ジョンハン"
   - "جونگهان"
 
-
 polling:
   tweets_per_source: 15
   first_run_lookback_hours: 2
   include_replies: false
   include_retweets: false
   max_new_drafts_per_run: 10
+  error_alert_cooldown_hours: 3
 
-
-# جست‌وجوی عمومی X برای پیدا کردن مواردی که منابع اصلی جا انداخته‌اند
 discovery:
   enabled: true
-
   queries:
     - '(JEONGHAN OR "Yoon Jeonghan" OR #JEONGHAN OR #YOONJEONGHAN) -filter:replies -filter:retweets'
     - '(윤정한 OR #윤정한 OR ("정한" "SEVENTEEN")) -filter:replies -filter:retweets'
     - '("Jeonghan" "SEVENTEEN") -filter:replies -filter:retweets'
-
   results_per_query: 30
   max_queries_per_run: 3
-
-  # سخت‌گیری بیشتر برای منابع خارج از لیست اصلی
   minimum_discovery_confidence: 0.72
-
-  # ادغام پست‌هایی که احتمالاً دربارهٔ یک آپدیت‌اند
   similarity_threshold: 0.82
   merge_window_hours: 24
   cross_run_merge_window_hours: 48
 
-
-# حافظهٔ واقعی کانال
 memory:
   enabled: true
   retrieval_candidates: 40
   examples_sent_to_ai: 15
   max_example_chars: 520
-
+  # سهم واقعی نمونه‌های ارسالی به مدل، نه فقط امتیاز رتبه‌بندی.
+  era_weights:
+    2025_2026: 0.60
+    "2023": 0.25
+    "2024": 0.15
 
 ai:
   provider: "gemini"
-
   gemini_model: "gemini-3.5-flash-lite"
   groq_model: "llama-3.3-70b-versatile"
-
   minimum_relevance_confidence: 0.60
-
-  # 0 = خبری و ساده
-  # 1 = لحن معمول کانال
-  # 2 = فنگرلی و بامزه‌تر
   default_humor_level: 1
 
-
 telegram:
-  # لینک منبع فقط در پیام مدیریتی باشد، نه کپشن آمادهٔ فوروارد
   source_link_in_channel: false
-
-  # محدودیت آلبوم تلگرام
   max_album_items: 10
