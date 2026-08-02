@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "source": "sanitized public Telegram channel text",
+  "message_examples": 8612,
+  "reply_sequences": 633,
+  "years": {
+    "2023": 3497,
+    "2024": 3620,
+    "2025": 879,
+    "2026": 616
+  },
+  "categories": {
+    "reaction": 4867,
+    "dialogue_translation": 1834,
+    "general": 1282,
+    "fandom_humor": 241,
+    "comment_or_story": 162,
+    "news": 151,
+    "reminder": 75
+  },
+  "languages": {
+    "persian": 5142,
+    "mixed": 3470
+  },
+  "median_chars": 76,
+  "median_lines": 2.0
+}

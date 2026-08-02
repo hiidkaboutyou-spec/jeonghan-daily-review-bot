@@ -1,0 +1,146 @@
+# منابع اصلی و مورد اعتماد. این چهار اکانت تخصصی جونگهان‌اند، پس پست‌های
+# تصویری یا بدون نام صریح جونگهان هم برای بررسی فرستاده می‌شوند.
+sources:
+  - username: "jihanhour"
+    enabled: true
+    require_keywords: false
+    trust_score: 0.90
+
+  - username: "flamehanie"
+    enabled: true
+    require_keywords: false
+    trust_score: 0.88
+
+  - username: "dearhani2"
+    enabled: true
+    require_keywords: false
+    trust_score: 0.88
+
+  - username: "jeonghan_moment"
+    enabled: true
+    require_keywords: false
+    trust_score: 0.86
+
+  - username: "couphanfiles"
+    enabled: true
+    # این اکانت محتوای سونگچول هم دارد؛ در دریافت خودکار فقط موارد مرتبط با
+    # جونگهان می‌آیند، ولی /source24 همهٔ محتوای بازه را بدون حذف نشان می‌دهد.
+    require_keywords: true
+    trust_score: 0.84
+
+keywords:
+  - "jeonghan"
+  - "yoon jeonghan"
+  - "정한"
+  - "윤정한"
+  - "ジョンハン"
+  - "جونگهان"
+
+polling:
+  # replyهای فن‌بیس‌ها برای رشته‌های ترجمهٔ لایو لازم‌اند. ۴۰ مورد آخر
+  # بررسی می‌شود تا بخش‌های اول رشته با شلوغی تایم‌لاین جا نمانند.
+  tweets_per_source: 40
+  first_run_lookback_hours: 2
+  include_replies: true
+  include_retweets: false
+  # جلوگیری از سیل پیش‌نویس، بدون حذف دائمی موارد اضافه
+  max_new_drafts_per_run: 8
+  first_run_max_drafts: 5
+  max_ai_candidates_per_run: 24
+  max_discovery_drafts_per_run: 3
+  max_backlog_age_hours: 12
+  pending_ttl_days: 7
+  error_alert_cooldown_hours: 3
+
+discovery:
+  enabled: true
+  queries:
+    - '(JEONGHAN OR "Yoon Jeonghan" OR #JEONGHAN OR #YOONJEONGHAN) -filter:replies -filter:retweets'
+    - '(윤정한 OR #윤정한 OR #정한 OR #세븐틴정한 OR ("정한" "세븐틴")) -filter:replies -filter:retweets'
+    - '(ジョンハン OR #ジョンハン OR (JEONGHAN SEVENTEEN)) -filter:replies -filter:retweets'
+    - '(#JEONGHAN OR #윤정한 OR #정한 OR #ジョンハン) filter:media -filter:retweets'
+  results_per_query: 35
+  max_queries_per_run: 4
+  minimum_discovery_confidence: 0.72
+  similarity_threshold: 0.82
+  merge_window_hours: 24
+  cross_run_merge_window_hours: 48
+
+memory:
+  enabled: true
+  # اول تعداد زیادی نمونه با مفهوم مشترک پیدا می‌شود، بعد فقط نزدیک‌ترین‌ها
+  # برای پرامپت انتخاب می‌شوند تا لحن با مثال‌های پراکنده رقیق نشود.
+  retrieval_candidates: 140
+  examples_sent_to_ai: 11
+  max_example_chars: 420
+  # صدای فعلی کانال باید غالب باشد؛ نمونه‌های قدیمی فقط برای تنوع می‌آیند.
+  era_weights:
+    2025_2026: 0.80
+    "2023": 0.08
+    "2024": 0.12
+
+interactive:
+  # درخواست‌های بزرگ بین چند اجرای ۱۵دقیقه‌ای ادامه پیدا می‌کنند تا timeout
+  # یا محدودیت AI باعث ناقص ماندنشان نشود.
+  max_items_per_run: 8
+  recent_source_limit: 90
+  recent_search_limit: 80
+  source_window_limit: 220
+
+archive:
+  suggestion_results_per_query: 55
+  collect_results_per_query: 140
+  max_suggestions: 8
+
+themes:
+  enabled: true
+  timezone: "Asia/Tehran"
+  # انتخاب قالب برای هر event_key پایدار است: همهٔ پیام‌های یک لایو/روز یک
+  # هدر می‌گیرند. RLM نامرئی و «،،» در کد به شکل قطعی RTL را حفظ می‌کنند.
+  templates:
+    live:
+      - "،، ᘒ🪁 ִ˒˒ {date} {actor}’s weverse live"
+      - "،، ♥︎₊ ִ˒˒ {date} {actor}’s weverse live"
+      - "،، ഒ˚🫟 ִ˒˒ {date} {actor}’s weverse live"
+    instagram_jeonghan:
+      - "،، 🧸 #IG ׂ ✧ ﹫ jeonghaniyoo_n"
+    instagram_member:
+      - "،، ✧ #IG ׂ ﹫ {account}"
+      - "،، 🤍🌸໑ ִ˒˒ {account}’s instagram"
+    news:
+      - "،، ࣪˖ ⌕ ִ˒˒ {date} HANNIE NEWS"
+    reminder:
+      - "،، ꒱ ریمایندر به زمانی که ♥︎ 🖇️"
+    photo:
+      - "،، 🪽⌕໋ ִ˒˒ {date} HANNIE UPDATE"
+    video:
+      - "،، 🎞️⌕໋ ִ˒˒ {date} HANNIE VIDEO"
+    general:
+      - "،، 🪽⌕໋ ִ˒˒ {date} HANNIE UPDATE"
+
+ai:
+  provider: "gemini"
+  gemini_model: "gemini-3.5-flash-lite"
+  # مدل قبلی Groq در 2026-08-16 خاموش می‌شود؛ این جایگزین رسمی آن است.
+  groq_model: "openai/gpt-oss-120b"
+  # prompt فشردهٔ fallback تا با سقف رایگان Groq سازگار بماند.
+  groq_max_style_chars: 6500
+  groq_memory_examples: 6
+  # برای فهم بهتر پست‌های چندعکسی، حداکثر چهار پیش‌نمایش به Gemini می‌رود.
+  max_image_previews: 4
+  minimum_relevance_confidence: 0.60
+  default_humor_level: 1
+
+telegram:
+  source_link_in_clean_copy: false
+  max_album_items: 10
+  # اگر یک رویداد بعد از ادغام بیش از ۱۰ مدیا داشته باشد، در چند آلبوم
+  # پشت‌سرهم می‌آید و فقط به خاطر سقف هر آلبوم حذف نمی‌شود.
+  max_total_media_items: 80
+  # سقف رسمی عکس 10MB و فایل‌های دیگر 50MB است؛ این اعداد حاشیهٔ امن دارند.
+  max_photo_upload_mb: 9
+  max_video_upload_mb: 44
+  # آلبوم‌های بزرگ به چند درخواست کوچک تقسیم می‌شوند تا خطای 413 رخ ندهد.
+  max_album_request_mb: 44
+  max_delivery_retries_per_run: 3
+  weekly_heartbeat: true
