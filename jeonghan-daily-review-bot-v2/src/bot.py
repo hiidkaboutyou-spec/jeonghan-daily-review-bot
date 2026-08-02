@@ -104,6 +104,242 @@ def safe_json_from_text(text: str) -> dict[str, Any]:
             return {}
 
 
+AI_CATEGORIES = {
+    "news",
+    "translation",
+    "dialogue",
+    "photo_reaction",
+    "video_reaction",
+    "reminder",
+    "comment_or_story",
+    "fandom_humor",
+    "privacy_risk",
+    "uncertain",
+    "other",
+}
+
+
+def coerce_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return bool(value)
+    normalized = str(value).strip().casefold()
+    if normalized in {"true", "yes", "1", "بله", "آره"}:
+        return True
+    if normalized in {"false", "no", "0", "خیر", "نه"}:
+        return False
+    return default
+
+
+def clamp_confidence(value: Any) -> float:
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, min(1.0, confidence))
+
+
+def detect_privacy_risk(record: dict[str, Any]) -> bool:
+    """Conservative text-only safety net; AI still performs the contextual check."""
+    text = " ".join(
+        [
+            str(record.get("text", "") or ""),
+            str(record.get("source_context", "") or ""),
+        ]
+    ).casefold()
+    patterns = (
+        r"\bsasaeng\b",
+        r"secretly\s+(?:filmed|recorded|photographed)",
+        r"without\s+(?:his|their|any)?\s*permission",
+        r"private\s+(?:schedule|location|space|residence)",
+        r"hidden\s+camera",
+        r"\bstalk(?:er|ing)?\b",
+        r"leaked\s+(?:photo|video|location)",
+        r"사생",
+        r"몰카",
+        r"불법\s*촬영",
+        r"무단\s*촬영",
+        r"비공개\s*일정",
+        r"사적\s*공간",
+        r"스토킹",
+        r"ساسنگ",
+        r"مخفیانه\s+(?:فیلم|عکس|ضبط)",
+        r"بدون\s+اجازه",
+        r"لوکیشن\s+خصوصی",
+        r"فضای\s+خصوصی",
+        r"تعقیب\s+(?:کردن|شده|می‌کرد)",
+        r"دوربین\s+مخفی",
+        r"(?:عکس|ویدیو)\s+لو\s+رفته",
+    )
+    return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in patterns)
+
+
+def normalize_ai_result(raw: dict[str, Any], record: dict[str, Any]) -> dict[str, Any]:
+    category = str(raw.get("category", "other") or "other").strip().casefold()
+    category = re.sub(r"[\s\-/]+", "_", category)
+    aliases = {
+        "official_update": "news",
+        "fan_update": "other",
+        "photo": "photo_reaction",
+        "video": "video_reaction",
+        "reaction": "photo_reaction" if record.get("photo_count") else "video_reaction",
+        "privacy": "privacy_risk",
+        "privacyrisk": "privacy_risk",
+    }
+    category = aliases.get(category, category)
+    if category not in AI_CATEGORIES:
+        category = "other"
+
+    privacy_risk = (
+        coerce_bool(raw.get("privacy_risk"))
+        or category == "privacy_risk"
+        or detect_privacy_risk(record)
+    )
+    uncertain = coerce_bool(raw.get("uncertain")) or category == "uncertain"
+    publishable = coerce_bool(raw.get("publishable"), default=True) and not privacy_risk
+
+    result = dict(raw)
+    result.update(
+        {
+            "relevant": coerce_bool(raw.get("relevant"), default=False),
+            "confidence": clamp_confidence(raw.get("confidence", 0.0)),
+            "category": "privacy_risk" if privacy_risk else category,
+            "translation": str(raw.get("translation", "") or "").strip(),
+            "caption": str(raw.get("caption", "") or "").strip(),
+            "notes": str(raw.get("notes", "") or "").strip(),
+            "privacy_risk": privacy_risk,
+            "uncertain": uncertain,
+            "publishable": publishable,
+        }
+    )
+    if privacy_risk:
+        warning = (
+            "⚠️ احتمال نقض حریم خصوصی یا ضبط بدون اجازه وجود دارد؛ "
+            "ربات نسخهٔ آمادهٔ فوروارد نمی‌سازد."
+        )
+        result["notes"] = "\n".join(
+            item for item in (warning, result["notes"]) if item
+        )
+        result["caption"] = ""
+    elif uncertain:
+        warning = "⚠️ اطلاعات یا انتساب این آپدیت قطعی نیست؛ قبل از انتشار منبع را بررسی کن."
+        result["notes"] = "\n".join(
+            item for item in (warning, result["notes"]) if item
+        )
+    return result
+
+
+def humor_temperature(level: int) -> float:
+    return {0: 0.25, 1: 0.55, 2: 0.75, 3: 0.9}.get(max(0, min(3, level)), 0.55)
+
+
+def build_ai_prompt(
+    *,
+    style_guide: str,
+    memory_examples: str,
+    tweet: dict[str, Any],
+    humor_level: int,
+    rewrite_instruction: str,
+    can_see_image: bool,
+) -> str:
+    vision_rule = (
+        "اگر تصویر واضح نیست، جزئیات بصری را حدس نزن."
+        if can_see_image
+        else "این مدل تصویر را نمی‌بیند؛ دربارهٔ محتوای عکس یا ویدیو چیزی را حدس نزن."
+    )
+    return f"""
+تو ادیتور و مترجم کانال دیلی یون جونگهان از گروه SEVENTEEN هستی.
+بر اساس منبع، یک پیش‌نویس فارسی دقیق و طبیعی تولید کن.
+
+قوانین قطعی:
+- هیچ اطلاعات، نقل‌قول، نام، رابطه یا اتفاقی را اختراع نکن.
+- اگر متن کره‌ای/انگلیسی دارد، معنی را دقیق و روان ترجمه کن.
+- ترجمه و واکنش ادمین را از هم جدا نگه دار.
+- شوخی نباید معنی خبر یا ترجمه را تغییر دهد.
+- {vision_rule}
+- اگر پست واقعاً دربارهٔ جونگهان نیست، relevant=false بده.
+- اگر اطلاعات کافی یا انتساب قطعی نیست، uncertain=true و category=uncertain بده.
+- اگر محتوا پنهانی، بدون اجازه، مربوط به لوکیشن/فضای خصوصی یا تعقیب است، privacy_risk=true، publishable=false و category=privacy_risk بده؛ برای آن کپشن قابل فوروارد نساز.
+- اگر discovery_only=true است، آن را خبر رسمی معرفی نکن مگر خود منبع رسمی باشد.
+- اگر چند منبع تعارض دارند، تعارض را در notes بنویس و چیزی را قطعی نکن.
+- trust_score فقط یک نشانهٔ اولویت منبع است و جای بررسی متن را نمی‌گیرد.
+- caption باید آمادهٔ کپی در تلگرام، کوتاه و بدون توضیح متا باشد.
+- لینک منبع را داخل caption نگذار.
+- سطح هیومر: {max(0, min(3, humor_level))} از ۳.
+{rewrite_instruction}
+
+راهنمای لحن ادمین:
+---
+{style_guide}
+---
+
+حافظهٔ نمونه‌های مشابه:
+---
+{memory_examples}
+---
+
+اطلاعات منبع:
+نام اکانت: @{tweet['source_username']}
+امتیاز اعتماد تنظیم‌شده: {float(tweet.get('source_trust_score', 0.0) or 0.0):.2f}
+تاریخ UTC: {tweet['date']}
+متن اصلی:
+{tweet['text']}
+
+تعداد عکس: {tweet['photo_count']}
+تعداد ویدیو/GIF: {tweet['video_count']}
+
+وضعیت کشف: {tweet.get('origin', 'trusted')}
+فقط خارج از منابع اصلی پیدا شده: {bool(tweet.get('discovery_only', False))}
+نسخه با کمک جست‌وجوی عمومی کامل‌تر شده: {bool(tweet.get('completed_from_discovery', False))}
+هشدار متنی حریم خصوصی: {bool(detect_privacy_risk(tweet))}
+منابع مقایسه‌شده:
+{truncate(str(tweet.get('source_context', '')), 3500) or 'فقط همان منبع'}
+
+فقط JSON معتبر با این کلیدها برگردان:
+{{
+  "relevant": true,
+  "confidence": 0.0,
+  "category": "news|translation|dialogue|photo_reaction|video_reaction|reminder|comment_or_story|fandom_humor|privacy_risk|uncertain|other",
+  "translation": "ترجمهٔ دقیق یا رشتهٔ خالی",
+  "caption": "کپشن نهایی فارسی یا رشتهٔ خالی برای privacy_risk",
+  "notes": "یادداشت کوتاه برای ادمین یا رشتهٔ خالی",
+  "privacy_risk": false,
+  "uncertain": false,
+  "publishable": true
+}}
+""".strip()
+
+
+def manual_fallback_result(record: dict[str, Any], error: Exception) -> dict[str, Any]:
+    privacy_risk = detect_privacy_risk(record)
+    discovery_only = bool(record.get("discovery_only", False))
+    publishable = not privacy_risk and not discovery_only
+    if privacy_risk:
+        note = "AI در دسترس نبود و متن هم نشانهٔ حریم خصوصی دارد؛ فقط برای بررسی دستی نگه داشته شد."
+    elif discovery_only:
+        note = "AI در دسترس نبود؛ چون منبع فقط از جست‌وجوی عمومی پیدا شده، نسخهٔ آمادهٔ فوروارد ساخته نشد."
+    else:
+        note = "AI در دسترس نبود؛ برای جا نیفتادن آپدیت معتبر، متن خام منبع برای بررسی دستی فرستاده شد."
+    return normalize_ai_result(
+        {
+            "relevant": True,
+            "confidence": 1.0 if not discovery_only else 0.0,
+            "category": "privacy_risk" if privacy_risk else "uncertain",
+            "translation": "",
+            "caption": str(record.get("text", "") or "آپدیت جدید جونگهان 🪽") if publishable else "",
+            "notes": f"{note}\nخطای فنی: {truncate(str(error), 350)}",
+            "privacy_risk": privacy_risk,
+            "uncertain": True,
+            "publishable": publishable,
+            "force_review": True,
+        },
+        record,
+    )
+
+
 def _memory_normalize(text: str) -> str:
     text = text.casefold()
     text = re.sub(r"https?://\S+", " ", text)
@@ -151,12 +387,7 @@ def _memory_category_hints(tweet: dict[str, Any], humor_level: int) -> set[str]:
 
 
 class ChannelMemory:
-    """Small local retrieval layer over real historical channel posts.
-
-    It first ranks 40 candidates locally, then sends only the 15 strongest and
-    most diverse examples to the language model. The examples are style-only:
-    the prompt explicitly forbids copying their facts into the new update.
-    """
+    """Local retrieval over real channel posts with explicit era balancing."""
 
     def __init__(
         self,
@@ -165,12 +396,20 @@ class ChannelMemory:
         retrieval_candidates: int = 40,
         examples_sent_to_ai: int = 15,
         max_example_chars: int = 520,
+        era_weights: dict[str, float] | None = None,
     ) -> None:
         self.retrieval_candidates = max(1, retrieval_candidates)
         self.examples_sent_to_ai = max(
             1, min(examples_sent_to_ai, self.retrieval_candidates)
         )
         self.max_example_chars = max(120, max_example_chars)
+        raw_weights = era_weights or {"2025_2026": 0.60, "2023": 0.25, "2024": 0.15}
+        cleaned = {
+            key: max(0.0, float(raw_weights.get(key, 0.0) or 0.0))
+            for key in ("2025_2026", "2023", "2024")
+        }
+        total = sum(cleaned.values()) or 1.0
+        self.era_weights = {key: value / total for key, value in cleaned.items()}
         self.entries: list[dict[str, Any]] = []
         seen: set[str] = set()
         for raw in entries:
@@ -204,6 +443,7 @@ class ChannelMemory:
         retrieval_candidates: int = 40,
         examples_sent_to_ai: int = 15,
         max_example_chars: int = 520,
+        era_weights: dict[str, float] | None = None,
     ) -> "ChannelMemory":
         entries: list[dict[str, Any]] = []
         try:
@@ -226,9 +466,29 @@ class ChannelMemory:
             retrieval_candidates=retrieval_candidates,
             examples_sent_to_ai=examples_sent_to_ai,
             max_example_chars=max_example_chars,
+            era_weights=era_weights,
         )
         log.info("Loaded %d unique channel-memory examples", len(memory.entries))
         return memory
+
+    @staticmethod
+    def _era(year: int) -> str:
+        if year >= 2025:
+            return "2025_2026"
+        if year == 2023:
+            return "2023"
+        if year == 2024:
+            return "2024"
+        return "other"
+
+    def _quota_counts(self, total: int) -> dict[str, int]:
+        raw = {key: self.era_weights[key] * total for key in self.era_weights}
+        quotas = {key: int(value) for key, value in raw.items()}
+        remainder = total - sum(quotas.values())
+        order = sorted(raw, key=lambda key: raw[key] - quotas[key], reverse=True)
+        for key in order[:remainder]:
+            quotas[key] += 1
+        return quotas
 
     @staticmethod
     def _year_weight(year: int) -> float:
@@ -274,9 +534,6 @@ class ChannelMemory:
             1, max(target_length, entry["length"])
         )
         recency = self._year_weight(int(entry["year"]))
-
-        # Category and recency remain useful when the source is Korean/English
-        # and therefore has little lexical overlap with historical Persian text.
         return (
             jaccard * 4.0
             + containment * 2.0
@@ -285,6 +542,36 @@ class ChannelMemory:
             + length_ratio * 0.65
             + recency * 1.35
         )
+
+    @staticmethod
+    def _pick_diverse(
+        candidates: list[tuple[float, dict[str, Any]]],
+        count: int,
+        selected: list[tuple[float, dict[str, Any]]],
+    ) -> list[tuple[float, dict[str, Any]]]:
+        pool = list(candidates)
+        picked: list[tuple[float, dict[str, Any]]] = []
+        while pool and len(picked) < count:
+            best_index = 0
+            best_adjusted = float("-inf")
+            comparisons = selected + picked
+            for index, (base_score, entry) in enumerate(pool):
+                redundancy = 0.0
+                if comparisons:
+                    redundancy = max(
+                        SequenceMatcher(
+                            None,
+                            entry["normalized"][:700],
+                            chosen["normalized"][:700],
+                        ).ratio()
+                        for _, chosen in comparisons
+                    )
+                adjusted = base_score - redundancy * 1.45
+                if adjusted > best_adjusted:
+                    best_adjusted = adjusted
+                    best_index = index
+            picked.append(pool.pop(best_index))
+        return picked
 
     def retrieve(
         self,
@@ -317,32 +604,33 @@ class ChannelMemory:
             )
             ranked.append((score, entry))
         ranked.sort(key=lambda item: item[0], reverse=True)
-        candidates = ranked[: self.retrieval_candidates]
 
-        # Maximal-marginal-relevance style selection prevents 15 near-identical
-        # captions from crowding out the broader voice of the channel.
+        quotas = self._quota_counts(self.examples_sent_to_ai)
         selected: list[tuple[float, dict[str, Any]]] = []
-        while candidates and len(selected) < self.examples_sent_to_ai:
-            best_index = 0
-            best_adjusted = float("-inf")
-            for index, (base_score, entry) in enumerate(candidates):
-                redundancy = 0.0
-                if selected:
-                    redundancy = max(
-                        SequenceMatcher(
-                            None,
-                            entry["normalized"][:700],
-                            chosen["normalized"][:700],
-                        ).ratio()
-                        for _, chosen in selected
-                    )
-                adjusted = base_score - redundancy * 1.45
-                if adjusted > best_adjusted:
-                    best_adjusted = adjusted
-                    best_index = index
-            selected.append(candidates.pop(best_index))
+        selected_ids: set[str] = set()
+        for era in ("2025_2026", "2023", "2024"):
+            era_pool = [item for item in ranked if self._era(int(item[1]["year"])) == era]
+            era_pool = era_pool[: max(self.retrieval_candidates, quotas[era] * 4)]
+            picked = self._pick_diverse(era_pool, quotas[era], selected)
+            selected.extend(picked)
+            selected_ids.update(str(item[1].get("id") or item[1]["normalized"]) for item in picked)
 
-        return [entry for _, entry in selected]
+        if len(selected) < self.examples_sent_to_ai:
+            remaining = [
+                item
+                for item in ranked[: self.retrieval_candidates * 3]
+                if str(item[1].get("id") or item[1]["normalized"]) not in selected_ids
+            ]
+            selected.extend(
+                self._pick_diverse(
+                    remaining,
+                    self.examples_sent_to_ai - len(selected),
+                    selected,
+                )
+            )
+
+        selected.sort(key=lambda item: item[0], reverse=True)
+        return [entry for _, entry in selected[: self.examples_sent_to_ai]]
 
     def format_examples(self, tweet: dict[str, Any], *, humor_level: int) -> str:
         examples = self.retrieve(tweet, humor_level=humor_level)
@@ -354,9 +642,7 @@ class ChannelMemory:
         ]
         for index, entry in enumerate(examples, start=1):
             text = truncate(str(entry["text"]), self.max_example_chars)
-            lines.append(
-                f"{index}. [{entry['category']} | {entry['year']}] {text}"
-            )
+            lines.append(f"{index}. [{entry['category']} | {entry['year']}] {text}")
         return "\n".join(lines)
 
 
@@ -558,71 +844,31 @@ class Gemini:
             if self.memory is not None
             else "نمونهٔ مشابهی از حافظه در دسترس نیست."
         )
-        prompt = f"""
-تو ادیتور و مترجم کانال دیلی یون جونگهان از گروه SEVENTEEN هستی.
-بر اساس منبع، یک پیش‌نویس فارسی دقیق و طبیعی تولید کن.
-
-قوانین قطعی:
-- هیچ اطلاعات، نقل‌قول، نام یا اتفاقی را اختراع نکن.
-- اگر متن کره‌ای/انگلیسی دارد، معنی را دقیق و روان ترجمه کن.
-- شوخی نباید معنی خبر یا ترجمه را تغییر دهد.
-- اگر پست واقعاً دربارهٔ جونگهان نیست، relevant=false بده.
-- اگر فقط به دلیل تصویر احتمال می‌دهی مربوط است، عدم قطعیت را در notes بنویس.
-- اگر discovery_only=true است، آن را خبر رسمی معرفی نکن مگر خود منبع رسمی باشد.
-- اگر چند منبع مقایسه شده‌اند و با هم تعارض دارند، تعارض را در notes بگو و چیزی را قطعی نکن.
-- caption باید آمادهٔ کپی در تلگرام، کوتاه و بدون توضیح متا باشد.
-- لینک منبع را داخل caption نگذار.
-- سطح هیومر: {humor_level} از ۲.
-{rewrite_instruction}
-
-راهنمای لحن ادمین:
----
-{self.style_guide}
----
-
-حافظهٔ نمونه‌های مشابه:
----
-{memory_examples}
----
-
-اطلاعات منبع:
-نام اکانت: @{tweet['source_username']}
-تاریخ UTC: {tweet['date']}
-متن اصلی:
-{tweet['text']}
-
-تعداد عکس: {tweet['photo_count']}
-تعداد ویدیو/GIF: {tweet['video_count']}
-
-وضعیت کشف: {tweet.get('origin', 'trusted')}
-فقط خارج از منابع اصلی پیدا شده: {bool(tweet.get('discovery_only', False))}
-نسخه با کمک جست‌وجوی عمومی کامل‌تر شده: {bool(tweet.get('completed_from_discovery', False))}
-منابع مقایسه‌شده:
-{truncate(str(tweet.get('source_context', '')), 3500) or 'فقط همان منبع'}
-
-فقط JSON معتبر با این کلیدها برگردان:
-{{
-  "relevant": true,
-  "confidence": 0.0,
-  "category": "official_update|translation|photo|video|fan_update|other",
-  "translation": "ترجمهٔ دقیق یا رشتهٔ خالی",
-  "caption": "کپشن نهایی فارسی",
-  "notes": "یادداشت کوتاه برای ادمین یا رشتهٔ خالی"
-}}
-""".strip()
+        prompt = build_ai_prompt(
+            style_guide=self.style_guide,
+            memory_examples=memory_examples,
+            tweet=tweet,
+            humor_level=humor_level,
+            rewrite_instruction=rewrite_instruction,
+            can_see_image=True,
+        )
 
         parts: list[dict[str, Any]] = [{"text": prompt}]
         image_part = self._image_part(tweet.get("preview_image_url"))
         if image_part:
             parts.append(image_part)
 
+        generation_config: dict[str, Any] = {
+            "responseMimeType": "application/json",
+            "maxOutputTokens": 1200,
+        }
+        # Gemini 3.x derives style reliably from the explicit prompt; its legacy
+        # sampling knobs are deprecated, so only send temperature to older models.
+        if not self.model.casefold().startswith("gemini-3"):
+            generation_config["temperature"] = humor_temperature(humor_level)
         payload = {
             "contents": [{"role": "user", "parts": parts}],
-            "generationConfig": {
-                "temperature": 0.8 if humor_level else 0.35,
-                "responseMimeType": "application/json",
-                "maxOutputTokens": 1200,
-            },
+            "generationConfig": generation_config,
         }
         endpoint = (
             f"https://generativelanguage.googleapis.com/v1beta/models/"
@@ -638,7 +884,7 @@ class Gemini:
                 parsed = safe_json_from_text(text)
                 if parsed.get("caption") is None:
                     raise ValueError(f"Gemini returned unusable JSON: {text[:300]}")
-                return parsed
+                return normalize_ai_result(parsed, tweet)
             except (requests.RequestException, KeyError, IndexError, ValueError) as exc:
                 last_error = exc
                 time.sleep(2**attempt)
@@ -673,63 +919,19 @@ class Groq:
             if self.memory is not None
             else "نمونهٔ مشابهی از حافظه در دسترس نیست."
         )
-        prompt = f"""
-تو ادیتور و مترجم کانال دیلی یون جونگهان از گروه SEVENTEEN هستی.
-بر اساس منبع، یک پیش‌نویس فارسی دقیق و طبیعی تولید کن.
-
-قوانین قطعی:
-- هیچ اطلاعات، نقل‌قول، نام یا اتفاقی را اختراع نکن.
-- اگر متن کره‌ای/انگلیسی دارد، معنی را دقیق و روان ترجمه کن.
-- شوخی نباید معنی خبر یا ترجمه را تغییر دهد.
-- اگر پست واقعاً دربارهٔ جونگهان نیست، relevant=false بده.
-- چون این مدل تصویر را نمی‌بیند، دربارهٔ محتوای عکس چیزی را حدس نزن.
-- اگر discovery_only=true است، آن را خبر رسمی معرفی نکن مگر خود منبع رسمی باشد.
-- اگر چند منبع مقایسه شده‌اند و با هم تعارض دارند، تعارض را در notes بگو و چیزی را قطعی نکن.
-- caption باید آمادهٔ کپی در تلگرام، کوتاه و بدون توضیح متا باشد.
-- لینک منبع را داخل caption نگذار.
-- سطح هیومر: {humor_level} از ۲.
-{rewrite_instruction}
-
-راهنمای لحن ادمین:
----
-{self.style_guide}
----
-
-حافظهٔ نمونه‌های مشابه:
----
-{memory_examples}
----
-
-اطلاعات منبع:
-نام اکانت: @{tweet['source_username']}
-تاریخ UTC: {tweet['date']}
-متن اصلی:
-{tweet['text']}
-
-تعداد عکس: {tweet['photo_count']}
-تعداد ویدیو/GIF: {tweet['video_count']}
-
-وضعیت کشف: {tweet.get('origin', 'trusted')}
-فقط خارج از منابع اصلی پیدا شده: {bool(tweet.get('discovery_only', False))}
-نسخه با کمک جست‌وجوی عمومی کامل‌تر شده: {bool(tweet.get('completed_from_discovery', False))}
-منابع مقایسه‌شده:
-{truncate(str(tweet.get('source_context', '')), 3500) or 'فقط همان منبع'}
-
-فقط JSON معتبر با این کلیدها برگردان:
-{{
-  "relevant": true,
-  "confidence": 0.0,
-  "category": "official_update|translation|photo|video|fan_update|other",
-  "translation": "ترجمهٔ دقیق یا رشتهٔ خالی",
-  "caption": "کپشن نهایی فارسی",
-  "notes": "یادداشت کوتاه برای ادمین یا رشتهٔ خالی"
-}}
-""".strip()
+        prompt = build_ai_prompt(
+            style_guide=self.style_guide,
+            memory_examples=memory_examples,
+            tweet=tweet,
+            humor_level=humor_level,
+            rewrite_instruction=rewrite_instruction,
+            can_see_image=False,
+        )
 
         payload = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.8 if humor_level else 0.35,
+            "temperature": humor_temperature(humor_level),
             "max_tokens": 1200,
             "response_format": {"type": "json_object"},
         }
@@ -750,11 +952,41 @@ class Groq:
                 parsed = safe_json_from_text(text)
                 if parsed.get("caption") is None:
                     raise ValueError(f"Groq returned unusable JSON: {text[:300]}")
-                return parsed
+                return normalize_ai_result(parsed, tweet)
             except (requests.RequestException, KeyError, IndexError, ValueError) as exc:
                 last_error = exc
                 time.sleep(2**attempt)
         raise BotError(f"Groq request failed: {last_error}")
+
+
+class AIChain:
+    """Try configured AI providers in order without losing the update."""
+
+    def __init__(self, providers: list[Any]) -> None:
+        if not providers:
+            raise BotError("No AI provider is configured")
+        self.providers = providers
+
+    def generate(
+        self,
+        tweet: dict[str, Any],
+        *,
+        humor_level: int,
+        rewrite_instruction: str = "",
+    ) -> dict[str, Any]:
+        errors: list[str] = []
+        for provider in self.providers:
+            try:
+                return provider.generate(
+                    tweet,
+                    humor_level=humor_level,
+                    rewrite_instruction=rewrite_instruction,
+                )
+            except BotError as exc:
+                provider_name = provider.__class__.__name__
+                errors.append(f"{provider_name}: {exc}")
+                log.warning("%s generation failed; trying fallback if available: %s", provider_name, exc)
+        raise BotError("All AI providers failed: " + " | ".join(errors))
 
 
 def original_photo_url(url: str) -> str:
@@ -865,6 +1097,7 @@ def tweet_to_record(tweet: Any) -> dict[str, Any]:
         "retweet_count": int(getattr(tweet, "retweetCount", 0) or 0),
         "quote_count": int(getattr(tweet, "quoteCount", 0) or 0),
         "view_count": int(getattr(tweet, "viewCount", 0) or 0),
+        "source_trust_score": 0.0,
     }
 
 
@@ -939,6 +1172,10 @@ def records_are_same_update(
     if str(first.get("tweet_id")) == str(second.get("tweet_id")):
         return True
 
+    time_gap = abs((record_date(first) - record_date(second)).total_seconds()) / 3600
+    if time_gap > merge_window_hours:
+        return False
+
     first_quoted = str(first.get("quoted_tweet_id", "") or "")
     second_quoted = str(second.get("quoted_tweet_id", "") or "")
     if first_quoted and first_quoted == second_quoted:
@@ -948,10 +1185,6 @@ def records_are_same_update(
     second_keys = record_media_keys(second)
     if first_keys and second_keys and first_keys.intersection(second_keys):
         return True
-
-    time_gap = abs((record_date(first) - record_date(second)).total_seconds()) / 3600
-    if time_gap > merge_window_hours:
-        return False
 
     first_text = normalize_match_text(str(first.get("text", "")))
     second_text = normalize_match_text(str(second.get("text", "")))
@@ -974,7 +1207,9 @@ def record_completeness_score(record: dict[str, Any]) -> float:
     media_count = len(record.get("media", []))
     video_count = sum(item.get("type") == "video" for item in record.get("media", []))
     text_length = min(len(str(record.get("text", ""))), 1600)
-    trusted_bonus = 7.0 if record.get("origin") == "trusted" else 0.0
+    trust_score = max(0.0, min(1.0, float(record.get("source_trust_score", 0.0) or 0.0)))
+    trusted_bonus = 4.0 if record.get("origin") == "trusted" else 0.0
+    trust_bonus = trust_score * 12.0
     verified_bonus = 3.0 if record.get("verified") else 0.0
     followers = max(int(record.get("followers_count", 0) or 0), 0)
     engagement = (
@@ -987,6 +1222,7 @@ def record_completeness_score(record: dict[str, Any]) -> float:
         + video_count * 8.0
         + text_length / 45.0
         + trusted_bonus
+        + trust_bonus
         + verified_bonus
         + min(followers, 1_000_000) / 100_000.0
         + min(engagement, 10_000) / 2_000.0
@@ -996,6 +1232,15 @@ def record_completeness_score(record: dict[str, Any]) -> float:
 def merge_record_group(
     group: list[tuple[dict[str, Any], dict[str, Any]]],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    normalized_group: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for raw_record, source in group:
+        record = dict(raw_record)
+        if source.get("trust_score") is not None:
+            record["source_trust_score"] = max(
+                0.0, min(1.0, float(source.get("trust_score", 0.0) or 0.0))
+            )
+        normalized_group.append((record, source))
+    group = normalized_group
     records = [record for record, _ in group]
     sources = [source for _, source in group]
     primary = max(records, key=record_completeness_score)
@@ -1019,8 +1264,11 @@ def merge_record_group(
     # Prefer the most informative text while giving trusted sources a modest
     # advantage. Media completeness remains the strongest factor overall.
     def text_score(record: dict[str, Any]) -> float:
-        return min(len(str(record.get("text", ""))), 2500) + (
-            250 if record.get("origin") == "trusted" else 0
+        trust = max(0.0, min(1.0, float(record.get("source_trust_score", 0.0) or 0.0)))
+        return (
+            min(len(str(record.get("text", ""))), 2500)
+            + (180 if record.get("origin") == "trusted" else 0)
+            + trust * 320
         )
 
     text_record = max(records, key=text_score)
@@ -1076,8 +1324,21 @@ def merge_record_group(
         if discovery_records
         else "trusted"
     )
+    merged["source_trust_score"] = max(
+        (float(record.get("source_trust_score", 0.0) or 0.0) for record in records),
+        default=0.0,
+    )
+    merged["source_trust_scores"] = {
+        str(record.get("source_username", "") or ""): float(
+            record.get("source_trust_score", 0.0) or 0.0
+        )
+        for record in records
+        if str(record.get("source_username", "") or "")
+    }
     merged["date"] = min(record_date(record) for record in records).isoformat()
     merged["media_keys"] = sorted(record_media_keys(merged))
+    merged["is_reply"] = all(bool(record.get("is_reply")) for record in records)
+    merged["is_retweet"] = all(bool(record.get("is_retweet")) for record in records)
 
     # Keep the primary URL first, then alternatives.
     primary_url = str(primary.get("source_url", "") or "")
@@ -1099,6 +1360,7 @@ def merge_record_group(
         "enabled": True,
         "require_keywords": require_keywords,
         "origin": merged["origin"],
+        "trust_score": merged.get("source_trust_score", 0.0),
     }
     return merged, merged_source
 
@@ -1211,7 +1473,17 @@ def remember_recent_update(
     ]
     state["recent_updates"] = retained[-400:]
 
-def review_keyboard(tweet_id: str) -> dict[str, Any]:
+
+def review_keyboard(tweet_id: str, *, publishable: bool = True) -> dict[str, Any]:
+    if not publishable:
+        return {
+            "inline_keyboard": [
+                [
+                    {"text": "✅ بررسی شد", "callback_data": f"done:{tweet_id}"},
+                    {"text": "🗑 رد", "callback_data": f"skip:{tweet_id}"},
+                ]
+            ]
+        }
     return {
         "inline_keyboard": [
             [
@@ -1227,7 +1499,11 @@ def review_text(pending: dict[str, Any]) -> str:
     translation = pending.get("translation", "").strip()
     notes = pending.get("notes", "").strip()
 
-    if pending.get("is_upgrade"):
+    if pending.get("privacy_risk"):
+        headline = "🚫 ریسک حریم خصوصی — نسخهٔ قابل فوروارد ساخته نشد"
+    elif not pending.get("publishable", True):
+        headline = "⚠️ فقط برای بررسی دستی"
+    elif pending.get("is_upgrade"):
         headline = "🧩 نسخهٔ کامل‌تر از یک آپدیت قبلی"
     elif pending.get("completed_from_discovery"):
         headline = "🧩 آپدیت کامل‌تر با مقایسهٔ منابع"
@@ -1238,9 +1514,13 @@ def review_text(pending: dict[str, Any]) -> str:
 
     usernames = pending.get("source_usernames", []) or [pending.get("source_username", "")]
     source_urls = pending.get("source_urls", []) or [pending.get("source_url", "")]
+    confidence = clamp_confidence(pending.get("confidence", 0.0))
+    category = str(pending.get("category", "other") or "other")
+    trust_score = float(pending.get("source_trust_score", 0.0) or 0.0)
     sections = [
         headline,
         "منبع/منابع: " + "، ".join(f"@{item}" for item in usernames[:6] if item),
+        f"نوع: {category} | اطمینان AI: {confidence:.0%} | اعتماد منبع: {trust_score:.0%}",
     ]
     sections.extend(url for url in source_urls[:4] if url)
     sections.extend(
@@ -1252,10 +1532,14 @@ def review_text(pending: dict[str, Any]) -> str:
     )
     if translation:
         sections.extend(["", "ترجمه:", truncate(translation, 1000)])
-    sections.extend(["", "کپشن پیشنهادی:", truncate(pending["caption"], 1400)])
+    if pending.get("publishable", True):
+        sections.extend(["", "کپشن پیشنهادی:", truncate(pending["caption"], 1400)])
+    else:
+        sections.extend(["", "کپشن پیشنهادی:", "— ساخته نشد —"])
     if notes:
         sections.extend(["", "یادداشت:", truncate(notes, 700)])
     return "\n".join(sections)
+
 
 def download_media_item(item: dict[str, str], directory: Path, index: int) -> tuple[Path, str]:
     url = item["url"]
@@ -1323,6 +1607,8 @@ def publish_pending(
     channel_id: str,
     config: dict[str, Any],
 ) -> None:
+    if not pending.get("publishable", True):
+        return
     caption = channel_caption(pending, config)
     media = pending.get("media", [])
     if not media:
@@ -1349,11 +1635,27 @@ def publish_pending(
                 log.warning("yt-dlp fallback failed for %s: %s", pending["source_url"], exc)
 
         if not downloaded:
-            telegram.send_message(channel_id, caption + f"\n\n{pending['source_url']}", disable_preview=False)
-        elif len(downloaded) == 1:
+            telegram.send_message(channel_id, caption, disable_preview=True)
+            telegram.send_message(
+                channel_id,
+                "⚠️ مدیای این آپدیت دانلود نشد. لینک منبع برای بررسی دستی:\n"
+                + pending["source_url"],
+                disable_preview=False,
+            )
+            return
+
+        if len(downloaded) == 1:
             telegram.send_local_single(channel_id, downloaded[0][0], downloaded[0][1], caption)
         else:
             telegram.send_local_album(channel_id, downloaded, caption)
+
+        if len(downloaded) < len(media):
+            telegram.send_message(
+                channel_id,
+                f"⚠️ فقط {len(downloaded)} مورد از {len(media)} مدیا دانلود شد. "
+                "برای نسخهٔ کامل منبع را بررسی کن:\n" + pending["source_url"],
+                disable_preview=False,
+            )
 
 
 def process_action(
@@ -1376,7 +1678,12 @@ def process_action(
             telegram.edit_message_text(
                 review_chat_id,
                 int(message_id),
-                review_text(pending) + "\n\n✅ خودت به کانال فرستادی",
+                review_text(pending)
+                + (
+                    "\n\n✅ خودت به کانال فرستادی"
+                    if pending.get("publishable", True)
+                    else "\n\n✅ بررسی شد و برای کانال ارسال نشد"
+                ),
             )
         state["pending"].pop(tweet_id, None)
         return "انجام‌شده علامت خورد ✅"
@@ -1393,6 +1700,8 @@ def process_action(
         return "رد شد."
 
     if action == "rewrite":
+        if not pending.get("publishable", True):
+            return "برای محتوای دارای ریسک حریم خصوصی نسخهٔ فوروارد ساخته نمی‌شود."
         tweet = {
             "source_username": pending["source_username"],
             "date": pending["date"],
@@ -1403,6 +1712,7 @@ def process_action(
             "discovery_only": pending.get("discovery_only", False),
             "completed_from_discovery": pending.get("completed_from_discovery", False),
             "source_context": pending.get("source_context", ""),
+            "source_trust_score": pending.get("source_trust_score", 0.0),
             "preview_image_url": next(
                 (
                     item.get("url") if item["type"] == "photo" else item.get("thumbnail")
@@ -1414,15 +1724,21 @@ def process_action(
         }
         result = gemini.generate(
             tweet,
-            humor_level=2,
+            humor_level=3,
             rewrite_instruction=(
                 "این بازنویسی دوم است. آن را واضحاً بامزه‌تر، خودمانی‌تر و شبیه واکنش زندهٔ "
                 "ادمین کن، ولی هیچ واقعیتی را تغییر نده."
             ),
         )
+        result = normalize_ai_result(result, tweet)
         pending["caption"] = str(result.get("caption", pending["caption"])).strip()
         pending["translation"] = str(result.get("translation", pending.get("translation", ""))).strip()
         pending["notes"] = str(result.get("notes", "")).strip()
+        pending["category"] = str(result.get("category", pending.get("category", "other")))
+        pending["confidence"] = clamp_confidence(result.get("confidence", pending.get("confidence", 0.0)))
+        pending["privacy_risk"] = coerce_bool(result.get("privacy_risk"))
+        pending["uncertain"] = coerce_bool(result.get("uncertain"))
+        pending["publishable"] = coerce_bool(result.get("publishable"), default=True)
         old_message_id = pending.get("review_message_id")
         if old_message_id:
             telegram.edit_message_text(
@@ -1542,6 +1858,9 @@ async def fetch_records(
                 record = tweet_to_record(tweet)
                 record["origin"] = "trusted"
                 record["trusted_source"] = True
+                record["source_trust_score"] = max(
+                    0.0, min(1.0, float(source_meta.get("trust_score", 0.75) or 0.75))
+                )
                 results.append((record, source_meta))
         except Exception as exc:
             log.exception("Could not fetch @%s", username)
@@ -1584,6 +1903,7 @@ async def fetch_records(
                     record = tweet_to_record(tweet)
                     record["origin"] = "discovery"
                     record["trusted_source"] = False
+                    record["source_trust_score"] = 0.35
                     record["search_query"] = query
                     results.append((record, source_meta))
             except Exception as exc:
@@ -1621,6 +1941,45 @@ async def fetch_records(
 
     return errors + list(by_id.values())
 
+
+def should_notify_fetch_error(
+    state: dict[str, Any],
+    *,
+    key: str,
+    cooldown_hours: float,
+) -> bool:
+    notifications = state.setdefault("fetch_error_notifications", {})
+    last_value = str(notifications.get(key, "") or "")
+    if last_value:
+        try:
+            last = datetime.fromisoformat(last_value)
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+            if utc_now() - last.astimezone(timezone.utc) < timedelta(hours=cooldown_hours):
+                return False
+        except ValueError:
+            pass
+    notifications[key] = iso_now()
+    # Prevent obsolete error keys from growing forever.
+    cutoff = utc_now() - timedelta(days=14)
+    state["fetch_error_notifications"] = {
+        item_key: value
+        for item_key, value in notifications.items()
+        if _iso_is_newer_than(value, cutoff)
+    }
+    return True
+
+
+def _iso_is_newer_than(value: Any, cutoff: datetime) -> bool:
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc) >= cutoff
+
+
 def make_pending(record: dict[str, Any], ai: dict[str, Any]) -> dict[str, Any]:
     caption = str(ai.get("caption", "")).strip()
     if not caption:
@@ -1653,13 +2012,18 @@ def make_pending(record: dict[str, Any], ai: dict[str, Any]) -> dict[str, Any]:
         "translation": str(ai.get("translation", "")).strip(),
         "notes": notes,
         "category": str(ai.get("category", "other")),
-        "confidence": float(ai.get("confidence", 0.0) or 0.0),
+        "confidence": clamp_confidence(ai.get("confidence", 0.0)),
+        "privacy_risk": coerce_bool(ai.get("privacy_risk")),
+        "uncertain": coerce_bool(ai.get("uncertain")),
+        "publishable": coerce_bool(ai.get("publishable"), default=True),
+        "source_trust_score": float(record.get("source_trust_score", 0.0) or 0.0),
         "origin": record.get("origin", "trusted"),
         "discovery_only": bool(record.get("discovery_only", False)),
         "completed_from_discovery": bool(record.get("completed_from_discovery", False)),
         "is_upgrade": bool(record.get("is_upgrade", False)),
         "created_at": iso_now(),
     }
+
 
 def run() -> None:
     config = load_config()
@@ -1672,11 +2036,13 @@ def run() -> None:
             "pending": {},
             "telegram_update_offset": 0,
             "last_heartbeat_week": "",
+            "fetch_error_notifications": {},
         },
     )
     state.setdefault("seen_tweet_ids", [])
     state.setdefault("recent_updates", [])
     state.setdefault("pending", {})
+    state.setdefault("fetch_error_notifications", {})
 
     token = env("TELEGRAM_BOT_TOKEN")
     review_chat_id = env("TELEGRAM_REVIEW_CHAT_ID")
@@ -1693,20 +2059,36 @@ def run() -> None:
             retrieval_candidates=int(memory_config.get("retrieval_candidates", 40)),
             examples_sent_to_ai=int(memory_config.get("examples_sent_to_ai", 15)),
             max_example_chars=int(memory_config.get("max_example_chars", 520)),
+            era_weights=(
+                memory_config.get("era_weights")
+                if isinstance(memory_config.get("era_weights"), dict)
+                else None
+            ),
         )
 
     provider = str(ai_config.get("provider", "gemini")).strip().lower()
     telegram = Telegram(token)
+    gemini_key = env("GEMINI_API_KEY", required=False)
+    groq_key = env("GROQ_API_KEY", required=False)
+    gemini_model = str(ai_config.get("gemini_model", "gemini-3.5-flash-lite"))
+    groq_model = str(ai_config.get("groq_model", "llama-3.3-70b-versatile"))
+
+    providers: list[Any] = []
     if provider == "gemini":
-        api_key = env("GEMINI_API_KEY")
-        model = str(ai_config.get("gemini_model", "gemini-3.5-flash-lite"))
-        gemini: Any = Gemini(api_key, model, style_guide, memory)
+        if not gemini_key:
+            raise BotError("GEMINI_API_KEY is required when ai.provider is gemini")
+        providers.append(Gemini(gemini_key, gemini_model, style_guide, memory))
+        if groq_key:
+            providers.append(Groq(groq_key, groq_model, style_guide, memory))
     elif provider == "groq":
-        api_key = env("GROQ_API_KEY")
-        model = str(ai_config.get("groq_model", "llama-3.3-70b-versatile"))
-        gemini = Groq(api_key, model, style_guide, memory)
+        if not groq_key:
+            raise BotError("GROQ_API_KEY is required when ai.provider is groq")
+        providers.append(Groq(groq_key, groq_model, style_guide, memory))
+        if gemini_key:
+            providers.append(Gemini(gemini_key, gemini_model, style_guide, memory))
     else:
         raise BotError("ai.provider must be either 'gemini' or 'groq'")
+    gemini: Any = AIChain(providers)
 
     # First process approvals/rewrite requests that arrived since the previous run.
     process_telegram_updates(
@@ -1717,6 +2099,8 @@ def run() -> None:
         review_chat_id=review_chat_id,
         admin_user_id=admin_user_id,
     )
+    # Persist button actions before any X/API work that could fail later.
+    save_state(state)
 
     enabled_sources = [s for s in config.get("sources", []) if s.get("enabled", False)]
     discovery_enabled = bool(config.get("discovery", {}).get("enabled", True))
@@ -1726,14 +2110,19 @@ def run() -> None:
         return
 
     records = asyncio.run(fetch_records(config, x_cookie))
+    error_cooldown = float(config.get("polling", {}).get("error_alert_cooldown_hours", 3))
     for record, _source in records:
         if not record.get("fetch_error"):
             continue
-        kind = record.get("error_kind", "")
-        if kind == "discovery_search":
-            label = "جست‌وجوی عمومی X"
-        else:
-            label = f"@{record.get('source_username', 'unknown')}"
+        kind = str(record.get("error_kind", "") or "unknown")
+        username = str(record.get("source_username", "unknown") or "unknown")
+        query = str(record.get("search_query", "") or "")
+        error_key = f"{kind}:{username}:{query}"
+        if not should_notify_fetch_error(
+            state, key=error_key, cooldown_hours=error_cooldown
+        ):
+            continue
+        label = "جست‌وجوی عمومی X" if kind == "discovery_search" else f"@{username}"
         telegram.send_message(
             review_chat_id,
             f"⚠️ دریافت {label} ناموفق بود:\n{record['fetch_error']}",
@@ -1799,14 +2188,8 @@ def run() -> None:
             ai = gemini.generate(record, humor_level=humor_level)
         except BotError as exc:
             log.exception("AI generation failed for %s", record["tweet_id"])
-            ai = {
-                "relevant": True,
-                "confidence": 0.5,
-                "category": "other",
-                "translation": "",
-                "caption": record["text"] or "آپدیت جدید جونگهان 🪽",
-                "notes": f"ساخت خودکار کپشن ناموفق بود: {exc}",
-            }
+            ai = manual_fallback_result(record, exc)
+        ai = normalize_ai_result(ai, record)
 
         relevant = bool(ai.get("relevant", False))
         confidence = float(ai.get("confidence", 0.0) or 0.0)
@@ -1814,20 +2197,43 @@ def run() -> None:
             discovery_confidence if record.get("discovery_only") else minimum_confidence
         )
         if not relevant or confidence < required_confidence:
-            log.info(
-                "Skipped low-confidence/non-relevant update %s (%.2f < %.2f)",
-                record["tweet_id"],
-                confidence,
-                required_confidence,
+            force_review = coerce_bool(ai.get("force_review")) or coerce_bool(
+                ai.get("privacy_risk")
             )
-            seen.update(member_ids)
-            continue
+            if record.get("discovery_only") and not force_review:
+                log.info(
+                    "Skipped low-confidence/non-relevant discovery update %s (%.2f < %.2f)",
+                    record["tweet_id"],
+                    confidence,
+                    required_confidence,
+                )
+                seen.update(member_ids)
+                continue
+            warning = (
+                "اطمینان AI پایین بود؛ این مورد فقط برای بررسی دستی نگه داشته شد."
+                if record.get("discovery_only")
+                else (
+                    "اطمینان AI پایین بود، اما چون آپدیت از یکی از منابع اصلی آمده "
+                    "برای اینکه چیزی جا نیفتد به بررسی دستی فرستاده شد."
+                )
+            )
+            previous_notes = str(ai.get("notes", "") or "").strip()
+            ai["notes"] = "\n".join(item for item in (warning, previous_notes) if item)
+            ai["relevant"] = True
+            ai["uncertain"] = True
 
         pending = make_pending(record, ai)
+        followup = (
+            "⬇️ پست تمیز و آمادهٔ فوروارد در پیام بعدی است."
+            if pending.get("publishable", True)
+            else "🚫 نسخهٔ قابل فوروارد ساخته نشد؛ فقط کارت بررسی را ببین."
+        )
         message = telegram.send_message(
             review_chat_id,
-            review_text(pending) + "\n\n⬇️ پست تمیز و آمادهٔ فوروارد در پیام بعدی است.",
-            reply_markup=review_keyboard(record["tweet_id"]),
+            review_text(pending) + "\n\n" + followup,
+            reply_markup=review_keyboard(
+                record["tweet_id"], publishable=pending.get("publishable", True)
+            ),
         )
         pending["review_message_id"] = message["message_id"]
         state["pending"][record["tweet_id"]] = pending
@@ -1837,7 +2243,10 @@ def run() -> None:
         remember_recent_update(state, record, config)
 
     state["initialized"] = True
-    state["seen_tweet_ids"] = list(seen)[-12000:]
+    state["seen_tweet_ids"] = sorted(
+        seen,
+        key=lambda value: (0, int(value)) if value.isdigit() else (1, value),
+    )[-12000:]
     current_week = utc_now().strftime("%G-W%V")
     if state.get("last_heartbeat_week") != current_week:
         state["last_heartbeat_week"] = current_week
