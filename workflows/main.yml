@@ -11,8 +11,8 @@ on:
         options:
           - live
           - check
+
   schedule:
-    # چهار بار در ساعت؛ دقیقه‌های نامعمول ازدحام GitHub Actions را کمتر می‌کنند.
     - cron: "7,22,37,52 * * * *"
 
 permissions:
@@ -26,30 +26,32 @@ jobs:
   validate-and-run:
     runs-on: ubuntu-latest
     timeout-minutes: 14
+
     defaults:
       run:
-        working-directory: jeonghan-daily-review-bot-v2
+        working-directory: jeonghan-daily-review-bot-v2/jeonghan-daily-review-bot-v2
+
     env:
       PYTHONUNBUFFERED: "1"
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: jeonghan-daily-review-bot-v2/requirements.txt
+          cache-dependency-path: jeonghan-daily-review-bot-v2/jeonghan-daily-review-bot-v2/requirements.txt
 
       - name: Restore persistent bot state
         if: github.event_name != 'workflow_dispatch' || inputs.mode == 'live'
         id: state-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@v4
         with:
-          path: jeonghan-daily-review-bot-v2/state/state.json
+          path: jeonghan-daily-review-bot-v2/jeonghan-daily-review-bot-v2/state/state.json
           key: jeonghan-state-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             jeonghan-state-${{ runner.os }}-
@@ -77,8 +79,8 @@ jobs:
         if: >-
           always() &&
           (github.event_name != 'workflow_dispatch' || inputs.mode == 'live') &&
-          hashFiles('jeonghan-daily-review-bot-v2/state/state.json') != ''
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+          hashFiles('jeonghan-daily-review-bot-v2/jeonghan-daily-review-bot-v2/state/state.json') != ''
+        uses: actions/cache/save@v4
         with:
-          path: jeonghan-daily-review-bot-v2/state/state.json
+          path: jeonghan-daily-review-bot-v2/jeonghan-daily-review-bot-v2/state/state.json
           key: ${{ steps.state-cache.outputs.cache-primary-key }}
