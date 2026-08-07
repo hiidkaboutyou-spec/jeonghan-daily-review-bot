@@ -1,3 +1,3 @@
-from .private_runtime import main
+from .health_runtime import main
 
 raise SystemExit(main())
