@@ -1,6 +1,4 @@
-# Reproducible versions verified by the successful GitHub Actions run on 2026-08-02.
-# Update the twscrape commit deliberately when X changes its private endpoints.
-twscrape[curl] @ git+https://github.com/vladkens/twscrape.git@0156561a361ac56b431cdbbe9de3cf5927296352
-requests==2.34.2
-PyYAML==6.0.3
-yt-dlp==2026.7.4
+twscrape @ git+https://github.com/vladkens/twscrape.git@e51d9ad043c8bb15284ca86178740004fa0fc9de
+google-genai>=2.13,<3
+requests>=2.32,<3
+yt-dlp>=2026.7.4

@@ -1,0 +1,46 @@
+شروع خیلی ساده — مخصوص مک و GitHub وب
+
+هدف: پروژهٔ جدید از ریشهٔ Repository اجرا شود و دیگر هیچ مسیر v2/v2 وجود نداشته باشد.
+
+مهم:
+- Repository را حذف نکن.
+- GitHub Secrets را پاک نکن.
+- result 3.json و result 4.json را در GitHub آپلود نکن.
+- ZIP را مستقیم داخل GitHub نگذار؛ روی مک دوبار کلیک کن تا Extract شود.
+
+مرحله ۱ — بکاپ
+1) در Repository روی Code بزن.
+2) Download ZIP را بزن و نسخهٔ قبلی را نگه دار.
+
+مرحله ۲ — فایل‌های جدید ریشه
+1) فایل JEONGHAN_BOT_EASY_UPLOAD_MAC.zip را روی مک باز کن.
+2) پوشهٔ STEP_1_UPLOAD_TO_REPO_ROOT را باز کن.
+3) همهٔ محتویات داخل آن را انتخاب کن.
+4) در صفحهٔ اصلی Repository: Add file → Upload files.
+5) محتویات را رها کن و Commit changes را بزن.
+
+خود پوشهٔ STEP_1_UPLOAD_TO_REPO_ROOT را آپلود نکن؛ چیزهای داخلش را آپلود کن.
+
+مرحله ۳ — جایگزینی Workflow
+1) در GitHub وارد .github/workflows شو.
+2) main.yml فعلی را باز کن و Delete file را بزن.
+3) Add file → Upload files را بزن.
+4) main.yml داخل STEP_2_UPLOAD_INSIDE_DOTGITHUB_WORKFLOWS را آپلود و Commit کن.
+
+مرحله ۴ — تست امن
+1) تب Actions را باز کن.
+2) Jeonghan Daily Review Bot را انتخاب کن.
+3) Run workflow را بزن.
+4) mode را روی check بگذار.
+5) اجرای check باید سبز شود؛ در این حالت هیچ پیام تلگرامی ارسال نمی‌شود.
+
+مرحله ۵ — پاک‌کردن بقایای قبلی
+بعد از سبزشدن check، طبق DELETE_OLD_FILES_FA.txt فایل‌ها و پوشه‌های قدیمی را پاک کن.
+این فایل‌ها در نسخهٔ جدید استفاده نمی‌شوند، پس پاک‌کردنشان بعد از تست امن‌تر است.
+
+مرحله ۶ — اجرای واقعی
+1) دوباره Run workflow را بزن.
+2) mode را روی live بگذار.
+3) در چت خصوصی بات /start را بفرست.
+
+بعد از موفقیت، Workflow هر ۱۵ دقیقه اجرا می‌شود.

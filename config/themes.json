@@ -1,0 +1,42 @@
+{
+  "themes": {
+    "live": {
+      "variants": [
+        {"prefix": "،، 🐹⌕໋  ִ˒˒", "label": "لایو جونگهان — {date}"},
+        {"prefix": "،، 🪽 ࣪˖⌕", "label": "ترجمه لایو هانی — {date}"}
+      ]
+    },
+    "jeonghan_instagram": {
+      "variants": [
+        {"prefix": "،، 🍯⌕໋  ִ˒˒", "label": "آپدیت اینستاگرام جونگهان"}
+      ]
+    },
+    "member_instagram": {
+      "variants": [
+        {"prefix": "،، 💎⌕໋  ִ˒˒", "label": "جونگهان در آپدیت اعضا"}
+      ]
+    },
+    "brand": {
+      "variants": [
+        {"prefix": "،، ✦⌕໋  ִ˒˒", "label": "آپدیت برند با جونگهان"}
+      ]
+    },
+    "fansign": {
+      "variants": [
+        {"prefix": "،، 🧸⌕໋  ִ˒˒", "label": "آپدیت فن‌ساین جونگهان"}
+      ]
+    },
+    "airport": {
+      "variants": [
+        {"prefix": "،، 🛫⌕໋  ִ˒˒", "label": "آپدیت فرودگاه جونگهان"}
+      ]
+    },
+    "general": {
+      "variants": [
+        {"prefix": "،، 🐹⌕໋  ִ˒˒", "label": "آپدیت جدید جونگهان"},
+        {"prefix": "،، ୨ ࣪ ˓", "label": "{title}"},
+        {"prefix": "،، 🪽⌕໋  ִ˒˒", "label": "آپدیت هانی"}
+      ]
+    }
+  }
+}

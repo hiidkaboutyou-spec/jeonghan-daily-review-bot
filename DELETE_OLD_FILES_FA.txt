@@ -1,0 +1,41 @@
+فهرست دقیق پاک‌سازی Repository قبلی
+
+این‌ها متعلق به نسخه‌های قبلی‌اند و بعد از سبزشدن check جدید پاک شوند:
+
+پوشهٔ کامل:
+- jeonghan-daily-review-bot-v2/
+
+فایل‌های قدیمی ریشه:
+- UPLOAD_GUIDE_FA.md
+- __init__.py
+- bot.py
+- build_channel_memory.py
+- channel_memory.jsonl
+- channel_voice_profile.json
+- config.yml
+- main.yml
+- organizer.py
+- style_guide.md
+
+اگر فایل یا پوشهٔ قدیمی دیگری در ریشه مانده که داخل بستهٔ جدید نیست، آن را هم پاک کن؛ مخصوصاً فایل‌های .pyc و __pycache__.
+
+این‌ها را نگه دار یا با نسخهٔ جدید جایگزین کن:
+- .github/workflows/main.yml ← با فایل جدید جایگزین شود
+- app/
+- config/
+- data/
+- tests/
+- tools/
+- requirements.txt
+- README.md
+- SECURITY.md
+- LICENSE
+
+Secrets را پاک نکن:
+- TELEGRAM_BOT_TOKEN
+- TELEGRAM_ADMIN_USER_ID
+- TELEGRAM_REVIEW_CHAT_ID
+- X_COOKIE
+- GEMINI_API_KEY
+
+فایل‌های خام result 3.json و result 4.json فقط در Google Drive بمانند و وارد GitHub نشوند.

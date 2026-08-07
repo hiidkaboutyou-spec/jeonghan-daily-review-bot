@@ -1,0 +1,54 @@
+{
+  "sources": [
+    {
+      "handle": "couphanfiles",
+      "label": "Couphan Files",
+      "enabled": true,
+      "priority": 10,
+      "include_replies": true
+    },
+    {
+      "handle": "pledis_17",
+      "label": "SEVENTEEN Official",
+      "enabled": true,
+      "priority": 20,
+      "include_replies": true
+    },
+    {
+      "handle": "pledis_17jp",
+      "label": "SEVENTEEN Japan",
+      "enabled": true,
+      "priority": 25,
+      "include_replies": true
+    }
+  ],
+  "keyword_groups": [
+    {
+      "name": "english",
+      "terms": [
+        "JEONGHAN",
+        "Yoon Jeonghan",
+        "#JEONGHAN",
+        "#YOONJEONGHAN"
+      ]
+    },
+    {
+      "name": "korean",
+      "terms": [
+        "윤정한",
+        "정한",
+        "#윤정한",
+        "#정한",
+        "#세븐틴정한"
+      ]
+    },
+    {
+      "name": "japanese",
+      "terms": [
+        "ジョンハン",
+        "#ジョンハン",
+        "ユンジョンハン"
+      ]
+    }
+  ]
+}

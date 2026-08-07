@@ -1,0 +1,471 @@
+from __future__ import annotations
+
+import argparse
+import asyncio
+import hashlib
+import json
+import logging
+import re
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+
+from .ai import CaptionWriter
+from .config import ConfigError, ROOT, Settings
+from .media import MediaManager
+from .models import Draft, EventGroup, Update
+from .organizer import organize_updates
+from .state import StateStore
+from .style import StyleMemory, ThemeEngine, ensure_rtl_line
+from .telegram import TelegramBot, TelegramError, draft_keyboard, inline_keyboard, main_keyboard
+from .x_client import XCollectionError, XCollector, normalize_handle
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+
+class Application:
+    def __init__(self, settings: Settings):
+        self.settings = settings
+        self.state = StateStore(settings.state_path)
+        self.telegram = TelegramBot(
+            settings.telegram_token,
+            settings.admin_user_id,
+            settings.review_chat_id,
+        )
+        self.memory = StyleMemory(ROOT)
+        self.writer = CaptionWriter(settings.gemini_api_key, settings.gemini_model, self.memory)
+        self.themes = ThemeEngine(settings.themes, settings.timezone)
+        self.collector = XCollector(settings.x_cookies, settings.sources, settings.keyword_groups)
+        self.media = MediaManager(settings.x_cookies)
+
+    async def run(self) -> None:
+        try:
+            await self.process_telegram_updates()
+            await self.run_scheduled_scan()
+            await self.deliver_pending()
+        finally:
+            self.state.save()
+
+    async def process_telegram_updates(self) -> None:
+        updates = self.telegram.get_updates(self.state.telegram_offset)
+        for item in updates:
+            update_id = int(item.get("update_id", 0))
+            self.state.telegram_offset = max(self.state.telegram_offset, update_id + 1)
+            try:
+                if "message" in item:
+                    await self.handle_message(item["message"])
+                elif "callback_query" in item:
+                    await self.handle_callback(item["callback_query"])
+            except (XCollectionError, TelegramError, ConfigError) as exc:
+                logger.warning("Command failed: %s", exc)
+                self._safe_send(f"❌ {str(exc)[:900]}")
+            except Exception as exc:
+                logger.exception("Unexpected command error")
+                self._safe_send(f"❌ خطای پیش‌بینی‌نشده: {type(exc).__name__}")
+
+    async def handle_message(self, message: dict[str, Any]) -> None:
+        if not self.telegram.is_admin_message(message):
+            return
+        text = str(message.get("text", "") or message.get("caption", "")).strip()
+        if not text:
+            return
+        awaiting = self.state.pop_awaiting(self.settings.admin_user_id)
+        if awaiting == "search" and not text.startswith("/"):
+            await self.run_search(text)
+            return
+        if awaiting == "source" and not text.startswith("/"):
+            await self.run_source24(text)
+            return
+
+        command, _, argument = text.partition(" ")
+        command = command.split("@", 1)[0].lower()
+        argument = argument.strip()
+        if command in {"/start", "/menu"}:
+            self.send_start()
+        elif command in {"/recent2h", "/fetch2h"}:
+            await self.run_recent2h()
+        elif command == "/search":
+            if argument:
+                await self.run_search(argument)
+            else:
+                self.ask_for_search()
+        elif command in {"/source24", "/fetch24h"}:
+            if argument:
+                await self.run_source24(argument)
+            else:
+                self.show_sources()
+        elif command == "/sources":
+            self.show_sources()
+        elif command == "/status":
+            self.send_status()
+        elif command == "/help":
+            self.send_help()
+        else:
+            self.telegram.send_message("دستور را نشناختم. از منوی زیر استفاده کن:", reply_markup=main_keyboard())
+
+    async def handle_callback(self, callback: dict[str, Any]) -> None:
+        if not self.telegram.is_admin_callback(callback):
+            return
+        callback_id = str(callback.get("id", ""))
+        data = str(callback.get("data", ""))
+        self.telegram.answer_callback(callback_id, "در حال انجام…")
+        parts = data.split(":")
+        if data == "cmd:recent2h":
+            await self.run_recent2h()
+        elif data == "cmd:search":
+            self.ask_for_search()
+        elif data == "cmd:sources":
+            self.show_sources()
+        elif data == "cmd:status":
+            self.send_status()
+        elif data == "cmd:help":
+            self.send_help()
+        elif len(parts) >= 3 and parts[0] == "source":
+            await self.run_source24(parts[2])
+        elif len(parts) >= 3 and parts[0] == "pick":
+            await self.run_selected_event(parts[1], int(parts[2]))
+        elif len(parts) >= 3 and parts[0] == "draft":
+            message_id = int(callback.get("message", {}).get("message_id", 0) or 0)
+            await self.handle_draft_action(parts[1], parts[2], message_id)
+
+    def send_start(self) -> None:
+        text = (
+            "بات خصوصی دیلی جونگهان آماده است.\n\n"
+            "• دو ساعت اخیر را حتی اگر قبلاً دیده شده باشد دوباره می‌فرستد.\n"
+            "• سرچ تاریخ یا توضیح آزاد، اول حداکثر ۸ گزینه می‌دهد و بعد رویداد انتخابی را کامل جمع می‌کند.\n"
+            "• هر منبع را برای ۲۴ ساعت کامل از قدیمی به جدید می‌آورد.\n"
+            "• لایوها و رشته‌ها گروه‌بندی می‌شوند تا آپدیت نامرتبط وسطشان نیاید.\n"
+            "• هیچ چیز خودکار در کانال عمومی منتشر نمی‌شود؛ همه‌چیز اول همین‌جا برای بررسی می‌آید."
+        )
+        self.telegram.send_message(ensure_rtl_line(text), reply_markup=main_keyboard())
+
+    def ask_for_search(self) -> None:
+        self.state.set_awaiting(self.settings.admin_user_id, "search")
+        self.telegram.send_message(
+            ensure_rtl_line(
+                "تاریخ یا توضیحت را بفرست؛ مثلاً:\n"
+                "2026-07-14\n"
+                "260714\n"
+                "لایوی که داشت بازی می‌کرد و با خودش حرف می‌زد"
+            )
+        )
+
+    def show_sources(self) -> None:
+        enabled = [source for source in self.settings.sources if source.get("enabled", True)]
+        rows = [[(f"@{source['handle']}", f"source:24:{source['handle']}")] for source in enabled]
+        rows.append([("➕ وارد کردن منبع دیگر", "source:24:custom")])
+        self.telegram.send_message("یک منبع را برای دریافت کامل ۲۴ ساعت انتخاب کن:", reply_markup=inline_keyboard(rows))
+
+    def send_status(self) -> None:
+        data = self.state.data
+        text = (
+            f"وضعیت بات\n\n"
+            f"منابع فعال: {sum(bool(item.get('enabled', True)) for item in self.settings.sources)}\n"
+            f"آیتم‌های آرشیو داخلی: {len(data.get('archive', {}))}\n"
+            f"صف باقی‌مانده: {len(data.get('pending_delivery', []))}\n"
+            f"آخرین اسکن خودکار: {data.get('last_auto_run') or 'هنوز اجرا نشده'}\n"
+            f"مدل کپشن: {self.settings.gemini_model}"
+        )
+        self.telegram.send_message(ensure_rtl_line(text), reply_markup=main_keyboard())
+
+    def send_help(self) -> None:
+        text = (
+            "/recent2h — تمام محتوای دو ساعت اخیر، حتی تکراری\n"
+            "/source24 couphanfiles — تمام ۲۴ ساعت یک منبع\n"
+            "/search 2026-07-14 — سرچ یک تاریخ\n"
+            "/search توضیح رویداد — پیشنهاد حداکثر ۸ رویداد\n"
+            "/sources — انتخاب منبع با دکمه\n"
+            "/status — وضعیت بات\n\n"
+            "برای اضافه‌کردن منبع جدید فقط handle آن را در config/sources.json اضافه می‌کنیم."
+        )
+        self.telegram.send_message(ensure_rtl_line(text), reply_markup=main_keyboard())
+
+    async def run_recent2h(self) -> None:
+        self.telegram.send_message("🕑 دارم تمام آپدیت‌های دو ساعت اخیر را دوباره جمع می‌کنم…")
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(hours=2)
+        updates = await self.collector.collect_window(start, end, max_per_query=80)
+        updates = [item for item in updates if start <= item.created_at < end]
+        if not updates:
+            self.telegram.send_message("در دو ساعت اخیر چیزی پیدا نشد.")
+            return
+        await self.deliver_updates(updates, force=True)
+
+    async def run_source24(self, value: str) -> None:
+        if value == "custom":
+            self.state.set_awaiting(self.settings.admin_user_id, "source")
+            self.telegram.send_message("لینک X یا یوزرنیم منبع را بفرست.")
+            return
+        handle = normalize_handle(value)
+        if not handle:
+            self.telegram.send_message("یوزرنیم منبع درست نیست.")
+            return
+        self.telegram.send_message(f"🗂 دارم ۲۴ ساعت کامل @{handle} را از قدیمی به جدید می‌گیرم…")
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(hours=24)
+        updates = await self.collector.collect_source(handle, start, end)
+        updates = [item for item in updates if start <= item.created_at < end]
+        if not updates:
+            self.telegram.send_message(f"برای @{handle} در ۲۴ ساعت گذشته چیزی پیدا نشد.")
+            return
+        await self.deliver_updates(updates, force=True)
+
+    async def run_search(self, query: str) -> None:
+        self.telegram.send_message(f"🔎 دارم برای «{query[:200]}» گزینه‌های مرتبط را پیدا می‌کنم…")
+        date_range = parse_date_query(query, self.settings.timezone)
+        expanded = self.writer.expand_search(query)
+        if date_range:
+            start, end = date_range
+            base_queries = []
+            for group in self.settings.keyword_groups:
+                terms = [str(term) for term in group.get("terms", []) if str(term).strip()]
+                if terms:
+                    base_queries.append(" OR ".join(f'"{term}"' if " " in term else term for term in terms))
+            expanded = base_queries + expanded
+        else:
+            start = end = None
+        updates = await self.collector.search_archive(expanded, start=start, end=end, max_per_query=100)
+        if not updates:
+            self.telegram.send_message("هیچ نتیجهٔ واقعی و قابل‌استفاده‌ای پیدا نشد.")
+            return
+        groups = rank_groups(query, organize_updates(updates))[:8]
+        titles = self.writer.candidate_titles(query, groups)
+        session_id = short_id(query + datetime.now(timezone.utc).isoformat())
+        payload = {
+            "query": query,
+            "candidates": [
+                {
+                    "key": group.key,
+                    "title": titles.get(group.key) or group.title,
+                    "started_at": group.started_at.isoformat(),
+                    "selected": group.updates[0].to_dict(),
+                    "preview_ids": [item.id for item in group.updates],
+                }
+                for group in groups
+            ],
+        }
+        self.state.create_session(session_id, payload)
+        lines = [f"نتیجه‌های پیشنهادی برای «{query}»: "]
+        rows: list[list[tuple[str, str]]] = []
+        for index, group in enumerate(groups):
+            local_date = group.started_at.astimezone(self.settings.timezone).strftime("%Y-%m-%d %H:%M")
+            title = titles.get(group.key) or group.title
+            lines.append(f"{index + 1}. {title} — {local_date} — {len(group.updates)} مورد")
+            rows.append([(f"{index + 1}. {title[:40]}", f"pick:{session_id}:{index}")])
+        self.telegram.send_message(ensure_rtl_line("\n".join(lines)), reply_markup=inline_keyboard(rows))
+
+    async def run_selected_event(self, session_id: str, index: int) -> None:
+        session = self.state.get_session(session_id)
+        if not session:
+            self.telegram.send_message("این سرچ منقضی شده؛ دوباره سرچ کن.")
+            return
+        candidates = list(session.get("candidates", []))
+        if index < 0 or index >= len(candidates):
+            self.telegram.send_message("گزینهٔ انتخاب‌شده معتبر نیست.")
+            return
+        selected = Update.from_dict(candidates[index]["selected"])
+        self.telegram.send_message("انتخاب شد؛ دارم تمام رشته و آپدیت‌های مرتبط همان رویداد را جمع می‌کنم…")
+        updates = await self.collector.collect_event(selected)
+        if not updates:
+            updates = [selected]
+        await self.deliver_updates(updates, force=True)
+
+    async def run_scheduled_scan(self) -> None:
+        now = datetime.now(timezone.utc)
+        last_raw = str(self.state.data.get("last_auto_run", "") or "")
+        try:
+            last = datetime.fromisoformat(last_raw.replace("Z", "+00:00")) if last_raw else now - timedelta(hours=2)
+        except ValueError:
+            last = now - timedelta(hours=2)
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        if now - last < timedelta(minutes=10):
+            return
+        start = max(last - timedelta(minutes=30), now - timedelta(hours=6))
+        try:
+            updates = await self.collector.collect_window(start, now, max_per_query=40)
+        except XCollectionError as exc:
+            logger.warning("Scheduled X scan failed: %s", exc)
+            self._safe_send("⚠️ اسکن خودکار X این نوبت انجام نشد؛ Cookie یا پاسخ X را بررسی کن.")
+            self.state.data["last_auto_run"] = now.isoformat()
+            return
+        fresh = [item for item in updates if not self.state.is_seen(item.id)]
+        fresh.sort(key=lambda item: (item.created_at, item.id))
+        self.state.queue_updates(fresh, force=False)
+        self.state.data["last_auto_run"] = now.isoformat()
+
+    async def deliver_pending(self) -> None:
+        limit = int(self.settings.runtime.get("max_auto_items_per_run", 10))
+        pending = self.state.pop_pending(limit)
+        if not pending:
+            return
+        updates = [item for item, _ in pending]
+        await self.deliver_updates(updates, force=False)
+
+    async def deliver_updates(self, updates: list[Update], *, force: bool) -> None:
+        if not force:
+            updates = [item for item in updates if not self.state.is_seen(item.id)]
+        if not updates:
+            self.telegram.send_message("مورد تازه‌ای برای تحویل باقی نمانده.")
+            return
+        groups = organize_updates(updates)
+        total_updates = sum(len(group.updates) for group in groups)
+        self.telegram.send_message(
+            ensure_rtl_line(f"{total_updates} آپدیت در {len(groups)} گروه پیدا شد؛ ارسال از قدیمی به جدید شروع شد.")
+        )
+        for group in groups:
+            copy = self.writer.write_group(group)
+            group.title = copy.title or group.title
+            if copy.category in self.settings.themes.get("themes", {}):
+                group.category = copy.category
+            for part, update in enumerate(group.updates, start=1):
+                body = copy.bodies.get(update.id) or update.text
+                caption = self.themes.caption(group, update, body, part, len(group.updates))
+                temp, prepared = self.media.prepare(update)
+                try:
+                    if prepared:
+                        self.telegram.send_media(prepared)
+                finally:
+                    temp.cleanup()
+                draft_id = short_id(f"{update.id}:{datetime.now(timezone.utc).timestamp()}")
+                sent = self.telegram.send_message(caption, reply_markup=draft_keyboard(draft_id))
+                draft = Draft(
+                    id=draft_id,
+                    update_id=update.id,
+                    event_key=group.key,
+                    caption=caption,
+                    mode="default",
+                    telegram_message_id=int(sent.get("message_id", 0) or 0),
+                    created_at=datetime.now(timezone.utc).isoformat(),
+                )
+                self.state.archive_update(update)
+                self.state.save_draft(draft)
+                self.state.mark_seen(update)
+
+    async def handle_draft_action(self, action: str, draft_id: str, message_id: int) -> None:
+        draft = self.state.get_draft(draft_id)
+        if not draft:
+            self.telegram.send_message("این پیش‌نویس دیگر در حافظه نیست.")
+            return
+        if action == "copy":
+            self.telegram.send_message(draft.caption)
+            return
+        if action == "reject":
+            self.telegram.edit_message_text(message_id, "🗑 رد شد\n\n" + draft.caption, reply_markup=inline_keyboard([]))
+            return
+        mode_map = {"fun": "funnier", "soft": "softer", "precise": "precise"}
+        mode = mode_map.get(action)
+        if not mode:
+            return
+        update = self.state.get_update(draft.update_id)
+        if update is None:
+            self.telegram.send_message("متن اصلی این پیش‌نویس پیدا نشد.")
+            return
+        group = organize_updates([update])[0]
+        copy = self.writer.write_group(group, mode=mode)
+        group.title = copy.title or group.title
+        body = copy.bodies.get(update.id) or update.text
+        caption = self.themes.caption(group, update, body, 1, 1)
+        self.telegram.edit_message_text(message_id, caption, reply_markup=draft_keyboard(draft_id))
+        draft.caption = caption
+        draft.mode = mode
+        self.state.save_draft(draft)
+
+    def _safe_send(self, text: str) -> None:
+        try:
+            self.telegram.send_message(text)
+        except Exception:
+            logger.exception("Could not send error message to Telegram")
+
+
+def parse_date_query(query: str, timezone_info=timezone.utc) -> tuple[datetime, datetime] | None:
+    query = query.strip()
+    patterns = [
+        r"\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b",
+        r"\b(\d{2})(\d{2})(\d{2})\b",
+    ]
+    for index, pattern in enumerate(patterns):
+        match = re.search(pattern, query)
+        if not match:
+            continue
+        if index == 0:
+            year, month, day = map(int, match.groups())
+        else:
+            yy, month, day = map(int, match.groups())
+            year = 2000 + yy
+        try:
+            local_start = datetime(year, month, day, tzinfo=timezone_info)
+        except ValueError:
+            return None
+        local_end = local_start + timedelta(days=1)
+        return local_start.astimezone(timezone.utc), local_end.astimezone(timezone.utc)
+    return None
+
+
+def rank_groups(query: str, groups: list[EventGroup]) -> list[EventGroup]:
+    tokens = {token.casefold() for token in re.findall(r"[\w\u0600-\u06ff\u3040-\u30ff\uac00-\ud7af]+", query) if len(token) > 1}
+
+    def score(group: EventGroup) -> tuple[float, datetime]:
+        haystack = " ".join([group.title, *(item.text for item in group.updates)]).casefold()
+        overlap = sum(1 for token in tokens if token in haystack)
+        media_bonus = sum(bool(item.media) for item in group.updates) * 0.15
+        size_bonus = min(len(group.updates), 10) * 0.08
+        return overlap + media_bonus + size_bonus, group.started_at
+
+    return sorted(groups, key=score, reverse=True)
+
+
+def short_id(value: str) -> str:
+    return hashlib.sha1(value.encode("utf-8")).hexdigest()[:12]
+
+
+def check_project() -> int:
+    try:
+        settings = Settings.load(require_secrets=False)
+    except ConfigError as exc:
+        print(f"CHECK FAILED: {exc}")
+        return 1
+    errors = settings.validate_files()
+    memory = StyleMemory(ROOT)
+    if not memory.samples:
+        errors.append("data/channel_memory.jsonl is empty.")
+    if not memory.profile:
+        errors.append("data/channel_voice_profile.json is empty.")
+    if errors:
+        for error in errors:
+            print("CHECK FAILED:", error)
+        return 1
+    print(f"CHECK OK: {len(settings.sources)} sources, {len(memory.samples)} style samples")
+    return 0
+
+
+async def async_main() -> int:
+    try:
+        settings = Settings.load(require_secrets=True)
+        errors = settings.validate_files()
+        if errors:
+            raise ConfigError("; ".join(errors))
+        app = Application(settings)
+        await app.run()
+        return 0
+    except ConfigError as exc:
+        logger.error("Configuration error: %s", exc)
+        return 2
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--check", action="store_true")
+    args = parser.parse_args()
+    if args.check:
+        return check_project()
+    return asyncio.run(async_main())
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
