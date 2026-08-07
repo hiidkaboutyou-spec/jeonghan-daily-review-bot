@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import logging
-import mimetypes
-import os
 import re
 import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import requests
 
@@ -60,10 +58,19 @@ class MediaManager:
 
     def _download_photo(self, item: MediaItem, root: Path, index: int) -> PreparedMedia | None:
         path = root / f"photo-{index}.jpg"
-        self._stream_download(item.url, path, SAFE_PHOTO_BYTES)
-        if path.stat().st_size == 0:
-            return None
-        return PreparedMedia(kind="photo", path=path, content_type="image/jpeg")
+        last_error: Exception | None = None
+        for url in _photo_variants(item.url):
+            path.unlink(missing_ok=True)
+            try:
+                self._stream_download(url, path, SAFE_PHOTO_BYTES)
+                if path.exists() and 0 < path.stat().st_size <= SAFE_PHOTO_BYTES:
+                    return PreparedMedia(kind="photo", path=path, content_type="image/jpeg")
+            except Exception as exc:
+                last_error = exc
+                logger.info("Photo variant fallback needed for %s: %s", url[-80:], _safe_error(exc))
+        if last_error is not None:
+            raise last_error
+        return None
 
     def _download_video(self, item: MediaItem, tweet_url: str, root: Path, index: int) -> PreparedMedia | None:
         direct = root / f"video-{index}.mp4"
@@ -150,6 +157,20 @@ class MediaManager:
             if _run_ffmpeg(command) and target.exists() and 0 < target.stat().st_size <= SAFE_VIDEO_BYTES:
                 return target
         return target if target.exists() and target.stat().st_size > 0 else None
+
+
+def _photo_variants(url: str) -> list[str]:
+    """Prefer X original image, then gracefully fall back to Telegram-safe sizes."""
+    parts = urlsplit(url)
+    params = dict(parse_qsl(parts.query, keep_blank_values=True))
+    fmt = params.get("format") or "jpg"
+    variants: list[str] = []
+    for name in ("orig", "4096x4096", "large", "medium"):
+        query = dict(params)
+        query["format"] = fmt
+        query["name"] = name
+        variants.append(urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment)))
+    return list(dict.fromkeys(variants))
 
 
 def _write_netscape_cookies(path: Path, cookies: dict[str, str]) -> None:
