@@ -22,6 +22,12 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("jeonghan-state-v2-", workflow)
         self.assertNotIn("path: .state\n", workflow)
 
+    def test_ffmpeg_setup_is_bounded_and_prefers_preinstalled_binary(self):
+        workflow = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")
+        self.assertIn("command -v ffmpeg", workflow)
+        self.assertIn("timeout 120s sudo apt-get update", workflow)
+        self.assertIn("timeout 120s sudo apt-get install", workflow)
+
     def test_temporary_release_workflows_are_not_part_of_release_tree(self):
         workflows = ROOT / ".github" / "workflows"
         self.assertFalse((workflows / "release-finalization-smoke.yml").exists())
