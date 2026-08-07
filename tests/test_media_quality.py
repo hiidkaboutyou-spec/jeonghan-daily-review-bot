@@ -37,10 +37,15 @@ class HighQualityMediaTests(unittest.TestCase):
             media=list(media),
         )
 
-    def test_photo_quality_order_includes_direct_orig_4096_and_all_fallbacks(self):
+    def test_photo_quality_order_preserves_unique_direct_and_size_fallbacks(self):
         high, low = _photo_quality_candidates(self.photo().url)
         self.assertEqual([name for name, _ in high], ["x-direct", "x-orig", "x-4096"])
-        self.assertEqual([name for name, _ in low], ["x-large", "x-medium", "x-small"])
+        # The direct URL is already the medium variant, so retrying the exact same
+        # URL later would waste a request. The remaining unique lower fallbacks are
+        # therefore large -> small; medium has already been attempted as x-direct.
+        self.assertEqual([name for name, _ in low], ["x-large", "x-small"])
+        urls = [url for _, url in high + low]
+        self.assertEqual(len(urls), len(set(urls)))
 
     def test_original_direct_photo_success_skips_extractors(self):
         manager = MediaManager({})
@@ -167,14 +172,17 @@ class HighQualityMediaTests(unittest.TestCase):
                 manager._stream_download("https://pbs.twimg.com/media/x", Path(temp) / "x.jpg", 1024, attempts=2)
         self.assertEqual(manager.session.get.call_count, 2)
 
-    def test_photo_fallback_has_no_infinite_loop(self):
+    def test_photo_fallback_has_no_infinite_loop_or_duplicate_url_attempt(self):
         manager = MediaManager({})
         manager._stream_download = MagicMock(side_effect=requests.ConnectionError("no"))
         manager._download_with_gallery_dl = MagicMock(return_value=None)
         with tempfile.TemporaryDirectory() as temp:
             with self.assertRaises(requests.ConnectionError):
                 manager._download_photo(self.photo(), "https://x.com/a/status/1", Path(temp), 0)
-        self.assertEqual(manager._stream_download.call_count, 6)
+        # medium was already attempted as the direct URL, so it is not retried later.
+        self.assertEqual(manager._stream_download.call_count, 5)
+        attempted = [call.args[0] for call in manager._stream_download.call_args_list]
+        self.assertEqual(len(attempted), len(set(attempted)))
         manager._download_with_gallery_dl.assert_called_once()
 
     def test_ffmpeg_unavailable_fails_cleanly(self):
