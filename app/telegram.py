@@ -141,7 +141,14 @@ class TelegramBot:
         return self.api("editMessageText", data=data)
 
     def answer_callback(self, callback_id: str, text: str = "") -> None:
-        self.api("answerCallbackQuery", data={"callback_query_id": callback_id, "text": text[:180]})
+        # Callback acknowledgements are best-effort UX. Never let an expired or
+        # degraded acknowledgement block the actual callback action for minutes.
+        self.api(
+            "answerCallbackQuery",
+            data={"callback_query_id": callback_id, "text": text[:180]},
+            timeout=8,
+            attempts=1,
+        )
 
     def send_media(self, media: list[PreparedMedia]) -> list[dict[str, Any]]:
         sent: list[dict[str, Any]] = []
