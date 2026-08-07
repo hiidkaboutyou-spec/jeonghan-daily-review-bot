@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+import requests
+
 from .models import EventGroup, Update
 from .style import StyleMemory
 
@@ -33,10 +35,20 @@ class CaptionWriter:
             try:
                 from google import genai
             except ImportError:
-                logger.warning("google-genai is unavailable; using factual fallback captions.")
+                logger.warning("google-genai is unavailable; using translation fallback captions.")
                 return None
             self._client = genai.Client(api_key=self.api_key)
         return self._client
+
+    def _model_candidates(self) -> list[str]:
+        return _unique(
+            [
+                self.model,
+                "gemini-3.1-flash-lite",
+                "gemini-2.5-flash-lite",
+                "gemini-2.5-flash",
+            ]
+        )
 
     def write_group(self, group: EventGroup, *, mode: str = "default") -> GroupCopy:
         query_text = "\n".join(item.text for item in group.updates)
@@ -91,49 +103,63 @@ class CaptionWriter:
   "items": [{{"id":"...","body":"..."}}]
 }}
 """.strip()
-        try:
-            from google.genai import types
 
-            response = client.models.generate_content(
-                model=self.model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.35 if mode == "default" else 0.55,
-                    response_mime_type="application/json",
-                    response_json_schema={
-                        "type": "OBJECT",
-                        "required": ["title", "category", "items"],
-                        "properties": {
-                            "title": {"type": "STRING"},
-                            "category": {"type": "STRING"},
-                            "items": {
-                                "type": "ARRAY",
+        from google.genai import types
+
+        last_error: Exception | None = None
+        for model in self._model_candidates():
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=0.35 if mode == "default" else 0.55,
+                        response_mime_type="application/json",
+                        response_json_schema={
+                            "type": "object",
+                            "required": ["title", "category", "items"],
+                            "properties": {
+                                "title": {"type": "string"},
+                                "category": {"type": "string"},
                                 "items": {
-                                    "type": "OBJECT",
-                                    "required": ["id", "body"],
-                                    "properties": {
-                                        "id": {"type": "STRING"},
-                                        "body": {"type": "STRING"},
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "required": ["id", "body"],
+                                        "properties": {
+                                            "id": {"type": "string"},
+                                            "body": {"type": "string"},
+                                        },
                                     },
                                 },
                             },
                         },
-                    },
-                ),
-            )
-            parsed = json.loads(response.text or "{}")
-            bodies = {str(item["id"]): str(item["body"]).strip() for item in parsed.get("items", [])}
-            missing = [item.id for item in group.updates if not bodies.get(item.id)]
-            if missing:
-                raise ValueError(f"Gemini omitted update IDs: {missing}")
-            return GroupCopy(
-                title=str(parsed.get("title") or group.title).strip(),
-                category=str(parsed.get("category") or group.category).strip(),
-                bodies=bodies,
-            )
-        except Exception as exc:  # external service must never lose an update
-            logger.warning("Gemini caption generation failed: %s", _safe_error(exc))
-            return self._fallback_group(group)
+                    ),
+                )
+                parsed = json.loads(response.text or "{}")
+                bodies = {
+                    str(item["id"]): str(item["body"]).strip()
+                    for item in parsed.get("items", [])
+                    if item.get("id")
+                }
+                missing = [item.id for item in group.updates if not bodies.get(item.id)]
+                if missing:
+                    raise ValueError(f"Gemini omitted update IDs: {missing}")
+                logger.info("Gemini caption generation succeeded with model %s", model)
+                return GroupCopy(
+                    title=str(parsed.get("title") or group.title).strip(),
+                    category=str(parsed.get("category") or group.category).strip(),
+                    bodies=bodies,
+                )
+            except Exception as exc:  # external service must never lose an update
+                last_error = exc
+                logger.warning("Gemini model %s failed: %s", model, _safe_error(exc))
+
+        logger.warning(
+            "All Gemini caption models failed; using Persian translation fallback: %s",
+            _safe_error(last_error) if last_error else "unknown error",
+        )
+        return self._fallback_group(group)
 
     def expand_search(self, query: str) -> list[str]:
         query = query.strip()
@@ -152,30 +178,32 @@ class CaptionWriter:
 - queryها خیلی طولانی نباشند.
 فقط JSON: {{"queries":["..."]}}
 """.strip()
-        try:
-            from google.genai import types
 
-            response = client.models.generate_content(
-                model=self.model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.15,
-                    response_mime_type="application/json",
-                    response_json_schema={
-                        "type": "OBJECT",
-                        "required": ["queries"],
-                        "properties": {
-                            "queries": {"type": "ARRAY", "items": {"type": "STRING"}},
+        from google.genai import types
+
+        for model in self._model_candidates():
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=0.15,
+                        response_mime_type="application/json",
+                        response_json_schema={
+                            "type": "object",
+                            "required": ["queries"],
+                            "properties": {
+                                "queries": {"type": "array", "items": {"type": "string"}},
+                            },
                         },
-                    },
-                ),
-            )
-            parsed = json.loads(response.text or "{}")
-            values = [str(item).strip() for item in parsed.get("queries", []) if str(item).strip()]
-            return _unique(values + fallback)[:8]
-        except Exception as exc:
-            logger.warning("Gemini search expansion failed: %s", _safe_error(exc))
-            return fallback
+                    ),
+                )
+                parsed = json.loads(response.text or "{}")
+                values = [str(item).strip() for item in parsed.get("queries", []) if str(item).strip()]
+                return _unique(values + fallback)[:8]
+            except Exception as exc:
+                logger.warning("Gemini search expansion model %s failed: %s", model, _safe_error(exc))
+        return fallback
 
     def candidate_titles(self, query: str, candidates: list[EventGroup]) -> dict[str, str]:
         if not candidates:
@@ -197,28 +225,54 @@ class CaptionWriter:
 فقط JSON: {{"items":[{{"key":"...","title":"..."}}]}}
 داده‌ها: {json.dumps(compact, ensure_ascii=False)}
 """.strip()
-        try:
-            from google.genai import types
 
-            response = client.models.generate_content(
-                model=self.model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.1,
-                    response_mime_type="application/json",
-                ),
-            )
-            parsed = json.loads(response.text or "{}")
-            result = {str(item.get("key")): str(item.get("title", "")).strip() for item in parsed.get("items", [])}
-            return {key: result.get(key) or title for key, title in fallback.items()}
-        except Exception:
-            return fallback
+        from google.genai import types
+
+        for model in self._model_candidates():
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=0.1,
+                        response_mime_type="application/json",
+                        response_json_schema={
+                            "type": "object",
+                            "required": ["items"],
+                            "properties": {
+                                "items": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "required": ["key", "title"],
+                                        "properties": {
+                                            "key": {"type": "string"},
+                                            "title": {"type": "string"},
+                                        },
+                                    },
+                                }
+                            },
+                        },
+                    ),
+                )
+                parsed = json.loads(response.text or "{}")
+                result = {
+                    str(item.get("key")): str(item.get("title", "")).strip()
+                    for item in parsed.get("items", [])
+                }
+                return {key: result.get(key) or title for key, title in fallback.items()}
+            except Exception as exc:
+                logger.warning("Gemini candidate-title model %s failed: %s", model, _safe_error(exc))
+        return fallback
 
     def _fallback_group(self, group: EventGroup) -> GroupCopy:
         bodies: dict[str, str] = {}
         for item in group.updates:
             text = re.sub(r"https?://\S+", "", item.text).strip()
-            bodies[item.id] = text or "این آپدیت فقط مدیا دارد."
+            if not text:
+                bodies[item.id] = "این آپدیت فقط مدیا دارد."
+                continue
+            bodies[item.id] = _translate_to_persian(text)
         return GroupCopy(title=group.title, category=group.category, bodies=bodies)
 
     @staticmethod
@@ -234,6 +288,48 @@ class CaptionWriter:
         )[:6]
 
 
+def _translate_to_persian(text: str) -> str:
+    text = text.strip()
+    if not text or not _needs_translation(text):
+        return text
+    try:
+        response = requests.get(
+            "https://translate.googleapis.com/translate_a/single",
+            params={
+                "client": "gtx",
+                "sl": "auto",
+                "tl": "fa",
+                "dt": "t",
+                "q": text,
+            },
+            timeout=20,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        translated = "".join(
+            str(part[0])
+            for part in (payload[0] if isinstance(payload, list) and payload else [])
+            if isinstance(part, list) and part and part[0]
+        ).strip()
+        if translated and (_has_persian(translated) or not _needs_translation(translated)):
+            logger.info("Fallback translation to Persian succeeded.")
+            return translated
+    except Exception as exc:
+        logger.warning("Persian translation fallback failed: %s", _safe_error(exc))
+    return "⚠️ ترجمهٔ خودکار این پیام ناموفق بود.\n\n" + text
+
+
+def _has_persian(text: str) -> bool:
+    return bool(re.search(r"[\u0600-\u06ff]", text))
+
+
+def _needs_translation(text: str) -> bool:
+    if re.search(r"[\uac00-\ud7af\u3040-\u30ff\u4e00-\u9fff]", text):
+        return True
+    has_latin = bool(re.search(r"[A-Za-z]", text))
+    return has_latin and not _has_persian(text)
+
+
 def _unique(values: list[str]) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
@@ -245,7 +341,9 @@ def _unique(values: list[str]) -> list[str]:
     return result
 
 
-def _safe_error(exc: Exception) -> str:
+def _safe_error(exc: Exception | None) -> str:
+    if exc is None:
+        return "unknown error"
     value = str(exc)
     value = re.sub(r"(?i)(api[_ -]?key|token|cookie)\s*[:=]\s*\S+", r"\1=<redacted>", value)
     return value[:500]
