@@ -33,7 +33,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: nightly-jeonghan-fic-digest-${{ github.event_name == 'push' || github.event_name == 'pull_request' && github.ref || 'runtime' }}
+  group: nightly-jeonghan-fic-digest-${{ (github.event_name == 'push' || github.event_name == 'pull_request') && github.ref || 'runtime' }}
   cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
 
 jobs:
