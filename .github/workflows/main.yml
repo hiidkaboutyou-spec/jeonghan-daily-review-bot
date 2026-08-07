@@ -9,6 +9,7 @@ on:
       - "app/**"
       - "config/**"
       - "tests/**"
+      - "tools/**"
       - "requirements.txt"
       - ".github/workflows/main.yml"
   pull_request:
@@ -18,6 +19,7 @@ on:
       - "app/**"
       - "config/**"
       - "tests/**"
+      - "tools/**"
       - "requirements.txt"
       - ".github/workflows/main.yml"
   workflow_dispatch:
@@ -93,12 +95,20 @@ jobs:
         if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')
         uses: actions/cache/restore@v5
         with:
-          # Cache only application state. Never cache/restore .state/x_accounts.db:
-          # twscrape stores authenticated X cookie material in that SQLite database.
           path: .state/state.json
           key: jeonghan-state-v2-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             jeonghan-state-v2-${{ runner.os }}-
+
+      - name: Restore private review database
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')
+        uses: actions/cache/restore@v5
+        with:
+          # Persist only this explicitly named private-review DB. Never cache .state/x_accounts.db.
+          path: .state/private-review.sqlite3
+          key: jeonghan-private-review-v1-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            jeonghan-private-review-v1-${{ runner.os }}-
 
       - name: Validate project
         run: |
@@ -141,6 +151,24 @@ jobs:
           fi
           echo "Live window completed with $successful_passes successful bot pass(es)."
 
+      - name: Checkpoint private review database
+        if: >-
+          always() &&
+          (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')) &&
+          hashFiles('.state/private-review.sqlite3') != ''
+        run: |
+          python - <<'PY'
+          import sqlite3
+          from pathlib import Path
+          path = Path('.state/private-review.sqlite3')
+          if path.exists():
+              conn = sqlite3.connect(path, timeout=15)
+              try:
+                  conn.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchall()
+              finally:
+                  conn.close()
+          PY
+
       - name: Save bot state
         if: >-
           always() &&
@@ -150,3 +178,13 @@ jobs:
         with:
           path: .state/state.json
           key: jeonghan-state-v2-${{ runner.os }}-${{ github.run_id }}
+
+      - name: Save private review database
+        if: >-
+          always() &&
+          (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')) &&
+          hashFiles('.state/private-review.sqlite3') != ''
+        uses: actions/cache/save@v5
+        with:
+          path: .state/private-review.sqlite3
+          key: jeonghan-private-review-v1-${{ runner.os }}-${{ github.run_id }}
