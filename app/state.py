@@ -9,7 +9,7 @@ from typing import Any
 
 from .models import Draft, Update
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class StateStore:
@@ -22,6 +22,7 @@ class StateStore:
             "schema": SCHEMA_VERSION,
             "telegram_offset": 0,
             "last_auto_run": "",
+            "last_x_error_notice": "",
             "seen": {},
             "archive": {},
             "sessions": {},
@@ -42,9 +43,27 @@ class StateStore:
             except OSError:
                 pass
             return self._fresh()
+        if not isinstance(value, dict):
+            return self._fresh()
+        return self._normalize_loaded(value)
+
+    def _normalize_loaded(self, value: dict[str, Any]) -> dict[str, Any]:
+        """Migrate older/partial state without trusting its nested types."""
         fresh = self._fresh()
-        if isinstance(value, dict):
-            fresh.update(value)
+        try:
+            fresh["telegram_offset"] = max(0, int(value.get("telegram_offset", 0) or 0))
+        except (TypeError, ValueError):
+            fresh["telegram_offset"] = 0
+        for key in ("last_auto_run", "last_x_error_notice"):
+            raw = value.get(key, "")
+            fresh[key] = str(raw) if isinstance(raw, (str, int, float)) else ""
+        for key in ("seen", "archive", "sessions", "drafts", "awaiting"):
+            raw = value.get(key)
+            if isinstance(raw, dict):
+                fresh[key] = raw
+        pending = value.get("pending_delivery")
+        if isinstance(pending, list):
+            fresh["pending_delivery"] = [item for item in pending if isinstance(item, dict)]
         fresh["schema"] = SCHEMA_VERSION
         return fresh
 
@@ -83,7 +102,12 @@ class StateStore:
 
     def get_update(self, update_id: str) -> Update | None:
         raw = self.data["archive"].get(str(update_id))
-        return Update.from_dict(raw) if raw else None
+        if not isinstance(raw, dict):
+            return None
+        try:
+            return Update.from_dict(raw)
+        except (TypeError, ValueError):
+            return None
 
     def create_session(self, session_id: str, payload: dict[str, Any]) -> None:
         payload = dict(payload)
@@ -91,14 +115,20 @@ class StateStore:
         self.data["sessions"][session_id] = payload
 
     def get_session(self, session_id: str) -> dict[str, Any] | None:
-        return self.data["sessions"].get(session_id)
+        value = self.data["sessions"].get(session_id)
+        return value if isinstance(value, dict) else None
 
     def save_draft(self, draft: Draft) -> None:
         self.data["drafts"][draft.id] = draft.to_dict()
 
     def get_draft(self, draft_id: str) -> Draft | None:
         raw = self.data["drafts"].get(draft_id)
-        return Draft.from_dict(raw) if raw else None
+        if not isinstance(raw, dict):
+            return None
+        try:
+            return Draft.from_dict(raw)
+        except TypeError:
+            return None
 
     def set_awaiting(self, user_id: int, kind: str) -> None:
         self.data["awaiting"][str(user_id)] = kind
@@ -107,7 +137,7 @@ class StateStore:
         return str(self.data["awaiting"].pop(str(user_id), ""))
 
     def queue_updates(self, updates: list[Update], *, force: bool = False) -> None:
-        existing = {str(item.get("id")) for item in self.data["pending_delivery"]}
+        existing = {str(item.get("id")) for item in self.data["pending_delivery"] if isinstance(item, dict)}
         for update in updates:
             if update.id in existing:
                 continue
@@ -117,15 +147,12 @@ class StateStore:
             existing.add(update.id)
 
     def pop_pending(self, limit: int) -> list[tuple[Update, bool]]:
-        """Return pending items without losing them before delivery succeeds.
-
-        Items successfully sent by a previous pass are marked seen by the caller.
-        We discard those seen entries here, while unsent entries remain queued and
-        therefore survive Telegram/media/network failures for the next bot pass.
-        """
+        """Peek pending items; remove only entries already marked seen."""
         queue = list(self.data.get("pending_delivery", []))
         remaining: list[dict[str, Any]] = []
         for item in queue:
+            if not isinstance(item, dict):
+                continue
             update_id = str(item.get("id", ""))
             if update_id and self.is_seen(update_id):
                 continue
@@ -133,10 +160,13 @@ class StateStore:
         self.data["pending_delivery"] = remaining
 
         result: list[tuple[Update, bool]] = []
-        for item in remaining[:limit]:
+        for item in remaining[: max(0, limit)]:
             payload = dict(item)
             force = bool(payload.pop("force", False))
-            result.append((Update.from_dict(payload), force))
+            try:
+                result.append((Update.from_dict(payload), force))
+            except (TypeError, ValueError):
+                continue
         return result
 
     def prune(self) -> None:
@@ -151,30 +181,30 @@ class StateStore:
         self.data["sessions"] = {
             key: value
             for key, value in self.data.get("sessions", {}).items()
-            if _parse_dt(value.get("created_at", "")) >= session_cutoff
+            if isinstance(value, dict) and _parse_dt(value.get("created_at", "")) >= session_cutoff
         }
         archive = self.data.get("archive", {})
-        if len(archive) > 30000:
+        if isinstance(archive, dict) and len(archive) > 30000:
             ordered = sorted(
-                archive.items(),
+                ((k, v) for k, v in archive.items() if isinstance(v, dict)),
                 key=lambda pair: str(pair[1].get("created_at", "")),
                 reverse=True,
             )[:30000]
             self.data["archive"] = dict(ordered)
         drafts = self.data.get("drafts", {})
-        if len(drafts) > 3000:
+        if isinstance(drafts, dict) and len(drafts) > 3000:
             ordered = sorted(
-                drafts.items(),
+                ((k, v) for k, v in drafts.items() if isinstance(v, dict)),
                 key=lambda pair: str(pair[1].get("created_at", "")),
                 reverse=True,
             )[:3000]
             self.data["drafts"] = dict(ordered)
 
 
-def _parse_dt(value: str) -> datetime:
+def _parse_dt(value: Any) -> datetime:
     try:
         dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except ValueError:
+    except (TypeError, ValueError):
         return datetime.min.replace(tzinfo=timezone.utc)
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
