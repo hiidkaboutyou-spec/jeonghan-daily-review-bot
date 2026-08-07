@@ -3,9 +3,9 @@
   "gemini_model": "gemini-2.5-flash-lite",
   "state_path": ".state/state.json",
   "runtime": {
-    "max_auto_items_per_run": 10,
+    "max_auto_items_per_run": 100,
     "max_search_candidates": 8,
-    "scheduled_lookback_hours": 2,
+    "scheduled_lookback_hours": 6,
     "max_media_per_post": 20,
     "review_only": true
   }
