@@ -115,6 +115,7 @@ jobs:
           X_COOKIE: ${{ secrets.X_COOKIE }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: |
           echo "Starting responsive Telegram review window."
           end=$((SECONDS + 780))
