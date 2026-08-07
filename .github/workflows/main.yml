@@ -4,6 +4,16 @@ on:
   push:
     branches:
       - main
+      - "agent/**"
+    paths:
+      - "app/**"
+      - "config/**"
+      - "tests/**"
+      - "requirements.txt"
+      - ".github/workflows/main.yml"
+  pull_request:
+    branches:
+      - main
     paths:
       - "app/**"
       - "config/**"
@@ -26,12 +36,9 @@ on:
 permissions:
   contents: read
 
-# Code-validation pushes must never wait behind a long live Telegram window.
-# Scheduled/manual live runs remain serialized so two bot instances do not poll
-# the same Telegram updates or write state at the same time.
 concurrency:
-  group: jeonghan-daily-review-bot-${{ github.event_name == 'push' && 'validation' || 'runtime' }}
-  cancel-in-progress: ${{ github.event_name == 'push' }}
+  group: jeonghan-daily-review-bot-${{ github.event_name == 'push' || github.event_name == 'pull_request' && 'validation' || 'runtime' }}
+  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
 
 jobs:
   validate-and-run:
@@ -60,14 +67,17 @@ jobs:
         if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')
         uses: actions/cache/restore@v5
         with:
-          path: .state
-          key: jeonghan-state-${{ runner.os }}-${{ github.run_id }}
+          # Cache only application state. Never cache .state/x_accounts.db because
+          # twscrape stores authenticated X cookie material in that SQLite database.
+          path: .state/state.json
+          key: jeonghan-state-v2-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
+            jeonghan-state-v2-${{ runner.os }}-
             jeonghan-state-${{ runner.os }}-
 
       - name: Validate project
         run: |
-          python -m compileall -q app tests
+          python -m compileall -q app tests tools
           python -m app --check
           python -m unittest discover -s tests -p "test_*.py" -v
 
@@ -102,5 +112,5 @@ jobs:
           hashFiles('.state/state.json') != ''
         uses: actions/cache/save@v5
         with:
-          path: .state
-          key: jeonghan-state-${{ runner.os }}-${{ github.run_id }}
+          path: .state/state.json
+          key: jeonghan-state-v2-${{ runner.os }}-${{ github.run_id }}
