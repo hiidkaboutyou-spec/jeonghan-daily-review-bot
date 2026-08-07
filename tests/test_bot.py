@@ -12,10 +12,10 @@ from zoneinfo import ZoneInfo
 
 from app.config import ROOT, Settings, parse_cookie_secret
 from app.main import parse_date_query
-from app.models import Update
+from app.models import MediaItem, Update
 from app.organizer import organize_updates
 from app.state import StateStore
-from app.style import RLM, ThemeEngine, apply_rtl, ensure_rtl_line
+from app.style import RLM, apply_rtl, ensure_rtl_line
 from app.telegram import main_keyboard
 from app.x_client import XCollector, is_relevant_jeonghan_update
 
@@ -80,17 +80,20 @@ class OrderingTests(unittest.TestCase):
 
 
 class StateTests(unittest.TestCase):
+    def make_update(self, id_: str) -> Update:
+        return Update(
+            id=id_,
+            url=f"https://x.com/a/status/{id_}",
+            author="a",
+            author_name="A",
+            text="test",
+            created_at=datetime.now(timezone.utc),
+        )
+
     def test_pending_force_field_is_not_passed_into_update(self):
         with tempfile.TemporaryDirectory() as temp:
             store = StateStore(Path(temp) / "state.json")
-            update = Update(
-                id="10",
-                url="https://x.com/a/status/10",
-                author="a",
-                author_name="A",
-                text="test",
-                created_at=datetime.now(timezone.utc),
-            )
+            update = self.make_update("10")
             store.queue_updates([update], force=True)
             pending = store.pop_pending(1)
             self.assertEqual(pending[0][0].id, "10")
@@ -99,17 +102,23 @@ class StateTests(unittest.TestCase):
     def test_seen_does_not_block_explicit_force_logic(self):
         with tempfile.TemporaryDirectory() as temp:
             store = StateStore(Path(temp) / "state.json")
-            update = Update(
-                id="11",
-                url="https://x.com/a/status/11",
-                author="a",
-                author_name="A",
-                text="test",
-                created_at=datetime.now(timezone.utc),
-            )
+            update = self.make_update("11")
             store.mark_seen(update)
             self.assertTrue(store.is_seen("11"))
             self.assertEqual(store.get_update("11").id, "11")
+
+    def test_pending_item_survives_until_it_is_marked_seen(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = StateStore(Path(temp) / "state.json")
+            update = self.make_update("12")
+            store.queue_updates([update])
+            first = store.pop_pending(10)
+            second = store.pop_pending(10)
+            self.assertEqual([x[0].id for x in first], ["12"])
+            self.assertEqual([x[0].id for x in second], ["12"])
+            store.mark_seen(update)
+            self.assertEqual(store.pop_pending(10), [])
+            self.assertEqual(store.data["pending_delivery"], [])
 
 
 class XConversionTests(unittest.TestCase):
@@ -169,6 +178,26 @@ class XConversionTests(unittest.TestCase):
             created_at=datetime.now(timezone.utc),
         )
         self.assertTrue(is_relevant_jeonghan_update(update, trusted_source=False))
+
+    def test_dedicated_source_thread_part_without_name_is_kept(self):
+        collector = XCollector(
+            {},
+            [{"handle": "jeonghannisms", "enabled": True, "jeonghan_only": True}],
+            [],
+        )
+        update = Update(
+            id="thread2",
+            url="https://x.com/jeonghannisms/status/thread2",
+            author="jeonghannisms",
+            author_name="JH",
+            text="he said he ate already and laughed 😭",
+            created_at=datetime.now(timezone.utc),
+            conversation_id="thread1",
+            reply_to_id="thread1",
+            media=[MediaItem(kind="photo", url="https://pbs.twimg.com/media/x")],
+            raw_query="thread:thread1",
+        )
+        self.assertEqual([item.id for item in collector._filter_relevant([update])], ["thread2"])
 
 
 class DateAndConfigTests(unittest.TestCase):
