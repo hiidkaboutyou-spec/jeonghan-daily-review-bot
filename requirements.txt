@@ -3,3 +3,4 @@ google-genai>=2.13,<3
 requests>=2.32,<3
 beautifulsoup4>=4.12,<5
 yt-dlp>=2026.7.4
+sentry-sdk>=2.35,<3
