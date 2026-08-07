@@ -4,8 +4,9 @@
   "state_path": ".state/state.json",
   "runtime": {
     "max_auto_items_per_run": 1000,
+    "max_collection_items": 1000,
     "max_search_candidates": 8,
-    "scheduled_lookback_hours": 6,
+    "scheduled_lookback_hours": 24,
     "max_media_per_post": 20,
     "review_only": true
   }
