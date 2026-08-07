@@ -1,3 +1,3 @@
-from .health_runtime import main
+from .reminder_runtime import main
 
 raise SystemExit(main())
