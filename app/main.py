@@ -96,9 +96,15 @@ class Application:
         elif command in {"/recent2h", "/fetch2h"}:
             await self.run_recent2h()
         elif command == "/search":
-            await self.run_search(argument) if argument else self._ask_search_async()
+            if argument:
+                await self.run_search(argument)
+            else:
+                self.ask_for_search()
         elif command in {"/source24", "/fetch24h"}:
-            await self.run_source24(argument) if argument else self._show_sources_async()
+            if argument:
+                await self.run_source24(argument)
+            else:
+                self.show_sources()
         elif command == "/sources":
             self.show_sources()
         elif command == "/status":
@@ -110,12 +116,6 @@ class Application:
             await send_digests(self.settings, self.telegram)
         else:
             self.telegram.send_message("دستور را نشناختم. از دکمه‌های پایین چت استفاده کن:", reply_markup=main_keyboard())
-
-    async def _ask_search_async(self) -> None:
-        self.ask_for_search()
-
-    async def _show_sources_async(self) -> None:
-        self.show_sources()
 
     async def handle_callback(self, callback: dict[str, Any]) -> None:
         if not self.telegram.is_admin_callback(callback):
@@ -298,6 +298,7 @@ class Application:
         except XCollectionError as exc:
             logger.warning("Scheduled X scan failed: %s", exc)
             self._safe_send("⚠️ اسکن خودکار X این نوبت انجام نشد؛ اجرای بعدی دوباره تلاش می‌کند.")
+            self.state.data["last_auto_run"] = now.isoformat()
             return
         fresh = [item for item in updates if not self.state.is_seen(item.id)]
         fresh.sort(key=lambda item: (item.created_at, item.id))
