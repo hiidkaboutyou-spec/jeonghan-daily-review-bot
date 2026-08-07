@@ -68,7 +68,20 @@ jobs:
           X_COOKIE: ${{ secrets.X_COOKIE }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
-        run: python -m app
+        run: |
+          echo "Starting responsive Telegram review window."
+          end=$((SECONDS + 780))
+          while [ "$SECONDS" -lt "$end" ]; do
+            set +e
+            python -m app
+            code=$?
+            set -e
+            if [ "$code" -eq 2 ]; then
+              echo "Fatal configuration error; stopping instead of retrying."
+              exit "$code"
+            fi
+            sleep 5
+          done
 
       - name: Save bot state
         if: >-
