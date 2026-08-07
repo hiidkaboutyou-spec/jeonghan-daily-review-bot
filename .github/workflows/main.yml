@@ -58,7 +58,33 @@ jobs:
           cache: pip
 
       - name: FFmpeg
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          if command -v ffmpeg >/dev/null 2>&1; then
+            ffmpeg -version | head -n 1
+            exit 0
+          fi
+
+          for attempt in 1 2; do
+            echo "Installing FFmpeg (attempt $attempt/2)."
+            if timeout 120s sudo apt-get \
+                 -o Acquire::Retries=2 \
+                 -o Acquire::http::Timeout=20 \
+                 -o Acquire::https::Timeout=20 \
+                 update -qq && \
+               timeout 120s sudo apt-get \
+                 -o Dpkg::Use-Pty=0 \
+                 install -y -qq ffmpeg; then
+              ffmpeg -version | head -n 1
+              exit 0
+            fi
+            echo "FFmpeg install attempt $attempt failed or timed out."
+            sleep 5
+          done
+
+          echo "FFmpeg installation failed after bounded retries."
+          exit 1
 
       - name: Install
         run: python -m pip install -r requirements.txt
