@@ -45,12 +45,13 @@ class TelegramBot:
                     timeout=timeout,
                 )
             except requests.RequestException as exc:
-                # Never include the request URL here: it contains the bot token.
+                # Never include or chain the requests exception here: its message may
+                # contain the full Bot API URL, which embeds TELEGRAM_BOT_TOKEN.
                 last_description = f"Telegram network request failed ({type(exc).__name__})."
                 if attempt + 1 < attempts:
                     time.sleep(1.0 + attempt)
                     continue
-                raise TelegramError(last_description) from exc
+                raise TelegramError(last_description) from None
 
             try:
                 payload = response.json()
