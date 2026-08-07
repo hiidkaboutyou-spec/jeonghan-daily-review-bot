@@ -4,14 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "اجرای کامل یا فقط بررسی فایل‌ها"
+        description: "فقط تست یا اجرای واقعی"
         required: true
-        default: live
+        default: check
         type: choice
         options:
-          - live
           - check
-
+          - live
   schedule:
     - cron: "7,22,37,52 * * * *"
 
@@ -25,62 +24,58 @@ concurrency:
 jobs:
   validate-and-run:
     runs-on: ubuntu-latest
-    timeout-minutes: 14
-
-    defaults:
-      run:
-        working-directory: jeonghan-daily-review-bot-v2/jeonghan-daily-review-bot-v2
-
+    timeout-minutes: 30
     env:
       PYTHONUNBUFFERED: "1"
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Checkout
+        uses: actions/checkout@v6
 
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+      - name: Python
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: jeonghan-daily-review-bot-v2/jeonghan-daily-review-bot-v2/requirements.txt
 
-      - name: Restore persistent bot state
-        if: github.event_name != 'workflow_dispatch' || inputs.mode == 'live'
+      - name: FFmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - name: Install
+        run: python -m pip install -r requirements.txt
+
+      - name: Restore bot state
+        if: github.event_name == 'schedule' || inputs.mode == 'live'
         id: state-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        uses: actions/cache/restore@v5
         with:
-          path: jeonghan-daily-review-bot-v2/jeonghan-daily-review-bot-v2/state/state.json
+          path: .state
           key: jeonghan-state-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             jeonghan-state-${{ runner.os }}-
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Validate files and run tests
+      - name: Validate project
         run: |
-          python -m src.bot --check
+          python -m app --check
           python -m unittest discover -s tests -p "test_bot.py" -v
 
-      - name: Run bot
-        if: github.event_name != 'workflow_dispatch' || inputs.mode == 'live'
+      - name: Run private review bot
+        if: github.event_name == 'schedule' || inputs.mode == 'live'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_ADMIN_USER_ID: ${{ secrets.TELEGRAM_ADMIN_USER_ID }}
           TELEGRAM_REVIEW_CHAT_ID: ${{ secrets.TELEGRAM_REVIEW_CHAT_ID }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           X_COOKIE: ${{ secrets.X_COOKIE }}
-        run: python -m src.bot
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+        run: python -m app
 
-      - name: Save persistent bot state
+      - name: Save bot state
         if: >-
           always() &&
-          (github.event_name != 'workflow_dispatch' || inputs.mode == 'live') &&
-          hashFiles('jeonghan-daily-review-bot-v2/jeonghan-daily-review-bot-v2/state/state.json') != ''
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+          (github.event_name == 'schedule' || inputs.mode == 'live') &&
+          hashFiles('.state/state.json') != ''
+        uses: actions/cache/save@v5
         with:
-          path: jeonghan-daily-review-bot-v2/jeonghan-daily-review-bot-v2/state/state.json
-          key: ${{ steps.state-cache.outputs.cache-primary-key }}
+          path: .state
+          key: jeonghan-state-${{ runner.os }}-${{ github.run_id }}
