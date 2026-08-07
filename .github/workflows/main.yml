@@ -67,13 +67,12 @@ jobs:
         if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')
         uses: actions/cache/restore@v5
         with:
-          # Cache only application state. Never cache .state/x_accounts.db because
+          # Cache only application state. Never cache/restore .state/x_accounts.db:
           # twscrape stores authenticated X cookie material in that SQLite database.
           path: .state/state.json
           key: jeonghan-state-v2-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             jeonghan-state-v2-${{ runner.os }}-
-            jeonghan-state-${{ runner.os }}-
 
       - name: Validate project
         run: |
