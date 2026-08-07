@@ -81,7 +81,7 @@ def _get(url: str, *, timeout: int = 20, attempts: int = 3) -> requests.Response
     for attempt in range(attempts):
         try:
             response = requests.get(url, headers=HEADERS, timeout=timeout, allow_redirects=True)
-            if response.status_code == 429:
+            if response.status_code in {429, 502, 503, 504}:
                 time.sleep(2 + attempt * 2)
                 continue
             response.raise_for_status()
@@ -143,7 +143,7 @@ def fetch_ao3_work(url: str) -> Fic | None:
     if not match:
         return None
     canonical = f"{AO3}/works/{match.group(1)}"
-    response = _get(canonical + "?view_adult=true", timeout=15, attempts=2)
+    response = _get(canonical + "?view_adult=true", timeout=12, attempts=2)
     if response is None:
         return None
     soup = BeautifulSoup(response.text, "html.parser")
@@ -200,7 +200,7 @@ async def search_x_recommendations(settings: Settings, limit: int = 24) -> list[
         '(JEONGCHEOL OR JIHAN OR GYUHAN OR WONHAN OR SOONHAN OR JUNHAN) (AO3 OR fic OR fanfic)',
         '(JEONGHAN) ("fic rec" OR "fic recommendation" OR "fanfic rec")',
     ]
-    found: dict[str, Fic] = {}
+    candidates: dict[str, tuple[str, int, str]] = {}
     for query in queries:
         try:
             async for tweet in api.search(query, limit=120, kv={"product": "Top"}):
@@ -214,25 +214,36 @@ async def search_x_recommendations(settings: Settings, limit: int = 24) -> list[
                     if not work_id_match:
                         continue
                     work_id = work_id_match.group(1)
-                    if work_id in found:
-                        found[work_id].x_score = max(found[work_id].x_score, score)
-                        continue
-                    fic = await asyncio.to_thread(fetch_ao3_work, url)
-                    if fic is None:
-                        continue
-                    fic.x_score = score
-                    fic.source_note = note
-                    found[work_id] = fic
-                    if len(found) >= limit:
-                        break
-                if len(found) >= limit:
+                    current = candidates.get(work_id)
+                    if current is None or score > current[1]:
+                        candidates[work_id] = (url, score, note)
+                if len(candidates) >= max(limit * 2, 36):
                     break
         except Exception as exc:
             logger.warning("X fic recommendation query failed but digest will continue: %s", exc)
         await asyncio.sleep(0.5)
-        if len(found) >= limit:
-            break
-    return sorted(found.values(), key=lambda f: (f.x_score, f.kudos, f.bookmarks, f.hits), reverse=True)[:limit]
+
+    ranked = sorted(candidates.values(), key=lambda item: item[1], reverse=True)[: max(limit * 2, limit)]
+    semaphore = asyncio.Semaphore(4)
+
+    async def load(candidate: tuple[str, int, str]) -> Fic | None:
+        url, score, note = candidate
+        async with semaphore:
+            fic = await asyncio.to_thread(fetch_ao3_work, url)
+        if fic is not None:
+            fic.x_score = score
+            fic.source_note = note
+        return fic
+
+    loaded = await asyncio.gather(*(load(candidate) for candidate in ranked), return_exceptions=True)
+    found: list[Fic] = []
+    for item in loaded:
+        if isinstance(item, Exception):
+            logger.warning("AO3 work lookup from X recommendation failed: %s", item)
+            continue
+        if item is not None:
+            found.append(item)
+    return sorted(found, key=lambda f: (f.x_score, f.kudos, f.bookmarks, f.hits), reverse=True)[:limit]
 
 
 def _translate_summary(summary: str) -> str:
@@ -255,12 +266,15 @@ def _translate_summary(summary: str) -> str:
         return summary
 
 
+def _fallback_summaries(fics: list[Fic]) -> dict[str, str]:
+    return {fic.url: _translate_summary(fic.summary) for fic in fics}
+
+
 def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str]:
     if not fics:
         return {}
-    fallback = {fic.url: _translate_summary(fic.summary) for fic in fics}
     if not settings.gemini_api_key:
-        return fallback
+        return _fallback_summaries(fics)
     try:
         from google import genai
         from google.genai import types
@@ -272,7 +286,7 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
             "هیچ جزئیات، پایان یا trope جدیدی اختراع نکن. خروجی JSON با items شامل url و summary_fa باشد. "
             + json.dumps(payload, ensure_ascii=False)
         )
-        candidates = list(dict.fromkeys([settings.gemini_model, "gemini-2.5-flash", "gemini-3.1-flash-lite"]))
+        candidates = list(dict.fromkeys([settings.gemini_model, "gemini-2.5-flash-lite", "gemini-2.5-flash"]))
         for model in [m for m in candidates if m]:
             try:
                 response = client.models.generate_content(
@@ -301,29 +315,59 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
                     ),
                 )
                 parsed = json.loads(response.text or "{}")
-                result = {str(x.get("url")): str(x.get("summary_fa", "")).strip() for x in parsed.get("items", []) if x.get("url")}
+                result = {
+                    str(x.get("url")): str(x.get("summary_fa", "")).strip()
+                    for x in parsed.get("items", [])
+                    if x.get("url") and str(x.get("summary_fa", "")).strip()
+                }
                 if result:
-                    return {fic.url: result.get(fic.url) or fallback[fic.url] for fic in fics}
+                    missing = [fic for fic in fics if fic.url not in result]
+                    if missing:
+                        result.update(_fallback_summaries(missing))
+                    return {fic.url: result.get(fic.url, fic.summary) for fic in fics}
             except Exception as exc:
                 logger.warning("Fic Gemini model %s failed; trying fallback: %s", model, exc)
     except Exception as exc:
         logger.warning("Gemini summary layer unavailable: %s", exc)
-    return fallback
+    return _fallback_summaries(fics)
 
 
 def _chunks(text: str, max_len: int = 3800) -> list[str]:
+    """Split Telegram text without ever truncating a long fic block."""
+    if max_len < 1:
+        raise ValueError("max_len must be positive")
     chunks: list[str] = []
     current = ""
+
+    def flush() -> None:
+        nonlocal current
+        if current:
+            chunks.append(current)
+            current = ""
+
     for block in text.split("\n\n"):
-        candidate = block if not current else current + "\n\n" + block
-        if len(candidate) <= max_len:
-            current = candidate
-        else:
-            if current:
-                chunks.append(current)
-            current = block[:max_len]
-    if current:
-        chunks.append(current)
+        pieces: list[str] = []
+        remaining = block
+        while len(remaining) > max_len:
+            cut = remaining.rfind("\n", 0, max_len + 1)
+            if cut < max_len // 2:
+                cut = max_len
+            pieces.append(remaining[:cut])
+            remaining = remaining[cut:]
+            if remaining.startswith("\n"):
+                remaining = remaining[1:]
+        pieces.append(remaining)
+
+        for piece in pieces:
+            if not piece and not current:
+                continue
+            candidate = piece if not current else current + "\n\n" + piece
+            if len(candidate) <= max_len:
+                current = candidate
+            else:
+                flush()
+                current = piece
+    flush()
     return chunks
 
 
