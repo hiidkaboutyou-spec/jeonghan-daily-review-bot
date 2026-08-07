@@ -40,12 +40,7 @@ _OTHER_MEMBER_RE = re.compile(
 
 
 def is_relevant_jeonghan_update(update: Update, *, trusted_source: bool = False) -> bool:
-    """Strict relevance gate for Jeonghan daily updates.
-
-    Commerce/trading is always rejected. Mixed/official/ship sources must explicitly
-    identify Jeonghan. Dedicated Jeonghan sources may pass short media posts, but a
-    text post that clearly names another member without any Jeonghan signal is rejected.
-    """
+    """Reject marketplace noise while keeping genuine Jeonghan updates complete."""
     text = (update.text or "").strip()
     has_jh = bool(_STRONG_JH_RE.search(text))
 
@@ -59,15 +54,14 @@ def is_relevant_jeonghan_update(update: Update, *, trusted_source: bool = False)
 
     if not trusted_source:
         return has_jh
-
     if has_jh:
         return True
     if not text:
         return bool(update.media)
     if _OTHER_MEMBER_RE.search(text):
         return False
-    # Dedicated Jeonghan accounts often use tiny captions/emojis for new media.
-    return bool(update.media) and len(text) <= 120
+    # Dedicated Jeonghan accounts often post live parts/media with no repeated name.
+    return bool(update.media) or len(text) <= 280
 
 
 class XCollector:
@@ -141,7 +135,9 @@ class XCollector:
     def _filter_relevant(self, updates: list[Update]) -> list[Update]:
         kept: list[Update] = []
         for item in updates:
-            dedicated = item.author.lower() in self.dedicated_sources and item.raw_query.startswith("timeline:")
+            # Trust is tied to the exact configured account, not to how the tweet was
+            # retrieved. This prevents live/thread replies from disappearing in archive search.
+            dedicated = item.author.lower() in self.dedicated_sources
             if is_relevant_jeonghan_update(item, trusted_source=dedicated):
                 kept.append(item)
             else:
@@ -183,7 +179,6 @@ class XCollector:
         if include_keywords:
             date_suffix = _date_suffix(start, end)
             queries: list[str] = []
-            # Run important terms separately for better recall, then deduplicate.
             for group in self.keyword_groups:
                 if not group.get("enabled", True):
                     continue
@@ -204,6 +199,7 @@ class XCollector:
         return results
 
     async def collect_source(self, handle: str, start: datetime, end: datetime) -> list[Update]:
+        """Explicit 24h source mode: return that source completely, oldest/newest later."""
         handle = normalize_handle(handle)
         if not handle:
             raise XCollectionError("Source handle is empty.")
@@ -217,7 +213,7 @@ class XCollector:
                 raise XCollectionError(
                     f"Could not read @{handle}: {_safe_error(timeline_error)} | {_safe_error(search_error)}"
                 ) from search_error
-        return self._filter_relevant(results)
+        return _dedupe(results)
 
     async def _collect_source_timeline(
         self,
