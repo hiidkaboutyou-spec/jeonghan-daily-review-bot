@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -34,6 +35,24 @@ class SourceHealth:
         if (now - value.astimezone(timezone.utc)).total_seconds() > 24 * 3600:
             return "stale"
         return "healthy"
+
+
+def _safe_error_code(value: object) -> str:
+    """Reduce any failure detail to one harmless technical identifier.
+
+    Health telemetry must never persist exception text because X/HTTP errors may
+    contain cookies, tokens, URLs, headers or private response text. Keep only the
+    first identifier-like token (normally the exception class name).
+    """
+    text = str(value or "")
+    match = re.search(r"[A-Za-z][A-Za-z0-9_]{0,63}", text)
+    if not match:
+        return "Error"
+    candidate = match.group(0)
+    lowered = candidate.casefold()
+    if any(secret_word in lowered for secret_word in ("token", "cookie", "secret", "auth", "password", "credential")):
+        return "Error"
+    return candidate
 
 
 class SourceHealthStore:
@@ -74,7 +93,7 @@ class SourceHealthStore:
 
     def failure(self, source: str, error_code: str, latency_ms: int) -> None:
         now = datetime.now(timezone.utc).isoformat()
-        safe_code = "".join(ch for ch in str(error_code) if ch.isalnum() or ch in "_-")[:80] or "Error"
+        safe_code = _safe_error_code(error_code)
         with self.conn:
             self.conn.execute(
                 """
