@@ -11,6 +11,7 @@ on:
       - "tests/**"
       - "tools/**"
       - "requirements.txt"
+      - "requirements-optional-media.txt"
       - ".github/workflows/main.yml"
   pull_request:
     branches:
@@ -21,6 +22,7 @@ on:
       - "tests/**"
       - "tools/**"
       - "requirements.txt"
+      - "requirements-optional-media.txt"
       - ".github/workflows/main.yml"
   workflow_dispatch:
     inputs:
@@ -89,7 +91,12 @@ jobs:
           exit 1
 
       - name: Install
-        run: python -m pip install -r requirements.txt
+        shell: bash
+        run: |
+          python -m pip install -r requirements.txt
+          if ! python -m pip install -r requirements-optional-media.txt; then
+            echo "::warning::Optional gallery-dl install failed; existing direct/yt-dlp/FFmpeg fallbacks remain available."
+          fi
 
       - name: Restore bot state
         if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')
@@ -104,7 +111,6 @@ jobs:
         if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')
         uses: actions/cache/restore@v5
         with:
-          # Persist only this explicitly named private-review DB. Never cache .state/x_accounts.db.
           path: .state/private-review.sqlite3
           key: jeonghan-private-review-v1-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |

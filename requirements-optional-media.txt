@@ -1,0 +1,2 @@
+# Optional F11 fallback. The bot remains functional if this install is unavailable.
+gallery-dl==1.32.7
