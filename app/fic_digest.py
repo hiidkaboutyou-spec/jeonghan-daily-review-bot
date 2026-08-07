@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json
 import logging
 import re
 from dataclasses import dataclass
@@ -28,7 +29,7 @@ SHIP_ALIASES = [
     ("JunHan", ("Wen Junhui", "Moon Junhui", "Junhui", "Jun")),
     ("SeokHan", ("Lee Seokmin", "DK", "Seokmin")),
     ("HaoHan", ("Xu Minghao", "The8", "Minghao")),
-    ("JiHan (Woozi)", ("Lee Jihoon", "Woozi", "Jihoon")),
+    ("WooHan", ("Lee Jihoon", "Woozi", "Jihoon")),
     ("KwanHan", ("Boo Seungkwan", "Seungkwan")),
     ("ChanHan", ("Lee Chan", "Dino")),
     ("VerHan", ("Chwe Hansol", "Vernon", "Hansol")),
@@ -76,7 +77,6 @@ def _is_jeonghan(relationships: list[str], text: str = "") -> bool:
 
 
 def search_ao3(limit: int = 36) -> list[Fic]:
-    """Search AO3 itself, English only, ranked primarily by kudos."""
     params = {
         "work_search[query]": '"Yoon Jeonghan" OR Jeonghan',
         "work_search[language_id]": "en",
@@ -100,21 +100,20 @@ def search_ao3(limit: int = 36) -> list[Fic]:
         if not _is_jeonghan(relationships, heading.get_text(" ", strip=True) + " " + summary):
             continue
         author_nodes = work.select("h4.heading a[rel='author']")
-        rating = _clean(work.select_one("span.rating").get_text(" ", strip=True) if work.select_one("span.rating") else "")
+        rating_node = work.select_one("span.rating")
         words_node = work.select_one("dd.words")
-        fic = Fic(
+        fics.append(Fic(
             title=_clean(heading.get_text(" ", strip=True)),
             url=AO3 + href,
             author=", ".join(_clean(a.get_text(" ", strip=True)) for a in author_nodes) or "Anonymous",
             summary=summary,
             relationships=relationships,
-            rating=rating,
+            rating=_clean(rating_node.get_text(" ", strip=True) if rating_node else ""),
             words=_clean(words_node.get_text(" ", strip=True) if words_node else ""),
             kudos=_num(work.select_one("dd.kudos")),
             bookmarks=_num(work.select_one("dd.bookmarks")),
             hits=_num(work.select_one("dd.hits")),
-        )
-        fics.append(fic)
+        ))
         if len(fics) >= limit:
             break
     return fics
@@ -140,14 +139,16 @@ def fetch_ao3_work(url: str) -> Fic | None:
         return None
     summary_node = soup.select_one("div.summary blockquote.userstuff")
     author_nodes = soup.select("h3.byline.heading a[rel='author']")
+    rating_node = soup.select_one("dd.rating.tags")
+    words_node = soup.select_one("dd.words")
     return Fic(
         title=_clean(title.get_text(" ", strip=True)),
         url=canonical,
         author=", ".join(_clean(a.get_text(" ", strip=True)) for a in author_nodes) or "Anonymous",
         summary=_clean(summary_node.get_text(" ", strip=True) if summary_node else "No public summary provided."),
         relationships=relationships,
-        rating=_clean(soup.select_one("dd.rating.tags").get_text(" ", strip=True) if soup.select_one("dd.rating.tags") else ""),
-        words=_clean(soup.select_one("dd.words").get_text(" ", strip=True) if soup.select_one("dd.words") else ""),
+        rating=_clean(rating_node.get_text(" ", strip=True) if rating_node else ""),
+        words=_clean(words_node.get_text(" ", strip=True) if words_node else ""),
         kudos=_num(soup.select_one("dd.kudos")),
         bookmarks=_num(soup.select_one("dd.bookmarks")),
         hits=_num(soup.select_one("dd.hits")),
@@ -218,6 +219,7 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
     try:
         from google import genai
         from google.genai import types
+
         client = genai.Client(api_key=settings.gemini_api_key)
         payload = [{"url": f.url, "title": f.title, "summary": f.summary} for f in fics]
         prompt = (
@@ -233,13 +235,29 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
                 response_mime_type="application/json",
                 response_json_schema={
                     "type": "object",
-                    "properties": {"items": {"type": "array", "items": {"type": "object", "properties": {"url": {"type": "string"}, "summary_fa": {"type": "string"}}, "required": ["url", "summary_fa"]}}},
-                "required": ["items"],
+                    "required": ["items"],
+                    "properties": {
+                        "items": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "required": ["url", "summary_fa"],
+                                "properties": {
+                                    "url": {"type": "string"},
+                                    "summary_fa": {"type": "string"}
+                                }
+                            }
+                        }
+                    }
+                },
             ),
         )
-        import json
         parsed = json.loads(response.text or "{}")
-        result = {str(x["url"]): str(x["summary_fa"]).strip() for x in parsed.get("items", []) if x.get("url")}
+        result = {
+            str(x["url"]): str(x["summary_fa"]).strip()
+            for x in parsed.get("items", [])
+            if x.get("url")
+        }
         return {fic.url: result.get(fic.url, fic.summary) for fic in fics}
     except Exception as exc:
         logger.warning("Fic summary translation failed: %s", exc)
@@ -282,7 +300,7 @@ def format_digest(title: str, fics: list[Fic], summaries: dict[str, str], source
             lines += [
                 f"{number}) {fic.title}",
                 f"by {fic.author}",
-                f"{rel}",
+                rel,
                 stats + (f" · Words {fic.words}" if fic.words else ""),
                 fic.url,
                 "خلاصه: " + summaries.get(fic.url, fic.summary),
@@ -296,14 +314,12 @@ async def main_async() -> int:
     settings = Settings.load(require_secrets=True)
     bot = TelegramBot(settings.telegram_token, settings.admin_user_id, settings.review_chat_id)
 
-    # List 1: recommendations discovered on X, then verified against AO3 and English-only.
     x_fics = await search_x_recommendations(settings)
     x_summaries = await asyncio.to_thread(summarize_fics_persian, settings, x_fics)
     x_text = format_digest("🌙 لیست شبانه فن‌فیک — پیشنهادهای پیدا شده در X", x_fics, x_summaries, "x")
     for chunk in _chunks(x_text):
         bot.send_message(chunk)
 
-    # List 2: AO3-native ranking, separate from X, sorted by AO3 popularity.
     ao3_fics = await asyncio.to_thread(search_ao3, 36)
     ao3_fics.sort(key=lambda f: (f.kudos, f.bookmarks, f.hits), reverse=True)
     ao3_summaries = await asyncio.to_thread(summarize_fics_persian, settings, ao3_fics)
