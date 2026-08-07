@@ -22,6 +22,11 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("jeonghan-state-v2-", workflow)
         self.assertNotIn("path: .state\n", workflow)
 
+    def test_temporary_release_workflows_are_not_part_of_release_tree(self):
+        workflows = ROOT / ".github" / "workflows"
+        self.assertFalse((workflows / "release-finalization-smoke.yml").exists())
+        self.assertFalse((workflows / "release-cache-cleanup.yml").exists())
+
 
 if __name__ == "__main__":
     unittest.main()
