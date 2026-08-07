@@ -26,9 +26,12 @@ on:
 permissions:
   contents: read
 
+# Code-validation pushes must never wait behind a long live Telegram window.
+# Scheduled/manual live runs remain serialized so two bot instances do not poll
+# the same Telegram updates or write state at the same time.
 concurrency:
-  group: jeonghan-daily-review-bot
-  cancel-in-progress: false
+  group: jeonghan-daily-review-bot-${{ github.event_name == 'push' && 'validation' || 'runtime' }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
   validate-and-run:
