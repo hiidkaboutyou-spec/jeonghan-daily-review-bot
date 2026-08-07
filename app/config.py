@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from http.cookies import SimpleCookie
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ROOT = Path(__file__).resolve().parents[1]
+HANDLE_RE = re.compile(r"^[A-Za-z0-9_]{1,15}$")
 
 
 class ConfigError(RuntimeError):
@@ -17,11 +19,14 @@ class ConfigError(RuntimeError):
 
 def read_json(path: Path) -> dict[str, Any]:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
         raise ConfigError(f"Missing config file: {path.relative_to(ROOT)}") from exc
     except json.JSONDecodeError as exc:
         raise ConfigError(f"Invalid JSON in {path.relative_to(ROOT)}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ConfigError(f"Config file must contain a JSON object: {path.relative_to(ROOT)}")
+    return value
 
 
 def parse_cookie_secret(raw: str) -> dict[str, str]:
@@ -30,7 +35,10 @@ def parse_cookie_secret(raw: str) -> dict[str, str]:
     if not raw:
         return {}
     if raw.startswith("{"):
-        parsed = json.loads(raw)
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ConfigError("X_COOKIE contains invalid JSON.") from exc
         if not isinstance(parsed, dict):
             raise ConfigError("X_COOKIE JSON must be an object of cookie name/value pairs.")
         return {str(k): str(v) for k, v in parsed.items() if v is not None}
@@ -44,7 +52,10 @@ def parse_cookie_secret(raw: str) -> dict[str, str]:
                 cookies[parts[5]] = parts[6]
         return cookies
     cookie = SimpleCookie()
-    cookie.load(raw)
+    try:
+        cookie.load(raw)
+    except Exception as exc:
+        raise ConfigError("X_COOKIE could not be parsed as a Cookie header.") from exc
     parsed = {key: morsel.value for key, morsel in cookie.items()}
     if parsed:
         return parsed
@@ -89,7 +100,6 @@ class Settings:
                     "TELEGRAM_ADMIN_USER_ID": admin_raw,
                     "TELEGRAM_REVIEW_CHAT_ID": chat_raw,
                     "X_COOKIE": x_raw,
-                    "GEMINI_API_KEY": gemini_key,
                 }.items()
                 if not value
             ]
@@ -100,16 +110,23 @@ class Settings:
             review_chat_id = int(chat_raw or 0)
         except ValueError as exc:
             raise ConfigError("Telegram IDs must be numeric.") from exc
+        if require_secrets and admin_id <= 0:
+            raise ConfigError("TELEGRAM_ADMIN_USER_ID must be a positive numeric Telegram user ID.")
+        if require_secrets and review_chat_id == 0:
+            raise ConfigError("TELEGRAM_REVIEW_CHAT_ID must be a non-zero numeric chat ID.")
 
         x_cookies = parse_cookie_secret(x_raw) if x_raw else {}
         if require_secrets:
             missing_x = [name for name in ("auth_token", "ct0") if not x_cookies.get(name)]
             if missing_x:
-                raise ConfigError(
-                    "X_COOKIE is missing required cookies: " + ", ".join(missing_x)
-                )
+                raise ConfigError("X_COOKIE is missing required cookies: " + ", ".join(missing_x))
 
         timezone_name = str(settings_json.get("timezone", "Asia/Tehran"))
+        try:
+            timezone_info = ZoneInfo(timezone_name)
+        except ZoneInfoNotFoundError as exc:
+            raise ConfigError(f"Unknown timezone in config/settings.json: {timezone_name}") from exc
+
         configured_model = str(settings_json.get("gemini_model", "gemini-2.5-flash-lite")).strip()
         gemini_model = os.getenv("GEMINI_MODEL", "").strip() or configured_model or "gemini-2.5-flash-lite"
         return cls(
@@ -119,7 +136,7 @@ class Settings:
             x_cookies=x_cookies,
             gemini_api_key=gemini_key,
             gemini_model=gemini_model,
-            timezone=ZoneInfo(timezone_name),
+            timezone=timezone_info,
             state_path=ROOT / str(settings_json.get("state_path", ".state/state.json")),
             sources=list(sources_json.get("sources", [])),
             keyword_groups=list(sources_json.get("keyword_groups", [])),
@@ -134,11 +151,18 @@ class Settings:
             handle = str(source.get("handle", "")).lstrip("@").strip()
             if not handle:
                 errors.append("A source is missing its handle.")
-            elif handle.lower() in handles:
+                continue
+            if not HANDLE_RE.fullmatch(handle):
+                errors.append(f"Invalid X source handle: @{handle}")
+                continue
+            lowered = handle.lower()
+            if lowered in handles:
                 errors.append(f"Duplicate source: @{handle}")
-            handles.add(handle.lower())
+            handles.add(lowered)
         if "couphanfiles" not in handles:
             errors.append("Required source @couphanfiles is missing.")
+        if not any(str(term).strip() for group in self.keyword_groups for term in group.get("terms", [])):
+            errors.append("No X keyword terms are configured.")
         required_categories = {
             "live",
             "jeonghan_instagram",

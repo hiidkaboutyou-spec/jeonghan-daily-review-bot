@@ -35,11 +35,21 @@ class Application:
 
     async def run(self) -> None:
         try:
+            self._ensure_polling_mode_periodically()
             await self.process_telegram_updates()
             await self.run_scheduled_scan()
             await self.deliver_pending()
         finally:
             self.state.save()
+
+    def _ensure_polling_mode_periodically(self) -> None:
+        """Clear stale webhooks at most once per day so getUpdates remains valid."""
+        now = datetime.now(timezone.utc)
+        checked = _parse_state_datetime(self.state.data.get("polling_mode_checked"))
+        if checked and now - checked < timedelta(hours=24):
+            return
+        self.telegram.ensure_polling_mode()
+        self.state.data["polling_mode_checked"] = now.isoformat()
 
     async def process_telegram_updates(self) -> None:
         updates = self.telegram.get_updates(self.state.telegram_offset)
@@ -66,8 +76,12 @@ class Application:
             return
 
         if text == "📚 فن‌فیک":
-            self.telegram.send_message("📚 دارم هر دو لیست X و AO3 را آماده می‌کنم؛ ممکن است یکی دو دقیقه طول بکشد…", reply_markup=main_keyboard())
+            self.telegram.send_message(
+                "📚 دارم هر دو لیست X و AO3 را آماده می‌کنم؛ ممکن است یکی دو دقیقه طول بکشد…",
+                reply_markup=main_keyboard(),
+            )
             from .fic_digest import send_digests
+
             await send_digests(self.settings, self.telegram)
             return
 
@@ -113,16 +127,25 @@ class Application:
             self.send_help()
         elif command == "/fic":
             from .fic_digest import send_digests
+
             await send_digests(self.settings, self.telegram)
         else:
-            self.telegram.send_message("دستور را نشناختم. از دکمه‌های پایین چت استفاده کن:", reply_markup=main_keyboard())
+            self.telegram.send_message(
+                "دستور را نشناختم. از دکمه‌های پایین چت استفاده کن:",
+                reply_markup=main_keyboard(),
+            )
 
     async def handle_callback(self, callback: dict[str, Any]) -> None:
         if not self.telegram.is_admin_callback(callback):
             return
         callback_id = str(callback.get("id", ""))
         data = str(callback.get("data", ""))
-        self.telegram.answer_callback(callback_id, "در حال انجام…")
+        try:
+            self.telegram.answer_callback(callback_id, "در حال انجام…")
+        except TelegramError as exc:
+            # Telegram callbacks expire quickly; an expired acknowledgement must not
+            # prevent the actual requested action from running.
+            logger.info("Callback acknowledgement failed; continuing action: %s", exc)
         parts = data.split(":")
         if data == "cmd:recent2h":
             await self.run_recent2h()
@@ -137,7 +160,12 @@ class Application:
         elif len(parts) >= 3 and parts[0] == "source":
             await self.run_source24(parts[2])
         elif len(parts) >= 3 and parts[0] == "pick":
-            await self.run_selected_event(parts[1], int(parts[2]))
+            try:
+                index = int(parts[2])
+            except ValueError:
+                self.telegram.send_message("گزینهٔ انتخاب‌شده معتبر نیست.", reply_markup=main_keyboard())
+                return
+            await self.run_selected_event(parts[1], index)
         elif len(parts) >= 3 and parts[0] == "draft":
             message_id = int(callback.get("message", {}).get("message_id", 0) or 0)
             await self.handle_draft_action(parts[1], parts[2], message_id)
@@ -157,7 +185,9 @@ class Application:
     def ask_for_search(self) -> None:
         self.state.set_awaiting(self.settings.admin_user_id, "search")
         self.telegram.send_message(
-            ensure_rtl_line("تاریخ یا توضیحت را بفرست؛ مثلاً:\n2026-07-14\n260714\nلایوی که داشت بازی می‌کرد و با خودش حرف می‌زد"),
+            ensure_rtl_line(
+                "تاریخ یا توضیحت را بفرست؛ مثلاً:\n2026-07-14\n260714\nلایوی که داشت بازی می‌کرد و با خودش حرف می‌زد"
+            ),
             reply_markup=main_keyboard(),
         )
 
@@ -165,7 +195,10 @@ class Application:
         enabled = [source for source in self.settings.sources if source.get("enabled", True)]
         rows = [[(f"@{source['handle']}", f"source:24:{source['handle']}")] for source in enabled]
         rows.append([("➕ وارد کردن منبع دیگر", "source:24:custom")])
-        self.telegram.send_message("یک منبع را برای دریافت کامل ۲۴ ساعت انتخاب کن:", reply_markup=inline_keyboard(rows))
+        self.telegram.send_message(
+            "یک منبع را برای دریافت کامل ۲۴ ساعت انتخاب کن:",
+            reply_markup=inline_keyboard(rows),
+        )
 
     def send_status(self) -> None:
         data = self.state.data
@@ -174,7 +207,7 @@ class Application:
             f"منابع فعال: {sum(bool(item.get('enabled', True)) for item in self.settings.sources)}\n"
             f"آیتم‌های آرشیو داخلی: {len(data.get('archive', {}))}\n"
             f"صف باقی‌مانده: {len(data.get('pending_delivery', []))}\n"
-            f"آخرین اسکن خودکار: {data.get('last_auto_run') or 'هنوز اجرا نشده'}\n"
+            f"آخرین اسکن موفق خودکار: {data.get('last_auto_run') or 'هنوز اجرا نشده'}\n"
             f"مدل کپشن: {self.settings.gemini_model}"
         )
         self.telegram.send_message(ensure_rtl_line(text), reply_markup=main_keyboard())
@@ -191,11 +224,19 @@ class Application:
         self.telegram.send_message(ensure_rtl_line(text), reply_markup=main_keyboard())
 
     async def run_recent2h(self) -> None:
-        self.telegram.send_message("🕑 دارم تمام آپدیت‌های دو ساعت اخیر را دوباره جمع می‌کنم…", reply_markup=main_keyboard())
+        self.telegram.send_message(
+            "🕑 دارم تمام آپدیت‌های دو ساعت اخیر را دوباره جمع می‌کنم…",
+            reply_markup=main_keyboard(),
+        )
         end = datetime.now(timezone.utc)
         start = end - timedelta(hours=2)
-        updates = await self.collector.collect_window(start, end, max_per_query=100)
-        updates = [item for item in updates if start <= item.created_at < end]
+        updates = await self.collector.collect_window(start, end, max_per_query=200)
+        updates = sorted(
+            (item for item in updates if start <= item.created_at < end),
+            key=lambda item: (item.created_at, item.id),
+        )
+        ceiling = max(1, int(self.settings.runtime.get("max_collection_items", 1000)))
+        updates = updates[:ceiling]
         if not updates:
             self.telegram.send_message("در دو ساعت اخیر چیزی پیدا نشد.", reply_markup=main_keyboard())
             return
@@ -210,18 +251,32 @@ class Application:
         if not handle:
             self.telegram.send_message("یوزرنیم منبع درست نیست.", reply_markup=main_keyboard())
             return
-        self.telegram.send_message(f"🗂 دارم ۲۴ ساعت کامل @{handle} را از قدیمی به جدید می‌گیرم…", reply_markup=main_keyboard())
+        self.telegram.send_message(
+            f"🗂 دارم ۲۴ ساعت کامل @{handle} را از قدیمی به جدید می‌گیرم…",
+            reply_markup=main_keyboard(),
+        )
         end = datetime.now(timezone.utc)
         start = end - timedelta(hours=24)
         updates = await self.collector.collect_source(handle, start, end)
-        updates = [item for item in updates if start <= item.created_at < end]
+        updates = sorted(
+            (item for item in updates if start <= item.created_at < end),
+            key=lambda item: (item.created_at, item.id),
+        )
+        ceiling = max(1, int(self.settings.runtime.get("max_collection_items", 1000)))
+        updates = updates[:ceiling]
         if not updates:
-            self.telegram.send_message(f"برای @{handle} در ۲۴ ساعت گذشته چیزی پیدا نشد.", reply_markup=main_keyboard())
+            self.telegram.send_message(
+                f"برای @{handle} در ۲۴ ساعت گذشته چیزی پیدا نشد.",
+                reply_markup=main_keyboard(),
+            )
             return
         await self.deliver_updates(updates, force=True)
 
     async def run_search(self, query: str) -> None:
-        self.telegram.send_message(f"🔎 دارم برای «{query[:200]}» گزینه‌های مرتبط را پیدا می‌کنم…", reply_markup=main_keyboard())
+        self.telegram.send_message(
+            f"🔎 دارم برای «{query[:200]}» گزینه‌های مرتبط را پیدا می‌کنم…",
+            reply_markup=main_keyboard(),
+        )
         date_range = parse_date_query(query, self.settings.timezone)
         expanded = self.writer.expand_search(query)
         if date_range:
@@ -230,15 +285,26 @@ class Application:
             for group in self.settings.keyword_groups:
                 terms = [str(term) for term in group.get("terms", []) if str(term).strip()]
                 if terms:
-                    base_queries.append(" OR ".join(f'\"{term}\"' if " " in term else term for term in terms))
+                    base_queries.append(
+                        " OR ".join(f'\"{term}\"' if " " in term else term for term in terms)
+                    )
             expanded = base_queries + expanded
         else:
             start = end = None
-        updates = await self.collector.search_archive(expanded, start=start, end=end, max_per_query=140)
+        updates = await self.collector.search_archive(
+            expanded,
+            start=start,
+            end=end,
+            max_per_query=140,
+        )
         if not updates:
-            self.telegram.send_message("هیچ نتیجهٔ واقعی و قابل‌استفاده‌ای پیدا نشد.", reply_markup=main_keyboard())
+            self.telegram.send_message(
+                "هیچ نتیجهٔ واقعی و قابل‌استفاده‌ای پیدا نشد.",
+                reply_markup=main_keyboard(),
+            )
             return
-        groups = rank_groups(query, organize_updates(updates))[:8]
+        candidate_limit = max(1, min(8, int(self.settings.runtime.get("max_search_candidates", 8))))
+        groups = rank_groups(query, organize_updates(updates))[:candidate_limit]
         titles = self.writer.candidate_titles(query, groups)
         session_id = short_id(query + datetime.now(timezone.utc).isoformat())
         self.state.create_session(
@@ -264,7 +330,10 @@ class Application:
             title = titles.get(group.key) or group.title
             lines.append(f"{index + 1}. {title} — {local_date} — {len(group.updates)} مورد")
             rows.append([(f"{index + 1}. {title[:40]}", f"pick:{session_id}:{index}")])
-        self.telegram.send_message(ensure_rtl_line("\n".join(lines)), reply_markup=inline_keyboard(rows))
+        self.telegram.send_message(
+            ensure_rtl_line("\n".join(lines)),
+            reply_markup=inline_keyboard(rows),
+        )
 
     async def run_selected_event(self, session_id: str, index: int) -> None:
         session = self.state.get_session(session_id)
@@ -275,42 +344,74 @@ class Application:
         if index < 0 or index >= len(candidates):
             self.telegram.send_message("گزینهٔ انتخاب‌شده معتبر نیست.", reply_markup=main_keyboard())
             return
-        selected = Update.from_dict(candidates[index]["selected"])
-        self.telegram.send_message("انتخاب شد؛ دارم تمام رشته و آپدیت‌های مرتبط همان رویداد را جمع می‌کنم…", reply_markup=main_keyboard())
+        try:
+            selected = Update.from_dict(candidates[index]["selected"])
+        except (KeyError, TypeError, ValueError):
+            self.telegram.send_message("دادهٔ این سرچ خراب شده؛ دوباره سرچ کن.", reply_markup=main_keyboard())
+            return
+        self.telegram.send_message(
+            "انتخاب شد؛ دارم تمام رشته و آپدیت‌های مرتبط همان رویداد را جمع می‌کنم…",
+            reply_markup=main_keyboard(),
+        )
         updates = await self.collector.collect_event(selected)
         await self.deliver_updates(updates or [selected], force=True)
 
     async def run_scheduled_scan(self) -> None:
         now = datetime.now(timezone.utc)
-        last_raw = str(self.state.data.get("last_auto_run", "") or "")
-        try:
-            last = datetime.fromisoformat(last_raw.replace("Z", "+00:00")) if last_raw else now - timedelta(hours=2)
-        except ValueError:
-            last = now - timedelta(hours=2)
-        if last.tzinfo is None:
-            last = last.replace(tzinfo=timezone.utc)
+        last = _parse_state_datetime(self.state.data.get("last_auto_run")) or (now - timedelta(hours=2))
         if now - last < timedelta(minutes=10):
             return
-        lookback = max(2, int(self.settings.runtime.get("scheduled_lookback_hours", 6)))
+        lookback = max(2, int(self.settings.runtime.get("scheduled_lookback_hours", 24)))
         start = max(last - timedelta(minutes=30), now - timedelta(hours=lookback))
         try:
-            updates = await self.collector.collect_window(start, now, max_per_query=100)
+            updates = await self.collector.collect_window(start, now, max_per_query=200)
         except XCollectionError as exc:
             logger.warning("Scheduled X scan failed: %s", exc)
-            self._safe_send("⚠️ اسکن خودکار X این نوبت انجام نشد؛ اجرای بعدی دوباره تلاش می‌کند.")
-            self.state.data["last_auto_run"] = now.isoformat()
+            self._notify_x_failure_if_due(now)
+            # Do not advance last_auto_run on failure. The next successful run must
+            # retry the missed time window (bounded by scheduled_lookback_hours).
             return
+
         fresh = [item for item in updates if not self.state.is_seen(item.id)]
         fresh.sort(key=lambda item: (item.created_at, item.id))
-        self.state.queue_updates(fresh, force=False)
+        ceiling = max(1, int(self.settings.runtime.get("max_collection_items", 1000)))
+        self.state.queue_updates(fresh[:ceiling], force=False)
+
+        # collect_window can return useful partial data while one source/query failed.
+        # Queue what we got, but don't advance the success cursor until every configured
+        # retrieval path completed. Seen IDs prevent duplicates on the retry.
+        if getattr(self.collector, "last_errors", []):
+            logger.warning("Scheduled X scan returned partial results; cursor retained for retry.")
+            self._notify_x_failure_if_due(now)
+            return
         self.state.data["last_auto_run"] = now.isoformat()
+        self.state.data["last_x_error_notice"] = ""
+
+    def _notify_x_failure_if_due(self, now: datetime) -> None:
+        last_notice = _parse_state_datetime(self.state.data.get("last_x_error_notice"))
+        if last_notice and now - last_notice < timedelta(hours=2):
+            return
+        self._safe_send("⚠️ اسکن خودکار X کامل نشد؛ زمان آخرین اسکن موفق حفظ شد و اجرای بعدی دوباره بازهٔ جاافتاده را بررسی می‌کند.")
+        self.state.data["last_x_error_notice"] = now.isoformat()
 
     async def deliver_pending(self) -> None:
-        limit = int(self.settings.runtime.get("max_auto_items_per_run", 1000))
+        limit = max(1, int(self.settings.runtime.get("max_auto_items_per_run", 1000)))
         pending = self.state.pop_pending(limit)
         if not pending:
             return
-        await self.deliver_updates([item for item, _ in pending], force=False)
+        # Preserve force semantics if future callers enqueue forced replay items.
+        batch: list[Update] = []
+        current_force: bool | None = None
+        for item, force in pending:
+            if current_force is None:
+                current_force = force
+            if force != current_force and batch:
+                await self.deliver_updates(batch, force=current_force)
+                batch = []
+                current_force = force
+            batch.append(item)
+        if batch:
+            await self.deliver_updates(batch, force=bool(current_force))
 
     async def deliver_updates(self, updates: list[Update], *, force: bool) -> None:
         if not force:
@@ -362,7 +463,11 @@ class Application:
             self.telegram.send_message(draft.caption, reply_markup=main_keyboard())
             return
         if action == "reject":
-            self.telegram.edit_message_text(message_id, "🗑 رد شد\n\n" + draft.caption, reply_markup=inline_keyboard([]))
+            self.telegram.edit_message_text(
+                message_id,
+                "🗑 رد شد\n\n" + draft.caption,
+                reply_markup=inline_keyboard([]),
+            )
             return
         mode = {"fun": "funnier", "soft": "softer", "precise": "precise"}.get(action)
         if not mode:
@@ -388,6 +493,18 @@ class Application:
             logger.exception("Could not send error message to Telegram")
 
 
+def _parse_state_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def parse_date_query(query: str, timezone_info=timezone.utc) -> tuple[datetime, datetime] | None:
     query = query.strip()
     patterns = [r"\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b", r"\b(\d{2})(\d{2})(\d{2})\b"]
@@ -410,7 +527,11 @@ def parse_date_query(query: str, timezone_info=timezone.utc) -> tuple[datetime, 
 
 
 def rank_groups(query: str, groups: list[EventGroup]) -> list[EventGroup]:
-    tokens = {token.casefold() for token in re.findall(r"[\w\u0600-\u06ff\u3040-\u30ff\uac00-\ud7af]+", query) if len(token) > 1}
+    tokens = {
+        token.casefold()
+        for token in re.findall(r"[\w\u0600-\u06ff\u3040-\u30ff\uac00-\ud7af]+", query)
+        if len(token) > 1
+    }
 
     def score(group: EventGroup) -> tuple[float, datetime]:
         haystack = " ".join([group.title, *(item.text for item in group.updates)]).casefold()

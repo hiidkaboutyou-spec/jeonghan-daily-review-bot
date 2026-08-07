@@ -8,10 +8,23 @@ on:
   push:
     branches:
       - main
+      - "agent/**"
     paths:
       - "app/fic_digest.py"
       - "app/x_client.py"
-      - "app/state.py"
+      - "app/config.py"
+      - "app/telegram.py"
+      - "tests/**"
+      - "requirements.txt"
+      - ".github/workflows/fic-digest.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "app/fic_digest.py"
+      - "app/x_client.py"
+      - "app/config.py"
+      - "app/telegram.py"
       - "tests/**"
       - "requirements.txt"
       - ".github/workflows/fic-digest.yml"
@@ -20,8 +33,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: nightly-jeonghan-fic-digest-${{ github.event_name }}
-  cancel-in-progress: ${{ github.event_name == 'push' }}
+  group: nightly-jeonghan-fic-digest-${{ (github.event_name == 'push' || github.event_name == 'pull_request') && github.ref || 'runtime' }}
+  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
 
 jobs:
   send-digest:
@@ -42,7 +55,7 @@ jobs:
 
       - name: Validate fanfic and shared bot code
         run: |
-          python -m compileall -q app tests
+          python -m compileall -q app tests tools
           python -m app --check
           python -m unittest discover -s tests -p "test_*.py" -v
 

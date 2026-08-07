@@ -133,12 +133,16 @@ def organize_updates(updates: list[Update]) -> list[EventGroup]:
         if not update.event_title:
             update.event_title = fallback_title(update.category, update)
 
-    # Merge separate live posts from the same source when they clearly belong to one live.
+    # Only cluster standalone live posts. Real X conversation/thread IDs are stronger
+    # evidence and must never be overwritten merely because two lives are close in time.
     live_by_author: dict[tuple[str, str], list[Update]] = defaultdict(list)
     for update in clean:
-        if update.category == "live":
+        is_threaded = bool(update.reply_to_id) or (
+            bool(update.conversation_id) and update.conversation_id != update.id
+        )
+        if update.category == "live" and not is_threaded:
             live_by_author[(update.author.lower(), update.created_at.strftime("%Y-%m-%d"))].append(update)
-    for (_, _), items in live_by_author.items():
+    for items in live_by_author.values():
         items.sort(key=lambda item: (item.created_at, int(item.id) if item.id.isdigit() else item.id))
         cluster = 0
         previous = None
@@ -154,9 +158,20 @@ def organize_updates(updates: list[Update]) -> list[EventGroup]:
 
     result: list[EventGroup] = []
     for key, items in grouped.items():
+        category = items[0].category
+        part_numbers = [extract_part_number(item.text) for item in items]
+        use_part_order = category == "live" and len(items) > 1 and all(
+            number is not None for number in part_numbers
+        )
+
         def sort_key(item: Update):
             number = extract_part_number(item.text)
-            # Time remains authoritative. Part number only resolves same-minute ambiguity.
+            if use_part_order:
+                return (
+                    number if number is not None else 10_000,
+                    item.created_at,
+                    int(item.id) if item.id.isdigit() else item.id,
+                )
             return (
                 item.created_at,
                 number if number is not None else 10_000,
@@ -164,7 +179,6 @@ def organize_updates(updates: list[Update]) -> list[EventGroup]:
             )
 
         items.sort(key=sort_key)
-        category = items[0].category
         title = next((item.event_title for item in items if item.event_title), fallback_title(category, items[0]))
         for item in items:
             item.event_key = key

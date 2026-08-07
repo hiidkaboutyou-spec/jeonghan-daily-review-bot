@@ -20,6 +20,7 @@ from .x_client import XCollector
 logger = logging.getLogger(__name__)
 AO3 = "https://archiveofourown.org"
 HEADERS = {"User-Agent": "Mozilla/5.0 JeonghanDailyReviewBot/1.0 personal-reading-digest"}
+JEONGHAN_TERMS = ("jeonghan", "yoon jeonghan", "정한", "윤정한", "ジョンハン")
 
 SHIP_ALIASES = [
     ("Jeongcheol", ("Choi Seungcheol", "S.Coups")),
@@ -54,7 +55,9 @@ class Fic:
 
     @property
     def ship(self) -> str:
-        joined = " | ".join(self.relationships).casefold()
+        # Only inspect relationship tags that actually include Jeonghan. A work may
+        # have several unrelated side ships; those must not decide its Jeonghan ship.
+        joined = " | ".join(_jeonghan_relationships(self.relationships)).casefold()
         for label, aliases in SHIP_ALIASES:
             if any(alias.casefold() in joined for alias in aliases):
                 return label
@@ -72,9 +75,20 @@ def _num(node: Any) -> int:
     return int(digits or 0)
 
 
+def _relationship_has_jeonghan(value: str) -> bool:
+    folded = value.casefold()
+    return any(term in folded for term in JEONGHAN_TERMS)
+
+
+def _jeonghan_relationships(relationships: list[str]) -> list[str]:
+    return [relationship for relationship in relationships if _relationship_has_jeonghan(relationship)]
+
+
 def _is_jeonghan(relationships: list[str], text: str = "") -> bool:
-    value = (" | ".join(relationships) + " " + text).casefold()
-    return any(term in value for term in ("jeonghan", "yoon jeonghan", "정한", "윤정한", "ジョンハン"))
+    # The title or summary mentioning Jeonghan is not enough: the requested digest
+    # is specifically for Jeonghan ships, so require an AO3 relationship tag.
+    del text
+    return bool(_jeonghan_relationships(relationships))
 
 
 def _get(url: str, *, timeout: int = 20, attempts: int = 3) -> requests.Response | None:
@@ -93,48 +107,75 @@ def _get(url: str, *, timeout: int = 20, attempts: int = 3) -> requests.Response
     return None
 
 
+def _fic_from_search_blurb(work: Any) -> Fic | None:
+    heading = work.select_one("h4.heading a[href^='/works/']")
+    if not heading:
+        return None
+    href = str(heading.get("href") or "").split("#", 1)[0]
+    relationships = [_clean(a.get_text(" ", strip=True)) for a in work.select("li.relationships a.tag")]
+    if not _is_jeonghan(relationships):
+        return None
+    language_node = work.select_one("dd.language")
+    if language_node and "english" not in _clean(language_node.get_text()).casefold():
+        return None
+    summary_node = work.select_one("blockquote.userstuff.summary")
+    summary = _clean(summary_node.get_text(" ", strip=True) if summary_node else "No public summary provided.")
+    authors = work.select("h4.heading a[rel='author']")
+    words_node = work.select_one("dd.words")
+    rating_node = work.select_one("span.rating")
+    return Fic(
+        title=_clean(heading.get_text(" ", strip=True)),
+        url=AO3 + href,
+        author=", ".join(_clean(a.get_text(" ", strip=True)) for a in authors) or "Anonymous",
+        summary=summary,
+        relationships=relationships,
+        rating=_clean(rating_node.get_text(" ", strip=True) if rating_node else ""),
+        words=_clean(words_node.get_text(" ", strip=True) if words_node else ""),
+        kudos=_num(work.select_one("dd.kudos")),
+        bookmarks=_num(work.select_one("dd.bookmarks")),
+        hits=_num(work.select_one("dd.hits")),
+    )
+
+
 def search_ao3(limit: int = 36) -> list[Fic]:
-    params = {
+    if limit <= 0:
+        return []
+    base_params = {
         "work_search[query]": '"Yoon Jeonghan" OR Jeonghan',
         "work_search[language_id]": "en",
         "work_search[sort_column]": "kudos_count",
         "work_search[sort_direction]": "desc",
         "commit": "Search",
     }
-    response = _get(AO3 + "/works/search?" + urlencode(params), timeout=25, attempts=3)
-    if response is None:
-        return []
-    soup = BeautifulSoup(response.text, "html.parser")
     fics: list[Fic] = []
-    for work in soup.select("li.work.blurb"):
-        heading = work.select_one("h4.heading a[href^='/works/']")
-        if not heading:
-            continue
-        href = str(heading.get("href") or "").split("#", 1)[0]
-        relationships = [_clean(a.get_text(" ", strip=True)) for a in work.select("li.relationships a.tag")]
-        summary_node = work.select_one("blockquote.userstuff.summary")
-        summary = _clean(summary_node.get_text(" ", strip=True) if summary_node else "No public summary provided.")
-        if not _is_jeonghan(relationships, heading.get_text(" ", strip=True) + " " + summary):
-            continue
-        authors = work.select("h4.heading a[rel='author']")
-        words_node = work.select_one("dd.words")
-        rating_node = work.select_one("span.rating")
-        fics.append(
-            Fic(
-                title=_clean(heading.get_text(" ", strip=True)),
-                url=AO3 + href,
-                author=", ".join(_clean(a.get_text(" ", strip=True)) for a in authors) or "Anonymous",
-                summary=summary,
-                relationships=relationships,
-                rating=_clean(rating_node.get_text(" ", strip=True) if rating_node else ""),
-                words=_clean(words_node.get_text(" ", strip=True) if words_node else ""),
-                kudos=_num(work.select_one("dd.kudos")),
-                bookmarks=_num(work.select_one("dd.bookmarks")),
-                hits=_num(work.select_one("dd.hits")),
-            )
-        )
-        if len(fics) >= limit:
+    seen: set[str] = set()
+    # AO3 search pages are typically much smaller than the requested digest size;
+    # paginate instead of pretending a one-page scrape can satisfy limit=36.
+    for page in range(1, 11):
+        params = dict(base_params)
+        params["page"] = str(page)
+        response = _get(AO3 + "/works/search?" + urlencode(params), timeout=25, attempts=3)
+        if response is None:
             break
+        soup = BeautifulSoup(response.text, "html.parser")
+        works = soup.select("li.work.blurb")
+        if not works:
+            break
+        added_this_page = 0
+        for work in works:
+            fic = _fic_from_search_blurb(work)
+            if fic is None or fic.url in seen:
+                continue
+            seen.add(fic.url)
+            fics.append(fic)
+            added_this_page += 1
+            if len(fics) >= limit:
+                return fics
+        if added_this_page == 0 and page >= 3:
+            # Avoid hammering AO3 indefinitely when the query pages contain no
+            # qualifying relationship-tagged works.
+            break
+        time.sleep(0.35)
     return fics
 
 
@@ -154,7 +195,7 @@ def fetch_ao3_work(url: str) -> Fic | None:
     if language and "english" not in _clean(language.get_text()).casefold():
         return None
     relationships = [_clean(a.get_text(" ", strip=True)) for a in soup.select("dd.relationship.tags a.tag")]
-    if not _is_jeonghan(relationships, _clean(title.get_text())):
+    if not _is_jeonghan(relationships):
         return None
     summary_node = soup.select_one("div.summary blockquote.userstuff")
     authors = soup.select("h3.byline.heading a[rel='author']")
@@ -389,7 +430,8 @@ def format_digest(title: str, fics: list[Fic], summaries: dict[str, str], source
             stats = f"Kudos {fic.kudos:,} · Bookmarks {fic.bookmarks:,} · Hits {fic.hits:,}"
             if source == "x":
                 stats += f" · X score {fic.x_score:,}"
-            rel = "; ".join(fic.relationships[:3]) or ship
+            jh_relationships = _jeonghan_relationships(fic.relationships)
+            rel = "; ".join(jh_relationships[:3]) or ship
             lines += [
                 f"{number}) {fic.title}",
                 f"by {fic.author}",

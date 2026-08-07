@@ -32,9 +32,10 @@ class StyleMemory:
     @staticmethod
     def _load_json(path: Path) -> dict[str, Any]:
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            value = json.loads(path.read_text(encoding="utf-8"))
         except (FileNotFoundError, json.JSONDecodeError):
             return {}
+        return value if isinstance(value, dict) else {}
 
     @staticmethod
     def _tokens(text: str) -> set[str]:
@@ -50,6 +51,8 @@ class StyleMemory:
             try:
                 item = json.loads(line)
             except json.JSONDecodeError:
+                continue
+            if not isinstance(item, dict):
                 continue
             text = str(item.get("text", "")).strip()
             if not text:
@@ -134,7 +137,10 @@ class ThemeEngine:
     ) -> str:
         header = self.header(group)
         clean_body = body.strip() or update.text.strip()
-        body_lines = [ensure_rtl_line(line.strip()) if PERSIAN_RE.search(line) else line.strip() for line in clean_body.splitlines()]
+        body_lines = [
+            ensure_rtl_line(line.strip()) if PERSIAN_RE.search(line) else line.strip()
+            for line in clean_body.splitlines()
+        ]
         part_line = ""
         if total > 1:
             part_line = ensure_rtl_line(f"بخش {part} از {total}")
@@ -143,5 +149,6 @@ class ThemeEngine:
         if part_line:
             chunks.append(part_line)
         chunks.append(source)
-        caption = "\n\n".join(chunk for chunk in chunks if chunk)
-        return caption[:4000]
+        # Never silently cut a source/caption. TelegramBot will reject an over-limit
+        # message explicitly so the update remains pending instead of being marked seen.
+        return "\n\n".join(chunk for chunk in chunks if chunk)
