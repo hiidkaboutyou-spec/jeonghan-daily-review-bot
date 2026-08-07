@@ -1,0 +1,81 @@
+name: Jeonghan Daily Review Bot
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "فقط تست یا اجرای واقعی"
+        required: true
+        default: check
+        type: choice
+        options:
+          - check
+          - live
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jeonghan-daily-review-bot
+  cancel-in-progress: false
+
+jobs:
+  validate-and-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONUNBUFFERED: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: FFmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - name: Install
+        run: python -m pip install -r requirements.txt
+
+      - name: Restore bot state
+        if: github.event_name == 'schedule' || inputs.mode == 'live'
+        id: state-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: .state
+          key: jeonghan-state-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            jeonghan-state-${{ runner.os }}-
+
+      - name: Validate project
+        run: |
+          python -m app --check
+          python -m unittest discover -s tests -p "test_bot.py" -v
+
+      - name: Run private review bot
+        if: github.event_name == 'schedule' || inputs.mode == 'live'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ADMIN_USER_ID: ${{ secrets.TELEGRAM_ADMIN_USER_ID }}
+          TELEGRAM_REVIEW_CHAT_ID: ${{ secrets.TELEGRAM_REVIEW_CHAT_ID }}
+          X_COOKIE: ${{ secrets.X_COOKIE }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+        run: python -m app
+
+      - name: Save bot state
+        if: >-
+          always() &&
+          (github.event_name == 'schedule' || inputs.mode == 'live') &&
+          hashFiles('.state/state.json') != ''
+        uses: actions/cache/save@v5
+        with:
+          path: .state
+          key: jeonghan-state-${{ runner.os }}-${{ github.run_id }}
