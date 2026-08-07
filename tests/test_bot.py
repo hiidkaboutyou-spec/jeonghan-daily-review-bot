@@ -17,7 +17,7 @@ from app.organizer import organize_updates
 from app.state import StateStore
 from app.style import RLM, ThemeEngine, apply_rtl, ensure_rtl_line
 from app.telegram import main_keyboard
-from app.x_client import XCollector
+from app.x_client import XCollector, is_relevant_jeonghan_update
 
 
 class CookieTests(unittest.TestCase):
@@ -109,7 +109,6 @@ class StateTests(unittest.TestCase):
             )
             store.mark_seen(update)
             self.assertTrue(store.is_seen("11"))
-            # Explicit replay calls deliver_updates(..., force=True), so the item remains usable.
             self.assertEqual(store.get_update("11").id, "11")
 
 
@@ -149,6 +148,28 @@ class XConversionTests(unittest.TestCase):
         self.assertIn("name=orig", update.media[0].url)
         self.assertEqual(update.media[1].url, "https://video/high.mp4")
 
+    def test_marketplace_photocard_post_is_filtered(self):
+        update = Update(
+            id="sale1",
+            url="https://x.com/seller/status/sale1",
+            author="seller",
+            author_name="Seller",
+            text="WTS JEONGHAN photocard set $25 shipping available",
+            created_at=datetime.now(timezone.utc),
+        )
+        self.assertFalse(is_relevant_jeonghan_update(update, trusted_source=False))
+
+    def test_real_jeonghan_update_is_kept(self):
+        update = Update(
+            id="real1",
+            url="https://x.com/fan/status/real1",
+            author="fan",
+            author_name="Fan",
+            text="JEONGHAN Weverse live update with new photos",
+            created_at=datetime.now(timezone.utc),
+        )
+        self.assertTrue(is_relevant_jeonghan_update(update, trusted_source=False))
+
 
 class DateAndConfigTests(unittest.TestCase):
     def test_compact_date_uses_tehran_day(self):
@@ -174,12 +195,17 @@ class DateAndConfigTests(unittest.TestCase):
             settings = Settings.load(require_secrets=False)
         self.assertEqual(settings.gemini_model, "gemini-2.5-flash-lite")
 
-    def test_main_menu_contains_interactive_callbacks(self):
-        keyboard = main_keyboard()["inline_keyboard"]
-        callbacks = {button["callback_data"] for row in keyboard for button in row}
-        self.assertIn("cmd:recent2h", callbacks)
-        self.assertIn("cmd:search", callbacks)
-        self.assertIn("cmd:sources", callbacks)
+    def test_main_menu_is_persistent_reply_keyboard(self):
+        keyboard = main_keyboard()
+        self.assertIn("keyboard", keyboard)
+        self.assertTrue(keyboard.get("is_persistent"))
+        labels = {button["text"] for row in keyboard["keyboard"] for button in row}
+        self.assertIn("🕑 ۲ ساعت اخیر", labels)
+        self.assertIn("🗂 ۲۴ ساعت منبع", labels)
+        self.assertIn("🔎 سرچ آرشیو", labels)
+        self.assertIn("📚 فن‌فیک", labels)
+        self.assertIn("📋 وضعیت", labels)
+        self.assertIn("❔ راهنما", labels)
 
 
 if __name__ == "__main__":
