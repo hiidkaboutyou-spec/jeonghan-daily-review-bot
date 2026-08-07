@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from app.config import ROOT, Settings, parse_cookie_secret
@@ -14,6 +16,7 @@ from app.models import Update
 from app.organizer import organize_updates
 from app.state import StateStore
 from app.style import RLM, ThemeEngine, apply_rtl, ensure_rtl_line
+from app.telegram import main_keyboard
 from app.x_client import XCollector
 
 
@@ -165,6 +168,18 @@ class DateAndConfigTests(unittest.TestCase):
     def test_project_config_validates(self):
         settings = Settings.load(require_secrets=False)
         self.assertEqual(settings.validate_files(), [])
+
+    def test_empty_gemini_model_variable_uses_config_default(self):
+        with patch.dict(os.environ, {"GEMINI_MODEL": ""}, clear=False):
+            settings = Settings.load(require_secrets=False)
+        self.assertEqual(settings.gemini_model, "gemini-2.5-flash-lite")
+
+    def test_main_menu_contains_interactive_callbacks(self):
+        keyboard = main_keyboard()["inline_keyboard"]
+        callbacks = {button["callback_data"] for row in keyboard for button in row}
+        self.assertIn("cmd:recent2h", callbacks)
+        self.assertIn("cmd:search", callbacks)
+        self.assertIn("cmd:sources", callbacks)
 
 
 if __name__ == "__main__":
