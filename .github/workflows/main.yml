@@ -92,17 +92,27 @@ jobs:
         run: |
           echo "Starting responsive Telegram review window."
           end=$((SECONDS + 780))
+          successful_passes=0
           while [ "$SECONDS" -lt "$end" ]; do
             set +e
             python -m app
             code=$?
             set -e
-            if [ "$code" -eq 2 ]; then
+            if [ "$code" -eq 0 ]; then
+              successful_passes=$((successful_passes + 1))
+            elif [ "$code" -eq 2 ]; then
               echo "Fatal configuration error; stopping instead of retrying."
               exit "$code"
+            else
+              echo "Bot pass failed with exit code $code; retrying."
             fi
             sleep 5
           done
+          if [ "$successful_passes" -eq 0 ]; then
+            echo "No bot pass completed successfully during the live window."
+            exit 1
+          fi
+          echo "Live window completed with $successful_passes successful bot pass(es)."
 
       - name: Save bot state
         if: >-
