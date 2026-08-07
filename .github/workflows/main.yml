@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - "agent/**"
+      - "repair/**"
     paths:
       - "app/**"
       - "config/**"
@@ -58,7 +59,17 @@ jobs:
           cache: pip
 
       - name: FFmpeg
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v ffmpeg >/dev/null 2>&1; then
+            ffmpeg -version | head -n 1
+          else
+            echo "FFmpeg is not preinstalled; using bounded apt fallback."
+            timeout 120s sudo apt-get update -qq -o Acquire::Retries=2 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15
+            timeout 120s sudo apt-get install -y -qq ffmpeg
+            ffmpeg -version | head -n 1
+          fi
 
       - name: Install
         run: python -m pip install -r requirements.txt
