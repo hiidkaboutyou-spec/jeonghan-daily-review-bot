@@ -50,11 +50,8 @@ def is_relevant_jeonghan_update(update: Update, *, trusted_source: bool = False)
     text = (update.text or "").strip()
     has_jh = bool(_STRONG_JH_RE.search(text))
     if text:
-        # A transactional signal is enough to reject a marketplace post, even when
-        # JEONGHAN is explicitly named. This closes the WTS-JEONGHAN false-positive.
         if _TRANSACTION_RE.search(text):
             return False
-        # Collectible-only text is rejected when it has no actual Jeonghan signal.
         if _COLLECTIBLE_RE.search(text) and not has_jh:
             return False
 
@@ -66,7 +63,6 @@ def is_relevant_jeonghan_update(update: Update, *, trusted_source: bool = False)
         return bool(update.media)
     if _OTHER_MEMBER_RE.search(text):
         return False
-    # Dedicated Jeonghan accounts often post live parts/media with no repeated name.
     return bool(update.media) or len(text) <= 280
 
 
@@ -76,6 +72,7 @@ class XCollector:
         self.sources = sources
         self.keyword_groups = keyword_groups
         self.api = None
+        self.last_errors: list[str] = []
         self.db_path = ROOT / ".state" / "x_accounts.db"
         self.source_priority = {
             str(item.get("handle", "")).lstrip("@").lower(): int(item.get("priority", 100))
@@ -157,6 +154,7 @@ class XCollector:
         include_keywords: bool = True,
         max_per_query: int = 60,
     ) -> list[Update]:
+        self.last_errors = []
         results: list[Update] = []
         errors: list[str] = []
         if include_sources:
@@ -196,9 +194,10 @@ class XCollector:
             except XCollectionError as exc:
                 errors.append(_safe_error(exc))
 
+        self.last_errors = _unique(self.last_errors + errors)
         results = self._filter_relevant(_dedupe(results))
-        if not results and errors:
-            raise XCollectionError("X returned no usable result. " + " | ".join(errors[:3]))
+        if not results and self.last_errors:
+            raise XCollectionError("X returned no usable result. " + " | ".join(self.last_errors[:3]))
         return results
 
     async def collect_source(self, handle: str, start: datetime, end: datetime) -> list[Update]:
@@ -313,8 +312,6 @@ class XCollector:
             same_conversation = item.conversation_id == selected.conversation_id
             close = abs((item.created_at - selected.created_at).total_seconds()) <= 8 * 3600
             live_related = _looks_live(item.text) and _looks_live(selected.text)
-            # tweet_thread may contain ordinary fan replies. Only the selected source's
-            # own thread is authoritative; related standalone posts also stay same-author.
             if item.id == selected.id or (same_author and same_conversation) or (same_author and close and live_related):
                 kept.append(item)
         kept = self._filter_relevant(_dedupe(kept))
@@ -345,6 +342,8 @@ class XCollector:
             except Exception as exc:
                 errors.append(f"{query[:60]}: {_safe_error(exc)}")
             await asyncio.sleep(0.15)
+        if errors:
+            self.last_errors = _unique(self.last_errors + errors)
         if not all_updates and errors:
             raise XCollectionError("X returned no usable result. " + " | ".join(errors[:3]))
         return _dedupe(all_updates)
