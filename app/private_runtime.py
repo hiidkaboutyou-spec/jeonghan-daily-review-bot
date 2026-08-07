@@ -11,6 +11,7 @@ from .media_file_cache import MediaFileCache
 from .models import Draft, Update
 from .organizer import organize_updates
 from .private_telegram import PrivateReviewTelegramBot, telegram_file_identity
+from .private_ui import date_picker_keyboard, source_page_keyboard
 from .style import ensure_rtl_line
 from .telegram import TelegramError, draft_keyboard, inline_keyboard, main_keyboard
 from .x_client import XCollectionError
@@ -31,6 +32,74 @@ class PrivateReviewApplication(Application):
         )
         self.archive_db.sync_from_json(self.state.data.get("archive", {}))
         self.archive_db.sync_drafts(self.state.data.get("drafts", {}))
+
+    async def handle_callback(self, callback):
+        if not self.telegram.is_admin_callback(callback):
+            return
+        data = str(callback.get("data", ""))
+        callback_id = str(callback.get("id", ""))
+        message_id = int(callback.get("message", {}).get("message_id", 0) or 0)
+        if data.startswith("srcpage:"):
+            try:
+                page = int(data.split(":", 1)[1])
+            except ValueError:
+                page = 0
+            self._answer_callback_safely(callback_id)
+            self.show_sources(page=page, message_id=message_id)
+            return
+        if data.startswith("datepage:"):
+            try:
+                offset = int(data.split(":", 1)[1])
+            except ValueError:
+                offset = 0
+            self._answer_callback_safely(callback_id)
+            self.show_date_picker(offset_days=offset, message_id=message_id)
+            return
+        if data.startswith("datepick:"):
+            raw = data.split(":", 1)[1]
+            if len(raw) == 8 and raw.isdigit():
+                query = f"{raw[:4]}-{raw[4:6]}-{raw[6:8]}"
+                self.state.pop_awaiting(self.settings.admin_user_id)
+                self._answer_callback_safely(callback_id)
+                await self.run_search(query)
+                return
+        if data.startswith("noop:"):
+            self._answer_callback_safely(callback_id)
+            return
+        await super().handle_callback(callback)
+
+    def _answer_callback_safely(self, callback_id: str) -> None:
+        try:
+            self.telegram.answer_callback(callback_id, "در حال انجام…")
+        except TelegramError:
+            pass
+
+    def show_sources(self, page: int = 0, message_id: int | None = None) -> None:
+        markup, page, pages = source_page_keyboard(self.settings.sources, page)
+        text = f"یک منبع را برای دریافت کامل ۲۴ ساعت انتخاب کن — صفحه {page + 1} از {pages}:"
+        if message_id:
+            self.telegram.edit_message_text(message_id, text, reply_markup=markup)
+        else:
+            self.telegram.send_message(text, reply_markup=markup)
+
+    def ask_for_search(self) -> None:
+        self.state.set_awaiting(self.settings.admin_user_id, "search")
+        self.telegram.send_message(
+            ensure_rtl_line(
+                "تاریخ یا توضیحت را تایپ کن، یا از تاریخ‌های پایین انتخاب کن.\n"
+                "مثلاً: 2026-07-14 / 260714 / لایوی که داشت بازی می‌کرد"
+            ),
+            reply_markup=date_picker_keyboard(datetime.now(self.settings.timezone).date()),
+        )
+
+    def show_date_picker(self, offset_days: int = 0, message_id: int | None = None) -> None:
+        today = datetime.now(self.settings.timezone).date()
+        markup = date_picker_keyboard(today, offset_days)
+        text = "📅 یک روز را انتخاب کن، یا توضیح/تاریخ را مستقیم تایپ کن:"
+        if message_id:
+            self.telegram.edit_message_text(message_id, text, reply_markup=markup)
+        else:
+            self.telegram.send_message(text, reply_markup=markup)
 
     async def deliver_updates(self, updates: list[Update], *, force: bool) -> None:
         if not force:
@@ -80,7 +149,6 @@ class PrivateReviewApplication(Application):
                 self.telegram.send_cached_media(cached)
                 return
             except TelegramError:
-                # file_id can become unusable; never make delivery depend on cache.
                 for item in media:
                     self.media_cache.delete(item)
 
@@ -88,8 +156,6 @@ class PrivateReviewApplication(Application):
         prepared = []
         prepared_items = []
         try:
-            # Prepare each source item separately so returned Telegram messages map
-            # exactly back to the original URL even if another item fails to prepare.
             for item in media:
                 single = Update.from_dict(update.to_dict())
                 single.media = [item]
