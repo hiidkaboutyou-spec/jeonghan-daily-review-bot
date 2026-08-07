@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Bot runtime/state
+.state/
+*.tmp
+
+# macOS
+.DS_Store
+
+# Temporary media/downloads
+*.part
+*.ytdl
