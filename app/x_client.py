@@ -11,24 +11,30 @@ from .models import MediaItem, Update, ensure_utc
 
 logger = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[1]
+HANDLE_RE = re.compile(r"^[A-Za-z0-9_]{1,15}$")
 
 
 class XCollectionError(RuntimeError):
     pass
 
 
-_COMMERCE_PATTERNS = [
+_TRANSACTION_PATTERNS = [
     r"\bwts\b", r"\bwtb\b", r"\bwtt\b", r"\blfb\b", r"\blfs\b", r"\biso\b",
     r"\bfor sale\b", r"\bselling\b", r"\bsell\b", r"\bbuying\b", r"\btrade(?:ing)?\b",
     r"\bprice\b", r"\bpayment\b", r"\bshipping\b", r"\bship(?:ping)? fee\b",
-    r"\bclaim(?:ing)?\b", r"\bpre[- ]?order\b", r"\bgroup order\b", r"\bgo manager\b",
-    r"\bphotocard(?:s)?\b", r"\bphoto card(?:s)?\b", r"\bpob\b", r"\bmerch(?:andise)?\b",
-    r"\bsealed\b", r"\bproof of payment\b", r"\bproof of transaction\b", r"\bmeetup\b",
+    r"\bclaim(?:ing)?\b", r"\bgroup order\b", r"\bgo manager\b", r"\bmeetup\b",
+    r"\bproof of payment\b", r"\bproof of transaction\b",
     r"\bphp\s*\d", r"\bkrw\s*\d", r"\busd\s*\d", r"[$₩₱€£]\s*\d",
-    r"양도", r"판매", r"구매", r"교환", r"가격", r"포카", r"포토카드", r"앨범\s*판매",
-    r"譲ります", r"交換", r"買取", r"販売", r"トレカ", r"フォトカード",
+    r"양도", r"판매", r"구매", r"교환", r"가격",
+    r"譲ります", r"交換", r"買取", r"販売",
 ]
-_COMMERCE_RE = re.compile("|".join(f"(?:{pattern})" for pattern in _COMMERCE_PATTERNS), re.I)
+_COLLECTIBLE_PATTERNS = [
+    r"\bphotocard(?:s)?\b", r"\bphoto card(?:s)?\b", r"\bpob\b",
+    r"\bmerch(?:andise)?\b", r"\bsealed\b", r"\bpre[- ]?order\b",
+    r"포카", r"포토카드", r"앨범\s*판매", r"トレカ", r"フォトカード",
+]
+_TRANSACTION_RE = re.compile("|".join(f"(?:{p})" for p in _TRANSACTION_PATTERNS), re.I)
+_COLLECTIBLE_RE = re.compile("|".join(f"(?:{p})" for p in _COLLECTIBLE_PATTERNS), re.I)
 _STRONG_JH_RE = re.compile(
     r"\bjeonghan\b|\byoon\s+jeonghan\b|#jeonghan\b|#yoonjeonghan\b|윤정한|(?<![가-힣])정한(?![가-힣])|ジョンハン|ユンジョンハン",
     re.I,
@@ -40,16 +46,16 @@ _OTHER_MEMBER_RE = re.compile(
 
 
 def is_relevant_jeonghan_update(update: Update, *, trusted_source: bool = False) -> bool:
-    """Reject marketplace noise while keeping genuine Jeonghan updates complete."""
+    """Reject trading/sales noise while keeping genuine Jeonghan updates."""
     text = (update.text or "").strip()
     has_jh = bool(_STRONG_JH_RE.search(text))
-
     if text:
-        commerce_hits = len(_COMMERCE_RE.findall(text))
-        has_price = bool(re.search(r"(?:[$₩₱€£]\s*\d|\b(?:usd|krw|php)\s*\d)", text, re.I))
-        if commerce_hits >= 2 or (commerce_hits >= 1 and has_price):
+        # A transactional signal is enough to reject a marketplace post, even when
+        # JEONGHAN is explicitly named. This closes the WTS-JEONGHAN false-positive.
+        if _TRANSACTION_RE.search(text):
             return False
-        if commerce_hits >= 1 and not has_jh:
+        # Collectible-only text is rejected when it has no actual Jeonghan signal.
+        if _COLLECTIBLE_RE.search(text) and not has_jh:
             return False
 
     if not trusted_source:
@@ -135,8 +141,6 @@ class XCollector:
     def _filter_relevant(self, updates: list[Update]) -> list[Update]:
         kept: list[Update] = []
         for item in updates:
-            # Trust is tied to the exact configured account, not to how the tweet was
-            # retrieved. This prevents live/thread replies from disappearing in archive search.
             dedicated = item.author.lower() in self.dedicated_sources
             if is_relevant_jeonghan_update(item, trusted_source=dedicated):
                 kept.append(item)
@@ -155,7 +159,6 @@ class XCollector:
     ) -> list[Update]:
         results: list[Update] = []
         errors: list[str] = []
-
         if include_sources:
             for source in self.sources:
                 if not source.get("enabled", True):
@@ -169,7 +172,7 @@ class XCollector:
                             handle,
                             start,
                             end,
-                            limit=max(120, max_per_query * 2),
+                            limit=max(200, min(1000, max_per_query * 3)),
                             include_replies=bool(source.get("include_replies", True)),
                         )
                     )
@@ -199,21 +202,21 @@ class XCollector:
         return results
 
     async def collect_source(self, handle: str, start: datetime, end: datetime) -> list[Update]:
-        """Explicit 24h source mode: return that source completely, oldest/newest later."""
+        """Explicit 24h source mode: return that source completely, up to 1000 items."""
         handle = normalize_handle(handle)
         if not handle:
-            raise XCollectionError("Source handle is empty.")
+            raise XCollectionError("Source handle is invalid.")
         try:
-            results = await self._collect_source_timeline(handle, start, end, limit=500, include_replies=True)
+            results = await self._collect_source_timeline(handle, start, end, limit=1000, include_replies=True)
         except XCollectionError as timeline_error:
             query = f"from:{handle} -filter:retweets {_date_suffix(start, end)}"
             try:
-                results = await self._run_queries([query], start, end, max_per_query=300)
+                results = await self._run_queries([query], start, end, max_per_query=1000)
             except XCollectionError as search_error:
                 raise XCollectionError(
                     f"Could not read @{handle}: {_safe_error(timeline_error)} | {_safe_error(search_error)}"
                 ) from search_error
-        return _dedupe(results)
+        return _dedupe(results)[:1000]
 
     async def _collect_source_timeline(
         self,
@@ -276,7 +279,6 @@ class XCollector:
         results: list[Update] = []
         errors: list[str] = []
         thread_id = selected.conversation_id or selected.id
-
         if thread_id.isdigit():
             try:
                 async for tweet in api.tweet_thread(int(thread_id), limit=300):
@@ -301,17 +303,19 @@ class XCollector:
             results.extend(await self._run_queries(queries, start, end, max_per_query=220))
         except XCollectionError as exc:
             errors.append(_safe_error(exc))
-
         if selected.id not in {item.id for item in results}:
             results.append(selected)
 
         kept: list[Update] = []
+        selected_author = selected.author.lower()
         for item in results:
+            same_author = item.author.lower() == selected_author
             same_conversation = item.conversation_id == selected.conversation_id
-            same_author = item.author.lower() == selected.author.lower()
             close = abs((item.created_at - selected.created_at).total_seconds()) <= 8 * 3600
             live_related = _looks_live(item.text) and _looks_live(selected.text)
-            if same_conversation or (same_author and close and live_related) or item.id == selected.id:
+            # tweet_thread may contain ordinary fan replies. Only the selected source's
+            # own thread is authoritative; related standalone posts also stay same-author.
+            if item.id == selected.id or (same_author and same_conversation) or (same_author and close and live_related):
                 kept.append(item)
         kept = self._filter_relevant(_dedupe(kept))
         if not kept and errors:
@@ -430,11 +434,10 @@ class XCollector:
 
 
 def normalize_handle(value: str) -> str:
-    value = value.strip()
-    match = re.search(r"(?:x\.com|twitter\.com)/([A-Za-z0-9_]+)", value)
-    if match:
-        return match.group(1)
-    return value.lstrip("@").split("?")[0].strip("/ ")
+    value = str(value or "").strip()
+    match = re.search(r"(?:https?://)?(?:www\.)?(?:x\.com|twitter\.com)/([A-Za-z0-9_]{1,15})(?:[/?#]|$)", value, re.I)
+    handle = match.group(1) if match else value.lstrip("@").split("?", 1)[0].strip("/ ")
+    return handle if HANDLE_RE.fullmatch(handle) else ""
 
 
 def _date_suffix(start, end) -> str:
@@ -480,5 +483,9 @@ def _unique(values: Iterable[str]) -> list[str]:
 
 def _safe_error(exc: Exception) -> str:
     value = str(exc)
-    value = re.sub(r"(?i)(auth_token|ct0|cookie|token)=[^\s,;]+", r"\1=<redacted>", value)
+    value = re.sub(
+        r"(?i)(auth_token|ct0|cookie|token)(?:['\"]?\s*[:=]\s*['\"]?)[^\s,'\";}{]+",
+        r"\1=<redacted>",
+        value,
+    )
     return value[:600]
