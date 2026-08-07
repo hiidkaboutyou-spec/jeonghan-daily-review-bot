@@ -110,15 +110,15 @@ class Settings:
                 )
 
         timezone_name = str(settings_json.get("timezone", "Asia/Tehran"))
+        configured_model = str(settings_json.get("gemini_model", "gemini-2.5-flash-lite")).strip()
+        gemini_model = os.getenv("GEMINI_MODEL", "").strip() or configured_model or "gemini-2.5-flash-lite"
         return cls(
             telegram_token=token,
             admin_user_id=admin_id,
             review_chat_id=review_chat_id,
             x_cookies=x_cookies,
             gemini_api_key=gemini_key,
-            gemini_model=os.getenv(
-                "GEMINI_MODEL", str(settings_json.get("gemini_model", "gemini-2.5-flash-lite"))
-            ),
+            gemini_model=gemini_model,
             timezone=ZoneInfo(timezone_name),
             state_path=ROOT / str(settings_json.get("state_path", ".state/state.json")),
             sources=list(sources_json.get("sources", [])),
