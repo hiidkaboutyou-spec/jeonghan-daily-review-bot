@@ -55,7 +55,6 @@ jobs:
 
       - name: Restore bot state
         if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')
-        id: state-cache
         uses: actions/cache/restore@v5
         with:
           path: .state
@@ -65,8 +64,9 @@ jobs:
 
       - name: Validate project
         run: |
+          python -m compileall -q app tests
           python -m app --check
-          python -m unittest discover -s tests -p "test_bot.py" -v
+          python -m unittest discover -s tests -p "test_*.py" -v
 
       - name: Run private review bot
         if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')
