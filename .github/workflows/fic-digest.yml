@@ -10,6 +10,9 @@ on:
       - main
     paths:
       - "app/fic_digest.py"
+      - "app/x_client.py"
+      - "app/state.py"
+      - "tests/**"
       - "requirements.txt"
       - ".github/workflows/fic-digest.yml"
 
@@ -18,7 +21,7 @@ permissions:
 
 concurrency:
   group: nightly-jeonghan-fic-digest-${{ github.event_name }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
   send-digest:
@@ -37,10 +40,11 @@ jobs:
       - name: Install
         run: python -m pip install -r requirements.txt
 
-      - name: Validate imports
+      - name: Validate fanfic and shared bot code
         run: |
-          python -m py_compile app/fic_digest.py
-          python -c "import app.fic_digest; print('fanfic digest import OK')"
+          python -m compileall -q app tests
+          python -m app --check
+          python -m unittest discover -s tests -p "test_*.py" -v
 
       - name: Build and send two separate nightly lists
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
