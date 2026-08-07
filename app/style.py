@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .channel_style import ChannelStyleMemory
+from .channel_style_runtime import ChannelStyleMemory
 from .models import EventGroup, Update
 
 RLM = "\u200f"
