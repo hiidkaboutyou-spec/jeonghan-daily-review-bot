@@ -117,10 +117,23 @@ class StateStore:
             existing.add(update.id)
 
     def pop_pending(self, limit: int) -> list[tuple[Update, bool]]:
-        raw = self.data["pending_delivery"][:limit]
-        del self.data["pending_delivery"][:limit]
+        """Return pending items without losing them before delivery succeeds.
+
+        Items successfully sent by a previous pass are marked seen by the caller.
+        We discard those seen entries here, while unsent entries remain queued and
+        therefore survive Telegram/media/network failures for the next bot pass.
+        """
+        queue = list(self.data.get("pending_delivery", []))
+        remaining: list[dict[str, Any]] = []
+        for item in queue:
+            update_id = str(item.get("id", ""))
+            if update_id and self.is_seen(update_id):
+                continue
+            remaining.append(item)
+        self.data["pending_delivery"] = remaining
+
         result: list[tuple[Update, bool]] = []
-        for item in raw:
+        for item in remaining[:limit]:
             payload = dict(item)
             force = bool(payload.pop("force", False))
             result.append((Update.from_dict(payload), force))
