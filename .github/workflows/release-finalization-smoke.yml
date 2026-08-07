@@ -1,0 +1,209 @@
+name: Release Finalization Smoke
+
+on:
+  push:
+    branches:
+      - agent/full-end-to-end-audit
+    paths:
+      - ".github/workflows/release-finalization-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  history-secret-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout complete history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Fetch all repository branches
+        run: git fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*'
+
+      - name: Scan historical trees without printing secret values
+        shell: bash
+        run: |
+          python - <<'PY'
+          import re
+          import subprocess
+          import sys
+
+          patterns = {
+              "telegram_bot_token": re.compile(r"(?<![A-Za-z0-9_-])\d{8,12}:[A-Za-z0-9_-]{30,}"),
+              "google_api_key": re.compile(r"AIza[0-9A-Za-z_-]{30,}"),
+              "x_cookie_value": re.compile(r"(?i)(?:auth_token|ct0)[\"']?\s*[:=]\s*[\"']?[A-Za-z0-9%._-]{20,}"),
+              "bearer_token": re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._-]{24,}"),
+              "private_key": re.compile(r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----"),
+              "github_token": re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),
+              "openai_style_key": re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"),
+              "telegram_api_url_with_token": re.compile(r"https://api\.telegram\.org/bot\d{8,12}:[A-Za-z0-9_-]{30,}"),
+          }
+          risky_names = re.compile(r"(?i)(^|/)(?:\.env(?:\..*)?|x_accounts\.db|cookies?\.txt|credentials?(?:\.[^/]*)?|[^/]*private[^/]*\.(?:pem|key))$")
+
+          commits = subprocess.check_output(["git", "rev-list", "--all"], text=True).splitlines()
+          findings = set()
+          for commit in commits:
+              names = subprocess.check_output(
+                  ["git", "ls-tree", "-r", "--name-only", commit], text=True, errors="replace"
+              ).splitlines()
+              for path in names:
+                  if risky_names.search(path):
+                      findings.add(("risky_file_path", commit[:12], path))
+
+              for path in names:
+                  try:
+                      blob = subprocess.check_output(
+                          ["git", "show", f"{commit}:{path}"], stderr=subprocess.DEVNULL
+                      )
+                  except subprocess.CalledProcessError:
+                      continue
+                  if len(blob) > 5_000_000 or b"\x00" in blob[:4096]:
+                      continue
+                  text = blob.decode("utf-8", errors="ignore")
+                  for kind, regex in patterns.items():
+                      if regex.search(text):
+                          findings.add((kind, commit[:12], path))
+
+          if findings:
+              print("Potential credential material detected. Values are intentionally redacted.")
+              for kind, commit, path in sorted(findings):
+                  print(f"{kind} | commit={commit} | path={path}")
+              sys.exit(1)
+          print(f"HISTORY_SECRET_SCAN_OK commits_scanned={len(commits)}")
+          PY
+
+  live-external-smoke:
+    needs: history-secret-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    concurrency:
+      group: jeonghan-daily-review-bot-runtime
+      cancel-in-progress: false
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_ADMIN_USER_ID: ${{ secrets.TELEGRAM_ADMIN_USER_ID }}
+      TELEGRAM_REVIEW_CHAT_ID: ${{ secrets.TELEGRAM_REVIEW_CHAT_ID }}
+      X_COOKIE: ${{ secrets.X_COOKIE }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Checkout audit branch
+        uses: actions/checkout@v6
+
+      - name: Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: FFmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - name: Install
+        run: python -m pip install -r requirements.txt
+
+      - name: Validate before external smoke
+        run: |
+          python -m compileall -q app tests tools
+          python -m app --check
+          python -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Real external smoke — private/read-only
+        shell: bash
+        run: |
+          python - <<'PY'
+          import asyncio
+          import logging
+          from datetime import datetime, timedelta, timezone
+          from pathlib import Path
+
+          from app.ai import CaptionWriter
+          from app.config import ROOT, Settings
+          from app.fic_digest import search_ao3
+          from app.models import EventGroup, Update
+          from app.style import StyleMemory
+          from app.telegram import TelegramBot
+          from app.x_client import XCollector
+
+          logging.getLogger().setLevel(logging.WARNING)
+
+          async def run():
+              settings = Settings.load(require_secrets=True)
+
+              # Telegram: authenticate, verify private review destination, clear stale webhook,
+              # and prove getUpdates works while this job holds the production concurrency lock.
+              bot = TelegramBot(settings.telegram_token, settings.admin_user_id, settings.review_chat_id)
+              me = bot.api("getMe", timeout=30)
+              assert me and me.get("is_bot") is True
+              bot.api("getChat", data={"chat_id": settings.review_chat_id}, timeout=30)
+              bot.ensure_polling_mode()
+              webhook = bot.api("getWebhookInfo", timeout=30)
+              assert not str((webhook or {}).get("url", ""))
+              pending = bot.api(
+                  "getUpdates",
+                  data={"timeout": 0, "limit": 1, "allowed_updates": '["message","callback_query"]'},
+                  timeout=30,
+              )
+              print(f"TELEGRAM_OK bot_authenticated=true webhook_clear=true polling_read=true pending_sample_count={len(pending or [])}")
+
+              # Exactly one clearly labeled harmless message, private review chat only.
+              bot.send_message("🧪 Release smoke test — private review chat only. Telegram/X/AO3 connectivity is being verified; no public post was made.")
+              print("TELEGRAM_PRIVATE_SMOKE_MESSAGE_OK")
+
+              # X: authenticated read-only profile lookup + one minimal search result request.
+              collector = XCollector(settings.x_cookies, settings.sources, settings.keyword_groups)
+              await collector.healthcheck()
+              api = await collector._get_api()
+              x_count = 0
+              async for _tweet in api.search("JEONGHAN", limit=1, kv={"product": "Latest"}):
+                  x_count += 1
+                  break
+              print(f"X_READ_ONLY_OK search_sample_count={x_count}")
+
+              # AO3: current HTML parsing and multi-page path with a small two-page target.
+              ao3_fics = await asyncio.to_thread(search_ao3, 21)
+              assert ao3_fics
+              print(f"AO3_LIVE_OK parsed_count={len(ao3_fics)} requested_limit=21")
+
+              # Gemini: test configured model when a key exists. If unavailable/quota-limited,
+              # verify the bot's fallback path still returns a non-empty body without data loss.
+              memory = StyleMemory(ROOT)
+              writer = CaptionWriter(settings.gemini_api_key, settings.gemini_model, memory)
+              item = Update(
+                  id="release-smoke",
+                  url="https://x.com/i/status/1",
+                  author="smoke",
+                  author_name="Smoke",
+                  text="JEONGHAN says hello",
+                  created_at=datetime.now(timezone.utc),
+              )
+              group = EventGroup(key="release-smoke", category="general", title="smoke", updates=[item])
+              if settings.gemini_api_key:
+                  try:
+                      from google import genai
+                      from google.genai import types
+                      client = genai.Client(api_key=settings.gemini_api_key)
+                      response = client.models.generate_content(
+                          model=settings.gemini_model,
+                          contents="Reply with exactly OK.",
+                          config=types.GenerateContentConfig(temperature=0, max_output_tokens=8),
+                      )
+                      assert str(response.text or "").strip()
+                      print("GEMINI_CONFIGURED_MODEL_OK")
+                  except Exception as exc:
+                      fallback = CaptionWriter("", settings.gemini_model, memory).write_group(group)
+                      assert fallback.bodies.get(item.id)
+                      print(f"GEMINI_CONFIGURED_MODEL_UNAVAILABLE fallback_ok=true error_type={type(exc).__name__}")
+              else:
+                  fallback = CaptionWriter("", settings.gemini_model, memory).write_group(group)
+                  assert fallback.bodies.get(item.id)
+                  print("GEMINI_KEY_ABSENT fallback_ok=true")
+
+              print("LIVE_EXTERNAL_SMOKE_OK")
+
+          asyncio.run(run())
+          PY
