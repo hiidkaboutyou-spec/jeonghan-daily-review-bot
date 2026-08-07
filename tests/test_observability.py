@@ -2,15 +2,23 @@ from __future__ import annotations
 
 import os
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from app.observability import init_optional_sentry, scrub_event
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class OptionalSentryTests(unittest.TestCase):
     def test_no_dsn_means_disabled(self):
         with patch.dict(os.environ, {}, clear=True):
             self.assertFalse(init_optional_sentry())
+
+    def test_workflow_passes_optional_dsn_only_from_secret(self):
+        workflow = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")
+        self.assertIn("SENTRY_DSN: ${{ secrets.SENTRY_DSN }}", workflow)
+        self.assertNotIn("SENTRY_DSN: http", workflow)
 
     def test_scrubber_removes_private_content_and_secrets(self):
         event = {
