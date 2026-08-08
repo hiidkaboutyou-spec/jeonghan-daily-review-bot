@@ -13,6 +13,7 @@ from .channel_style_runtime import (
     PROMPT_TEMPLATE_VERSION,
     SourceAnalysis,
     analyze_source,
+    detect_language,
     is_trivial_source,
     legacy_category_to_content_type,
     verify_hard_facts,
@@ -24,7 +25,11 @@ logger = logging.getLogger(__name__)
 
 
 class ChannelStyleCaptionWriter(LegacyCaptionWriter):
-    """Two-pass faithful translation + retrieval-grounded channel style transfer."""
+    """Production two-pass faithful translation + retrieval-grounded channel style transfer.
+
+    Every stage is fail-closed toward the source/neutral draft: style failures never
+    prevent a private review draft and never authorize historical facts to become truth.
+    """
 
     def __init__(self, api_key: str, model: str, memory: StyleMemory):
         super().__init__(api_key, model, memory)
@@ -32,19 +37,41 @@ class ChannelStyleCaptionWriter(LegacyCaptionWriter):
 
     def write_group(self, group: EventGroup, *, mode: str = "default") -> GroupCopy:
         source_text = "\n".join(item.text for item in group.updates)
-        analysis = analyze_source(
-            source_text,
-            hinted_content_type=legacy_category_to_content_type(group.category, source_text),
-        )
         client = self._client_or_none()
-        neutral = self._neutral_group(group, analysis, client)
+        try:
+            neutral = self._neutral_group(group, _neutral_fact_analysis(source_text), client)
+        except Exception as exc:
+            logger.error("Neutral translation failed; preserving source: %s", _safe_error(exc))
+            neutral = _source_preserving_group(group)
+
         neutral_text = "\n".join(neutral.bodies.get(item.id, item.text) for item in group.updates)
-        examples = self.memory.retrieve_examples(
-            neutral_text,
-            analysis,
-            limit=8 if is_trivial_source(source_text, analysis) else 10,
-        )
-        glossary = self.memory.relevant_glossary(source_text, neutral_text)
+        try:
+            analysis = analyze_source(
+                source_text,
+                hinted_content_type=legacy_category_to_content_type(group.category, source_text),
+            )
+        except Exception as exc:
+            logger.error("Content classification failed; using neutral draft: %s", _safe_error(exc))
+            return neutral
+        try:
+            examples = self.memory.retrieve_examples(
+                neutral_text,
+                analysis,
+                limit=8 if is_trivial_source(source_text, analysis) else 10,
+            )
+            glossary = self.memory.relevant_glossary(source_text, neutral_text)
+        except Exception as exc:
+            logger.error("Channel style retrieval unavailable; using neutral draft: %s", _safe_error(exc))
+            self.last_diagnostics = {
+                "style_version": CHANNEL_STYLE_VERSION,
+                "prompt_template_version": PROMPT_TEMPLATE_VERSION,
+                "content_type": analysis.content_type,
+                "source_language": analysis.source_language,
+                "retrieval_error": type(exc).__name__,
+                "recency_weighting": "NONE",
+            }
+            return neutral
+
         self.last_diagnostics = {
             "style_version": CHANNEL_STYLE_VERSION,
             "prompt_template_version": PROMPT_TEMPLATE_VERSION,
@@ -57,11 +84,40 @@ class ChannelStyleCaptionWriter(LegacyCaptionWriter):
             "recency_weighting": "NONE",
         }
         if client is None:
+            self.last_diagnostics["fallback"] = "gemini_unavailable_neutral"
             return neutral
-        styled = self._style_group(group, neutral, analysis, examples, glossary, mode, client)
+
+        try:
+            styled = self._style_group(group, neutral, analysis, examples, glossary, mode, client)
+        except Exception as exc:
+            logger.error("Channel style transfer failed; using neutral draft: %s", _safe_error(exc))
+            self.last_diagnostics["fallback"] = "style_transfer_error_neutral"
+            return neutral
         if styled is None:
+            self.last_diagnostics["fallback"] = "style_transfer_unavailable_neutral"
             return neutral
-        return self._verify_and_repair(group, neutral, styled, analysis, client) or neutral
+
+        if self._contains_historical_fact_leak(group, neutral, styled):
+            logger.error("Channel style fact-leak guard rejected styled output; using neutral draft")
+            self.last_diagnostics["fallback"] = "fact_leak_guard_neutral"
+            return neutral
+
+        try:
+            verified = self._verify_and_repair(group, neutral, styled, analysis, client)
+        except Exception as exc:
+            logger.error("Fidelity verifier failed unexpectedly; applying deterministic guard: %s", _safe_error(exc))
+            if self._deterministic_fidelity_failure(group, styled):
+                self.last_diagnostics["fallback"] = "verifier_error_neutral"
+                return neutral
+            self.last_diagnostics["fallback"] = "verifier_error_styled_deterministically_safe"
+            return styled
+
+        result = verified or neutral
+        if self._contains_historical_fact_leak(group, neutral, result):
+            logger.error("Post-verifier fact-leak guard rejected output; using neutral draft")
+            self.last_diagnostics["fallback"] = "post_verifier_fact_leak_neutral"
+            return neutral
+        return result
 
     def _neutral_group(self, group: EventGroup, analysis: SourceAnalysis, client) -> GroupCopy:
         if client is None or all(is_trivial_source(item.text, analyze_source(item.text)) for item in group.updates):
@@ -174,7 +230,11 @@ ITEMS: {json.dumps(payload, ensure_ascii=False)}
         return GroupCopy(neutral.title or group.title, group.category, bodies)
 
     def _generate_json(self, client, prompt: str, schema: dict[str, Any], *, temperature: float, purpose: str) -> dict[str, Any] | None:
-        from google.genai import types
+        try:
+            from google.genai import types
+        except Exception as exc:
+            logger.warning("Gemini types unavailable for %s: %s", purpose, _safe_error(exc))
+            return None
         for model in self._model_candidates():
             try:
                 response = client.models.generate_content(
@@ -192,6 +252,92 @@ ITEMS: {json.dumps(payload, ensure_ascii=False)}
             except Exception as exc:
                 logger.warning("Gemini %s model %s failed: %s", purpose, model, _safe_error(exc))
         return None
+
+    def _deterministic_fidelity_failure(self, group: EventGroup, copy: GroupCopy) -> bool:
+        for item in group.updates:
+            if verify_hard_facts(item.text, copy.bodies.get(item.id, ""), analyze_source(item.text)):
+                return True
+        return False
+
+    def _contains_historical_fact_leak(self, group: EventGroup, neutral: GroupCopy, candidate: GroupCopy) -> bool:
+        categories = getattr(self.memory, "glossary", {}).get("categories", {}) or {}
+        protected_terms: set[str] = set()
+        if isinstance(categories, dict):
+            for category, entries in categories.items():
+                if category not in {"member_names", "nicknames", "brands", "fan_events", "platforms"}:
+                    continue
+                if not isinstance(entries, list):
+                    continue
+                for entry in entries:
+                    if not isinstance(entry, dict):
+                        continue
+                    for key in ("canonical_form", "persian", "source", "name"):
+                        value = str(entry.get(key, "")).strip()
+                        if len(value) >= 2:
+                            protected_terms.add(value.casefold())
+                    for value in entry.get("aliases", []) if isinstance(entry.get("aliases"), list) else []:
+                        value = str(value).strip()
+                        if len(value) >= 2:
+                            protected_terms.add(value.casefold())
+
+        for item in group.updates:
+            source = item.text
+            neutral_text = neutral.bodies.get(item.id, item.text)
+            output = candidate.bodies.get(item.id, "")
+            authority = f"{source}\n{neutral_text}".casefold()
+            out_cf = output.casefold()
+
+            authority_numbers = set(re.findall(r"(?<!\w)\d+(?:[.,:/-]\d+)*(?!\w)", authority))
+            for number in re.findall(r"(?<!\w)\d+(?:[.,:/-]\d+)*(?!\w)", out_cf):
+                if number not in authority_numbers:
+                    return True
+
+            authority_urls = set(re.findall(r"https?://\S+", authority))
+            for url in re.findall(r"https?://\S+", output):
+                if url.casefold() not in authority_urls:
+                    return True
+
+            authority_tags = set(re.findall(r"#[\w\u0600-\u06ff]+", authority))
+            for tag in re.findall(r"#[\w\u0600-\u06ff]+", out_cf):
+                if tag not in authority_tags:
+                    return True
+
+            for term in protected_terms:
+                if term in out_cf and term not in authority:
+                    return True
+
+            for quoted in re.findall(r'["“”«»]([^"“”«»]{3,120})["“”«»]', output):
+                q = quoted.strip().casefold()
+                if q and q not in authority:
+                    return True
+        return False
+
+
+def _neutral_fact_analysis(source_text: str) -> SourceAnalysis:
+    speakers = [match.group(1).strip() for match in re.finditer(r"^\s*([^\s:：]{1,20})\s*[:：]", source_text, re.M)]
+    return SourceAnalysis(
+        source_language=detect_language(source_text),
+        content_type="OTHER",
+        numbers=re.findall(r"(?<!\w)[+\-]?(?:\d[\d,.:/\-]*\d|\d)(?!\w)", source_text),
+        urls=re.findall(r"https?://\S+", source_text),
+        hashtags=re.findall(r"#[\w\u0600-\u06ff\u3040-\u30ff\uac00-\ud7af]+", source_text),
+        laughter=re.findall(r"(?:ㅋ{2,}|ㅎ{2,}|(?:lol|lmao|lmfao)\b|خ{2,}|ه{3,})", source_text, re.I),
+        speakers=speakers,
+        names_and_terms=[],
+        uncertain_items=[],
+        line_count=max(1, source_text.count("\n") + 1),
+        char_count=len(source_text),
+        has_dialogue=bool(speakers),
+        platform="",
+    )
+
+
+def _source_preserving_group(group: EventGroup) -> GroupCopy:
+    return GroupCopy(
+        title=group.title,
+        category=group.category,
+        bodies={item.id: item.text for item in group.updates},
+    )
 
 
 def _group_schema() -> dict[str, Any]:
