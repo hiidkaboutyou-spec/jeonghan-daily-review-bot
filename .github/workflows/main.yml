@@ -8,6 +8,8 @@ on:
     paths:
       - "app/**"
       - "config/**"
+      - "data/translation_benchmark_cases.json"
+      - "docs/**"
       - "tests/**"
       - "tools/**"
       - "requirements.txt"
@@ -19,6 +21,8 @@ on:
     paths:
       - "app/**"
       - "config/**"
+      - "data/translation_benchmark_cases.json"
+      - "docs/**"
       - "tests/**"
       - "tools/**"
       - "requirements.txt"
@@ -121,6 +125,23 @@ jobs:
           python -m compileall -q app tests tools
           python -m app --check
           python -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Generate PART 4 real translation benchmark
+        if: github.event_name == 'push' && github.ref == 'refs/heads/agent/channel-style-translation-v1'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+        run: |
+          python tools/run_translation_benchmark.py --output .state/part4-real-benchmark.json
+
+      - name: Upload PART 4 benchmark artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/agent/channel-style-translation-v1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: part4-real-translation-benchmark
+          path: .state/part4-real-benchmark.json
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Run private review bot
         if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')
