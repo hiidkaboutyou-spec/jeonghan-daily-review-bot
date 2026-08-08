@@ -6,6 +6,7 @@ from tools.run_translation_benchmark import (
     MIN_STYLED_FRACTION,
     _output_mode,
     _quality_gate,
+    _resume_case_order,
     _retry_after_seconds,
     _run_quota_aware,
     _summary,
@@ -46,6 +47,15 @@ class TranslationBenchmarkQualityGateTests(unittest.TestCase):
         self.assertTrue(diagnostics["quota_429"])
         self.assertEqual(diagnostics["api_status"], 429)
         self.assertEqual(diagnostics["exception_class"], "RESOURCE_EXHAUSTED")
+
+    def test_resume_rotates_after_last_attempted_case(self):
+        cases = [{"id": f"B{i:02d}"} for i in range(1, 6)]
+        prior = [
+            {"case_id": "B01", "output_mode": "neutral_fallback", "verifier_result": "FAIL"},
+            {"case_id": "B02", "output_mode": "neutral_fallback", "verifier_result": "PASS"},
+        ]
+        ordered = _resume_case_order(cases, prior)
+        self.assertEqual([case["id"] for case in ordered], ["B03", "B04", "B05", "B01", "B02"])
 
     def test_output_mode_is_explicit(self):
         self.assertEqual(_output_mode("", {}, "ترجمه", "source"), "styled")
