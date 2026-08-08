@@ -1,0 +1,44 @@
+name: PART 4 Translation Benchmark
+
+on:
+  push:
+    branches:
+      - agent/channel-style-translation-v1
+    paths:
+      - "data/translation_benchmark_cases.json"
+      - "tools/run_translation_benchmark.py"
+      - ".github/workflows/part4-benchmark.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: python -m pip install -r requirements.txt
+
+      - name: Generate real OLD vs NEW benchmark
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+        run: python tools/run_translation_benchmark.py --output .state/part4-real-benchmark.json
+
+      - name: Upload benchmark artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: part4-real-translation-benchmark
+          path: .state/part4-real-benchmark.json
+          if-no-files-found: error
+          retention-days: 7
