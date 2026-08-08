@@ -132,7 +132,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
         run: |
-          python tools/run_translation_benchmark.py --output .state/part4-real-benchmark.json
+          python -m tools.run_translation_benchmark --output .state/part4-real-benchmark.json
 
       - name: Upload PART 4 benchmark artifact
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
