@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -49,16 +51,35 @@ def _group(text: str = "جونگهان امروز اومد.", *, update_id: str 
     return EventGroup(key="event", category="general", title="title", updates=[update])
 
 
+def _fake_parent_init(memory):
+    def init(app, settings):
+        app.memory = memory
+        app.writer = CaptionWriter(settings.gemini_api_key, settings.gemini_model, memory)
+
+    return init
+
+
+def _minimal_style_root(tmp: str, *, shard_bytes: bytes | None = None, declared_hash: str = "0" * 64) -> Path:
+    root = Path(tmp)
+    corpus_dir = root / "data" / "channel_style"
+    config_dir = root / "config"
+    corpus_dir.mkdir(parents=True)
+    config_dir.mkdir()
+    shutil.copyfile(ROOT / "config" / "channel_style_profile.json", config_dir / "channel_style_profile.json")
+    shutil.copyfile(ROOT / "config" / "channel_glossary.json", config_dir / "channel_glossary.json")
+    manifest = json.loads((ROOT / "data" / "channel_style" / "manifest.json").read_text(encoding="utf-8"))
+    manifest["shards"] = [{"filename": "part-00001.jsonl", "example_count": 16306, "sha256": declared_hash}]
+    (corpus_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    if shard_bytes is not None:
+        (corpus_dir / "part-00001.jsonl").write_bytes(shard_bytes)
+    return root
+
+
 class ProductionWriterWiringTests(unittest.TestCase):
     def test_real_production_application_primary_writer_is_channel_style_writer(self):
         memory = _FakeMemory()
-
-        def fake_parent_init(app, settings):
-            app.memory = memory
-            app.writer = CaptionWriter(settings.gemini_api_key, settings.gemini_model, memory)
-
         settings = SimpleNamespace(gemini_api_key="", gemini_model="test")
-        with patch("app.channel_style_application.ReminderReviewApplication.__init__", fake_parent_init), patch(
+        with patch("app.channel_style_application.ReminderReviewApplication.__init__", _fake_parent_init(memory)), patch(
             "app.channel_style_application.validate_production_style_memory",
             return_value=(True, "", 16306),
         ):
@@ -72,13 +93,8 @@ class ProductionWriterWiringTests(unittest.TestCase):
 
     def test_invalid_style_artifacts_keep_legacy_writer(self):
         memory = _FakeMemory()
-
-        def fake_parent_init(app, settings):
-            app.memory = memory
-            app.writer = CaptionWriter(settings.gemini_api_key, settings.gemini_model, memory)
-
         settings = SimpleNamespace(gemini_api_key="", gemini_model="test")
-        with patch("app.channel_style_application.ReminderReviewApplication.__init__", fake_parent_init), patch(
+        with patch("app.channel_style_application.ReminderReviewApplication.__init__", _fake_parent_init(memory)), patch(
             "app.channel_style_application.validate_production_style_memory",
             return_value=(False, "style_shard_hash_mismatch", 0),
         ):
@@ -87,6 +103,17 @@ class ProductionWriterWiringTests(unittest.TestCase):
         self.assertIs(type(app.writer), CaptionWriter)
         self.assertFalse(app.channel_style_enabled)
         self.assertEqual(app.channel_style_error, "style_shard_hash_mismatch")
+
+    def test_missing_style_corpus_keeps_legacy_writer(self):
+        memory = _FakeMemory()
+        settings = SimpleNamespace(gemini_api_key="", gemini_model="test")
+        with patch("app.channel_style_application.ReminderReviewApplication.__init__", _fake_parent_init(memory)), patch(
+            "app.channel_style_application.validate_production_style_memory",
+            return_value=(False, "style_artifact_FileNotFoundError", 0),
+        ):
+            app = ChannelStyleReviewApplication(settings)
+        self.assertIs(type(app.writer), CaptionWriter)
+        self.assertFalse(app.channel_style_enabled)
 
     def test_production_pipeline_order(self):
         memory = _FakeMemory()
@@ -147,7 +174,23 @@ class SafeFallbackTests(unittest.TestCase):
         output = Probe("", "model", memory).write_group(_group())
         self.assertEqual(output.bodies["1"], "ترجمه خنثی")
 
-    def test_style_transfer_or_gemini_error_returns_neutral(self):
+    def test_gemini_api_exception_during_style_transfer_returns_neutral(self):
+        memory = _FakeMemory()
+
+        class Probe(ChannelStyleCaptionWriter):
+            def _client_or_none(self):
+                return object()
+
+            def _neutral_group(self, group, analysis, client):
+                return GroupCopy(group.title, group.category, {"1": "ترجمه خنثی"})
+
+            def _style_group(self, *args, **kwargs):
+                raise RuntimeError("Gemini API error token=secret")
+
+        output = Probe("key", "model", memory).write_group(_group())
+        self.assertEqual(output.bodies["1"], "ترجمه خنثی")
+
+    def test_style_transfer_empty_response_returns_neutral(self):
         memory = _FakeMemory()
 
         class Probe(ChannelStyleCaptionWriter):
@@ -246,7 +289,15 @@ class CorpusAndFtsTests(unittest.TestCase):
             self.assertEqual(second.conn.execute("SELECT count(*) FROM channel_style_fts").fetchone()[0], 16306)
             second.conn.close()
 
-    def test_runtime_manifest_hash_validation_and_malformed_manifest_fail_closed(self):
+    def test_missing_manifest_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ok, reason, count = validate_production_style_memory(SimpleNamespace(), root)
+            self.assertFalse(ok)
+            self.assertEqual(count, 0)
+            self.assertEqual(reason, "style_artifact_FileNotFoundError")
+
+    def test_malformed_manifest_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "data" / "channel_style").mkdir(parents=True)
@@ -256,6 +307,27 @@ class CorpusAndFtsTests(unittest.TestCase):
             self.assertFalse(ok)
             self.assertEqual(count, 0)
             self.assertTrue(reason.startswith("style_artifact_"))
+
+    def test_missing_shard_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _minimal_style_root(tmp)
+            ok, reason, count = validate_production_style_memory(SimpleNamespace(), root)
+            self.assertFalse(ok)
+            self.assertEqual((reason, count), ("style_shard_missing", 0))
+
+    def test_shard_hash_failure_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _minimal_style_root(tmp, shard_bytes=b"not the committed shard", declared_hash="0" * 64)
+            ok, reason, count = validate_production_style_memory(SimpleNamespace(), root)
+            self.assertFalse(ok)
+            self.assertEqual((reason, count), ("style_shard_hash_mismatch", 0))
+
+    def test_sqlite_failure_fails_closed_instead_of_crashing(self):
+        with patch("app.channel_style_safety._fts_count", side_effect=sqlite3.DatabaseError("database disk image is malformed")):
+            ok, reason, count = validate_production_style_memory(SimpleNamespace(conn=object()), ROOT)
+        self.assertFalse(ok)
+        self.assertEqual(count, 0)
+        self.assertEqual(reason, "fts_DatabaseError")
 
     def test_date_is_not_used_in_ranking_contract(self):
         manifest = json.loads((ROOT / "data" / "channel_style" / "manifest.json").read_text(encoding="utf-8"))
