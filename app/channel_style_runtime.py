@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import base64
-import bz2
-import gzip
 import hashlib
+import json
 import re
 from pathlib import Path
 
@@ -39,41 +37,13 @@ _SPEAKER_RE = re.compile(r"^\s*([^\s:：]{1,20})\s*[:：]\s*(.+)$", re.M)
 _REACTION_RE = re.compile(r"(?:😭|🥺|💗|🩷|💘|گریه|کیوت|ناز|عسلی|تاینی|میمیر)")
 
 
-def _materialize_compact_corpus(root: Path) -> None:
-    """Decode the committed compact corpus into the legacy gzip path expected by v1.
-
-    The source is a deterministic bz2 payload split into ASCII base64 chunks only
-    because the repository integration API writes text files more reliably than
-    binary blobs. It is still a derived corpus; raw Telegram exports are never
-    parsed at bot runtime.
-    """
-    part_dir = root / "data" / "channel_style_examples_b64"
-    parts = sorted(part_dir.glob("part-*.bz2.b64")) if part_dir.exists() else []
-    if not parts:
-        return
-    target = root / "data" / "channel_style_examples.jsonl.gz"
-    digest = hashlib.sha256()
-    encoded_parts: list[str] = []
-    for part in parts:
-        raw = part.read_bytes()
-        digest.update(part.name.encode("utf-8"))
-        digest.update(raw)
-        encoded_parts.append(raw.decode("ascii").strip())
-    marker = root / ".state" / "channel-style-corpus-source.sha256"
-    source_digest = digest.hexdigest()
+def _load_manifest(root: Path) -> tuple[dict, Path]:
+    manifest_path = Path(root) / "data" / "channel_style" / "manifest.json"
     try:
-        if target.exists() and marker.read_text(encoding="ascii").strip() == source_digest:
-            return
-    except FileNotFoundError:
-        pass
-    decoded = base64.b64decode("".join(encoded_parts).encode("ascii"), validate=True)
-    text = bz2.decompress(decoded)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    marker.parent.mkdir(parents=True, exist_ok=True)
-    with target.open("wb") as raw:
-        with gzip.GzipFile(filename="", mode="wb", fileobj=raw, compresslevel=9, mtime=0) as gz:
-            gz.write(text)
-    marker.write_text(source_digest, encoding="ascii")
+        value = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}, manifest_path
+    return (value if isinstance(value, dict) else {}), manifest_path
 
 
 def _content_family(content_type: str) -> str:
@@ -103,29 +73,117 @@ def _register_region(text: str, content_type: str) -> str:
 
 
 class ChannelStyleMemory(_BaseChannelStyleMemory):
-    """Runtime style memory with equal chronology and content-aware reranking."""
+    """Channel style memory backed by deterministic UTF-8 JSONL shards.
+
+    Runtime reads only data/channel_style/manifest.json and the ordered shard files
+    listed there. Raw Telegram exports and compressed/base64 materialization are not
+    part of normal startup.
+    """
 
     def __init__(self, root: Path, db_path: Path | None = None):
-        root = Path(root)
-        _materialize_compact_corpus(root)
-        super().__init__(root, db_path=db_path)
+        self._shard_manifest, self._shard_manifest_path = _load_manifest(Path(root))
+        super().__init__(Path(root), db_path=db_path)
 
-    def retrieve_examples(
-        self,
-        neutral_persian: str,
-        analysis: SourceAnalysis,
-        *,
-        limit: int = 8,
-        exclude_example_ids: set[str] | None = None,
-    ) -> list[RetrievedStyleExample]:
-        # Ask the base FTS/content retriever for the broadest allowed set, then
-        # rerank by script/register. Date is deliberately absent from this code.
-        candidates = super().retrieve_examples(
-            neutral_persian,
-            analysis,
-            limit=12,
-            exclude_example_ids=exclude_example_ids,
-        )
+    def _corpus_files(self) -> list[Path]:
+        manifest = self._shard_manifest
+        if not manifest:
+            manifest, path = _load_manifest(self.root)
+            self._shard_manifest, self._shard_manifest_path = manifest, path
+        base = self._shard_manifest_path.parent
+        result: list[Path] = []
+        for entry in manifest.get("shards", []) if isinstance(manifest, dict) else []:
+            if not isinstance(entry, dict):
+                continue
+            name = str(entry.get("filename", "")).strip()
+            if name:
+                result.append(base / name)
+        return result
+
+    def _corpus_digest(self) -> str:
+        manifest = self._shard_manifest
+        if not manifest or not self._shard_manifest_path.exists():
+            return "missing"
+        digest = hashlib.sha256()
+        manifest_raw = self._shard_manifest_path.read_bytes()
+        digest.update(self._shard_manifest_path.name.encode("utf-8"))
+        digest.update(manifest_raw)
+        for path in self._corpus_files():
+            if not path.exists():
+                return "missing"
+            digest.update(path.name.encode("utf-8"))
+            digest.update(path.read_bytes())
+        return digest.hexdigest()
+
+    def rebuild_from_derived_corpus(self) -> int:
+        try:
+            self._init_schema()
+        except Exception:
+            pass
+        files = self._corpus_files()
+        if not files:
+            return 0
+        rows: list[dict] = []
+        try:
+            for path in files:
+                with path.open("r", encoding="utf-8") as fh:
+                    for line in fh:
+                        if not line.strip():
+                            continue
+                        item = json.loads(line)
+                        if isinstance(item, dict) and str(item.get("text", "")).strip() and str(item.get("example_id", "")).strip():
+                            rows.append(item)
+        except (OSError, json.JSONDecodeError):
+            return 0
+        try:
+            with self.conn:
+                self.conn.execute("DROP TABLE IF EXISTS channel_style_fts")
+                self.conn.execute("DELETE FROM channel_style_examples")
+                self.conn.execute("CREATE VIRTUAL TABLE channel_style_fts USING fts5(example_id UNINDEXED,text,content_type,source_language,platform,tokenize='unicode61 remove_diacritics 2')")
+                for item in rows:
+                    text = str(item.get("text", ""))
+                    content_type = str(item.get("content_type", "OTHER"))
+                    source_language = str(item.get("source_language", "other"))
+                    platform = self._platform_for_runtime(text, content_type)
+                    values = (
+                        str(item.get("example_id", "")), str(item.get("channel_id", "")), str(item.get("message_id", "")),
+                        text, content_type, source_language, str(item.get("date", "")), platform,
+                        int(item.get("line_count", 1) or 1), int(item.get("char_count", len(text)) or len(text)),
+                        int(bool(item.get("has_dialogue"))), int(bool(item.get("has_laughter"))), int(bool(item.get("has_media"))),
+                        str(item.get("format_prefix", "")), float(item.get("base_style_weight", 0) or 0),
+                        json.dumps(item, ensure_ascii=False, separators=(",", ":")),
+                    )
+                    self.conn.execute(
+                        "INSERT INTO channel_style_examples(example_id,channel_id,message_id,text,content_type,source_language,date,platform,line_count,char_count,has_dialogue,has_laughter,has_media,format_prefix,base_style_weight,raw_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        values,
+                    )
+                    self.conn.execute(
+                        "INSERT INTO channel_style_fts(example_id,text,content_type,source_language,platform) VALUES(?,?,?,?,?)",
+                        (values[0], values[3], values[4], values[5], values[7]),
+                    )
+                self._set_meta("style_version", CHANNEL_STYLE_VERSION)
+                self._set_meta("corpus_format_version", CORPUS_FORMAT_VERSION)
+                self._set_meta("prompt_template_version", PROMPT_TEMPLATE_VERSION)
+                self._set_meta("corpus_sha256", self._corpus_digest())
+                self._set_meta("example_count", len(rows))
+            return len(rows)
+        except Exception:
+            return 0
+
+    @staticmethod
+    def _platform_for_runtime(text: str, content_type: str) -> str:
+        lower = text.casefold()
+        if "weverse" in lower or "ویورس" in lower or "위버스" in lower or content_type in {"WEVERSE_POST", "WEVERSE_LIVE"}:
+            return "weverse"
+        if "instagram" in lower or "اینستاگرام" in lower or content_type == "INSTAGRAM_UPDATE":
+            return "instagram"
+        if "youtube" in lower or "youtu.be" in lower:
+            return "youtube"
+        if content_type == "X_FANBASE_UPDATE":
+            return "x"
+        return ""
+
+    def retrieve_examples(self, neutral_persian: str, analysis: SourceAnalysis, *, limit: int = 8, exclude_example_ids: set[str] | None = None) -> list[RetrievedStyleExample]:
+        candidates = super().retrieve_examples(neutral_persian, analysis, limit=12, exclude_example_ids=exclude_example_ids)
         target_register = _register_region(neutral_persian, analysis.content_type)
         target_language = analysis.source_language
         for item in candidates:
@@ -140,7 +198,6 @@ class ChannelStyleMemory(_BaseChannelStyleMemory):
 
 
 def verify_hard_facts(source: str, output: str, analysis: SourceAnalysis | None = None) -> list[str]:
-    """Hard fidelity gate run before style quality is accepted."""
     analysis = analysis or analyze_source(source)
     failures = list(_base_verify_hard_facts(source, output, analysis))
     source_turns = _SPEAKER_RE.findall(source)
@@ -154,9 +211,8 @@ def verify_hard_facts(source: str, output: str, analysis: SourceAnalysis | None 
     source_cf = source.casefold()
     output_cf = output.casefold()
     for canonical, aliases in _HARD_NAME_GROUPS.items():
-        if any(form.casefold() in source_cf for form in aliases):
-            if not any(form.casefold() in output_cf for form in aliases):
-                failures.append(f"name/identity dropped: {canonical}")
+        if any(form.casefold() in source_cf for form in aliases) and not any(form.casefold() in output_cf for form in aliases):
+            failures.append(f"name/identity dropped: {canonical}")
     return list(dict.fromkeys(failures))
 
 
