@@ -267,6 +267,23 @@ def _load_resume(output_path: Path) -> list[dict]:
     return list(cases) if isinstance(cases, list) else []
 
 
+def _resume_case_order(cases: list[dict], prior: list[dict]) -> list[dict]:
+    """Rotate unresolved work past the last attempted case without treating it as success."""
+    if not prior:
+        return list(cases)
+    positions = {str(case.get("id")): index for index, case in enumerate(cases)}
+    cursor_index = None
+    for item in reversed(prior):
+        case_id = str(item.get("case_id", ""))
+        if case_id in positions:
+            cursor_index = positions[case_id]
+            break
+    if cursor_index is None:
+        return list(cases)
+    start = (cursor_index + 1) % len(cases)
+    return list(cases[start:]) + list(cases[:start])
+
+
 def run(
     cases_path: Path,
     output_path: Path,
@@ -295,16 +312,20 @@ def run(
         for item in prior
         if item.get("output_mode") == "styled" and item.get("verifier_result") == "PASS"
     }
-    results: list[dict] = []
+    ordered_cases = _resume_case_order(cases, prior) if resume else list(cases)
+    results: list[dict] = [
+        completed_by_id[str(case["id"])]
+        for case in cases
+        if str(case["id"]) in completed_by_id
+    ]
     memory = StyleMemory(ROOT)
     old_writer = CaptionWriter(api_key, model, memory)
     new_writer = ChannelStyleCaptionWriter(api_key, model, memory)
     processed_since_cooldown = 0
     try:
-        for index, case in enumerate(cases):
+        for index, case in enumerate(ordered_cases):
             case_id = str(case["id"])
             if case_id in completed_by_id:
-                results.append(completed_by_id[case_id])
                 continue
 
             if processed_since_cooldown and processed_since_cooldown >= batch_size:
