@@ -219,4 +219,4 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: .state/private-review.sqlite3
-          key: jeonghan-private-review-v1-${{ github.run_id }}
+          key: jeonghan-private-review-v1-${{ runner.os }}-${{ github.run_id }}
