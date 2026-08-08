@@ -1,87 +1,23 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .channel_style_runtime import ChannelStyleMemory
 from .models import EventGroup, Update
 
 RLM = "\u200f"
 PERSIAN_RE = re.compile(r"[\u0600-\u06ff]")
 DECORATIVE_START_RE = re.compile(r"^[\s\u200e\u200f\u202a-\u202e\u2066-\u2069،,𐄂-🿿✦✧☆★୨︵꒰𓋜𖥨⿻⌕࣪˖]+")
-TOKEN_RE = re.compile(r"[0-9A-Za-z_\u0600-\u06ff\u3040-\u30ff\uac00-\ud7af]+")
 
 
-@dataclass(slots=True)
-class StyleSample:
-    text: str
-    category: str
-    date: str
-    tokens: set[str]
+class StyleMemory(ChannelStyleMemory):
+    """Backward-compatible name for the versioned channel-style memory."""
 
-
-class StyleMemory:
-    def __init__(self, root: Path):
-        self.root = root
-        self.profile = self._load_json(root / "data" / "channel_voice_profile.json")
-        self.samples = self._load_samples(root / "data" / "channel_memory.jsonl")
-
-    @staticmethod
-    def _load_json(path: Path) -> dict[str, Any]:
-        try:
-            value = json.loads(path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError):
-            return {}
-        return value if isinstance(value, dict) else {}
-
-    @staticmethod
-    def _tokens(text: str) -> set[str]:
-        return {token.lower() for token in TOKEN_RE.findall(text) if len(token) > 1}
-
-    def _load_samples(self, path: Path) -> list[StyleSample]:
-        result: list[StyleSample] = []
-        try:
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except FileNotFoundError:
-            return result
-        for line in lines:
-            try:
-                item = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(item, dict):
-                continue
-            text = str(item.get("text", "")).strip()
-            if not text:
-                continue
-            result.append(
-                StyleSample(
-                    text=text,
-                    category=str(item.get("category", "general")),
-                    date=str(item.get("date", "")),
-                    tokens=self._tokens(text),
-                )
-            )
-        return result
-
-    def retrieve(self, query: str, category: str, limit: int = 8) -> list[str]:
-        query_tokens = self._tokens(query)
-        scored: list[tuple[float, StyleSample]] = []
-        for sample in self.samples:
-            overlap = len(query_tokens & sample.tokens)
-            union = max(1, len(query_tokens | sample.tokens))
-            lexical = overlap / union
-            category_bonus = 0.35 if sample.category == category else 0.0
-            recent_bonus = 0.08 if sample.date >= "2025-01-01" else 0.0
-            length_bonus = min(len(sample.text), 500) / 5000
-            score = lexical + category_bonus + recent_bonus + length_bonus
-            if score > 0.08:
-                scored.append((score, sample))
-        scored.sort(key=lambda pair: pair[0], reverse=True)
-        return [sample.text[:1200] for _, sample in scored[:limit]]
+    def __init__(self, root: Path, db_path: Path | None = None):
+        super().__init__(root, db_path=db_path)
 
 
 def ensure_rtl_line(line: str, *, header: bool = False) -> str:
