@@ -3,13 +3,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 from app.ai import CaptionWriter
 from app.channel_style_runtime import analyze_source, verify_hard_facts
 from app.channel_translation import ChannelStyleCaptionWriter
-from app.config import ROOT
+from app.config import ROOT, Settings
 from app.models import EventGroup, Update
 from app.style import StyleMemory
 
@@ -58,11 +59,18 @@ def _analysis_payload(analysis) -> dict:
     }
 
 
-def run(cases_path: Path, output_path: Path) -> None:
+def _production_model() -> str:
+    # Keep the benchmark aligned with the actual production configuration. The
+    # workflow may override GEMINI_MODEL exactly as production does; otherwise
+    # Settings supplies config/settings.json's committed default.
+    return Settings.load(require_secrets=False).gemini_model
+
+
+def run(cases_path: Path, output_path: Path, *, pace_seconds: float) -> None:
     api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key:
         raise SystemExit("GEMINI_API_KEY is required for the real PART 4 benchmark")
-    model = os.environ.get("GEMINI_MODEL", "").strip() or "gemini-2.5-flash"
+    model = _production_model()
     cases = json.loads(cases_path.read_text(encoding="utf-8"))
     if not 30 <= len(cases) <= 40:
         raise SystemExit(f"expected 30-40 benchmark cases, got {len(cases)}")
@@ -72,11 +80,19 @@ def run(cases_path: Path, output_path: Path) -> None:
     new_writer = ChannelStyleCaptionWriter(api_key, model, memory)
     results: list[dict] = []
     try:
-        for case in cases:
+        for index, case in enumerate(cases):
+            if index:
+                # A human benchmark is deliberately paced. OLD + NEW can make
+                # several real Gemini requests per case; spacing cases prevents
+                # the benchmark harness itself from exhausting production's API
+                # request window and accidentally measuring only fallbacks.
+                time.sleep(max(0.0, pace_seconds))
             group = _group(case)
             source = str(case["source"])
             analysis = analyze_source(source)
             old_copy = old_writer.write_group(group)
+            # Give the OLD request its own small gap before NEW's multi-pass path.
+            time.sleep(min(max(0.0, pace_seconds / 3.0), 6.0))
             new_copy = new_writer.write_group(group)
             old_body = old_copy.bodies.get(str(case["id"]), "")
             new_body = new_copy.bodies.get(str(case["id"]), "")
@@ -106,12 +122,19 @@ def run(cases_path: Path, output_path: Path) -> None:
                     "date_score_contribution": 0,
                 }
             )
+            print(
+                f"PART4 {case['id']}: model={model}; content={analysis.content_type}; "
+                f"fallback={fallback or 'none'}; verifier={'PASS' if not hard_failures else 'FAIL'}",
+                flush=True,
+            )
     finally:
         memory.close()
 
     payload = {
-        "benchmark_version": 1,
+        "benchmark_version": 2,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "production_model": model,
+        "pace_seconds_between_cases": pace_seconds,
         "pipeline_old": "app.ai.CaptionWriter.write_group (preserved legacy production path)",
         "pipeline_new": "app.channel_translation.ChannelStyleCaptionWriter.write_group (current production path)",
         "authority_message_count": 16306,
@@ -129,8 +152,9 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--cases", type=Path, default=ROOT / "data" / "translation_benchmark_cases.json")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--pace-seconds", type=float, default=15.0)
     args = parser.parse_args()
-    run(args.cases, args.output)
+    run(args.cases, args.output, pace_seconds=args.pace_seconds)
     return 0
 
 
