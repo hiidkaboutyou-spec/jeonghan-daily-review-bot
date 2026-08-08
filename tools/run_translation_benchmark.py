@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import io
 import json
 import logging
 import os
@@ -110,7 +109,7 @@ def _retry_after_seconds(messages: list[str], *, default: float = 60.0) -> float
         for value, unit in _RETRY_RE.findall(message):
             seconds = float(value) / 1000.0 if unit.lower() == "ms" else float(value)
             waits.append(seconds)
-    return max(waits, default if not waits else 0.0)
+    return max(waits) if waits else default
 
 
 def _sanitized_api_diagnostics(messages: list[str], *, attempts: int) -> dict:
