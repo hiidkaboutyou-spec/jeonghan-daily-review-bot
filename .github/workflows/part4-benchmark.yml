@@ -33,7 +33,7 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
-        run: python tools/run_translation_benchmark.py --output .state/part4-real-benchmark.json
+        run: python -m tools.run_translation_benchmark --output .state/part4-real-benchmark.json
 
       - name: Upload benchmark artifact
         uses: actions/upload-artifact@v4
