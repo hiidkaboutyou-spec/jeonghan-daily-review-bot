@@ -132,10 +132,15 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
         run: |
-          python -m tools.run_translation_benchmark --output .state/part4-real-benchmark.json
+          python -m tools.run_translation_benchmark \
+            --output .state/part4-real-benchmark.json \
+            --pace-seconds 5 \
+            --batch-size 4 \
+            --batch-cooldown-seconds 65 \
+            --max-quota-retries 4
 
       - name: Upload PART 4 benchmark artifact
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/upload-artifact@v4
         with:
           name: part4-real-translation-benchmark
@@ -214,4 +219,4 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: .state/private-review.sqlite3
-          key: jeonghan-private-review-v1-${{ runner.os }}-${{ github.run_id }}
+          key: jeonghan-private-review-v1-${{ github.run_id }}
