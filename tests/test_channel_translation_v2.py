@@ -23,7 +23,7 @@ class _Memory:
 
 
 class ContextualJeonghanTests(unittest.TestCase):
-    def test_plain_name_uses_jeonghan(self):
+    def test_plain_name_is_context_sensitive_and_bad_spelling_defaults_to_jeonghan(self):
         for source in (
             "Jeonghan arrived",
             "정한 왔어",
@@ -34,9 +34,19 @@ class ContextualJeonghanTests(unittest.TestCase):
         ):
             with self.subTest(source=source):
                 self.assertTrue(source_names_jeonghan(source))
-                self.assertEqual(preferred_jeonghan_form(source), "جونگهان")
+                self.assertIsNone(preferred_jeonghan_form(source))
                 self.assertEqual(canonicalize_jeonghan(source, "جیونگهان اومد"), "جونگهان اومد")
-                self.assertEqual(entity_failures(source, "جونگهان اومد"), [])
+
+    def test_plain_name_accepts_all_three_contextual_channel_forms(self):
+        source = "Jeonghan arrived and waved to everyone."
+        for output in (
+            "جونگهان اومد و برای همه دست تکون داد.",
+            "هانی اومد و برای همه دست تکون داد.",
+            "یون جونگهان اومد و برای همه دست تکون داد.",
+        ):
+            with self.subTest(output=output):
+                self.assertEqual(canonicalize_jeonghan(source, output), output)
+                self.assertEqual(entity_failures(source, output), [])
 
     def test_explicit_full_name_uses_yoon_jeonghan(self):
         for source in (
@@ -66,15 +76,9 @@ class ContextualJeonghanTests(unittest.TestCase):
                 self.assertEqual(canonicalize_jeonghan(source, "جونگهان تولدت مبارک"), "هانی تولدت مبارک")
                 self.assertEqual(entity_failures(source, "هانی تولدت مبارک"), [])
 
-    def test_contextual_forms_are_not_treated_as_errors(self):
-        self.assertEqual(entity_failures("Yoon Jeonghan arrived", "یون جونگهان اومد"), [])
-        self.assertEqual(entity_failures("Jeonghan arrived", "جونگهان اومد"), [])
-        self.assertEqual(entity_failures("하니 생일 축하한다", "هانی تولدت مبارک"), [])
-
-    def test_wrong_contextual_form_is_normalized(self):
+    def test_explicit_full_and_nickname_context_override_wrong_family(self):
         self.assertEqual(canonicalize_jeonghan("Yoon Jeonghan arrived", "هانی اومد"), "یون جونگهان اومد")
         self.assertEqual(canonicalize_jeonghan("하니 왔어", "یون جونگهان اومد"), "هانی اومد")
-        self.assertEqual(canonicalize_jeonghan("정한 왔어", "یون جونگهان اومد"), "جونگهان اومد")
 
     def test_untranslated_source_script_forms_are_canonicalized(self):
         cases = (
@@ -127,7 +131,7 @@ class ContextualJeonghanTests(unittest.TestCase):
     def test_missing_name_is_a_hard_entity_failure(self):
         self.assertEqual(
             entity_failures("정한 왔어", "اومد"),
-            ["missing contextual source entity: جونگهان"],
+            ["missing contextual source entity: یون جونگهان|جونگهان|هانی"],
         )
         self.assertEqual(
             entity_failures("윤정한 왔어", "اومد"),
