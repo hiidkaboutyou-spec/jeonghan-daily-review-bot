@@ -339,7 +339,7 @@ ITEMS: {json.dumps(payload, ensure_ascii=False)}
 
     def _contains_historical_fact_leak(self, group: EventGroup, neutral: GroupCopy, candidate: GroupCopy) -> bool:
         categories = getattr(self.memory, "glossary", {}).get("categories", {}) or {}
-        protected_terms: set[str] = set()
+        protected_entries: list[set[str]] = []
         if isinstance(categories, dict):
             for category, entries in categories.items():
                 if category not in {"member_names", "nicknames", "brands", "fan_events", "platforms"}:
@@ -348,29 +348,17 @@ ITEMS: {json.dumps(payload, ensure_ascii=False)}
                     continue
                 for entry in entries:
                     if isinstance(entry, dict):
-                        protected_terms.update(self._entry_protected_forms(entry))
+                        forms = self._entry_protected_forms(entry)
+                        if forms:
+                            protected_entries.append(forms)
 
         for item in group.updates:
             source = item.text
             neutral_text = neutral.bodies.get(item.id, item.text)
             output = candidate.bodies.get(item.id, "")
+            source_cf = source.casefold()
             authority = f"{source}\n{neutral_text}".casefold()
             out_cf = output.casefold()
-
-            # A canonical/alternate glossary form is not a historical fact leak when
-            # the glossary entry itself is authorized by the SOURCE. Use source-only
-            # relevance here so a bad neutral translation cannot authorize a new fact.
-            source_authorized_terms: set[str] = set()
-            try:
-                relevant_from_source = self.memory.relevant_glossary(source, source)
-            except Exception:
-                relevant_from_source = []
-            for entry in relevant_from_source:
-                if not isinstance(entry, dict):
-                    continue
-                category = str(entry.get("category", ""))
-                if category in {"member_names", "nicknames", "brands", "fan_events", "platforms"}:
-                    source_authorized_terms.update(self._entry_protected_forms(entry))
 
             authority_numbers = set(re.findall(r"(?<!\w)\d+(?:[.,:/-]\d+)*(?!\w)", authority))
             for number in re.findall(r"(?<!\w)\d+(?:[.,:/-]\d+)*(?!\w)", out_cf):
@@ -387,8 +375,10 @@ ITEMS: {json.dumps(payload, ensure_ascii=False)}
                 if tag not in authority_tags:
                     return True
 
-            for term in protected_terms:
-                if term in out_cf and term not in authority and term not in source_authorized_terms:
+            # Glossary entries are alias groups. Any source form authorizes canonical
+            # or alternate spellings of the same entry, but NEUTRAL alone never does.
+            for forms in protected_entries:
+                if any(form in out_cf for form in forms) and not any(form in source_cf for form in forms):
                     return True
 
             for quoted in re.findall(r'["“”«»]([^"“”«»]{3,120})["“”«»]', output):
