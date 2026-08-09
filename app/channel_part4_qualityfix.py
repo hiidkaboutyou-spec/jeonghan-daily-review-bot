@@ -2,8 +2,8 @@ from __future__ import annotations
 
 """Narrow human-gate fixes discovered from fresh SOURCE→OLD→NEW evidence.
 
-All repairs remain source-authorized: they tighten laughter fidelity and normalize
-well-defined mistranslations/transliterations without adding any new fact.
+All repairs remain source-authorized: they tighten laughter/emoji fidelity and
+normalize well-defined mistranslations/transliterations without adding any new fact.
 """
 
 import re
@@ -16,9 +16,17 @@ from . import channel_translation as translation
 from .ai import GroupCopy
 
 _LAUGHTER_RE = re.compile(r"(?:ㅋ{2,}|ㅎ{2,})")
+_EMOJI_RE = re.compile(r"[\U0001F300-\U0001FAFF\u2600-\u27BF]")
 _BASE_VERIFY = humanfix.verify_hard_facts
+_BASE_TRANSLATE_LINE = translation._translate_line
 _JEONGHAN_SOURCE_ALIASES = ("jeonghan", "yoon jeonghan", "정한", "윤정한", "ジョンハン")
-_JEONGHAN_BAD_PERSIAN = ("جئونگان", "جونگان", "جئونگهان", "جونگ‌هان")
+_JEONGHAN_BAD_PERSIAN = (
+    "جئونگان",
+    "جیونگهان",
+    "جونگان",
+    "جئونگهان",
+    "جونگ‌هان",
+)
 
 
 def _laughter_count_failures(source: str, output: str) -> list[str]:
@@ -68,6 +76,34 @@ def _normalize_source_authorized_identity(source: str, output: str) -> str:
     return result
 
 
+def _restore_missing_source_tokens(source: str, output: str) -> str:
+    """Preserve source emoji/laughter counts in deterministic neutral fallback.
+
+    This only restores tokens that SOURCE already contains. It never removes or
+    invents semantic content and therefore cannot authorize a fact from output.
+    """
+    result = str(output or "").strip()
+    for regex in (_EMOJI_RE, _LAUGHTER_RE):
+        source_counts = Counter(regex.findall(str(source or "")))
+        output_counts = Counter(regex.findall(result))
+        missing: list[str] = []
+        for token, count in source_counts.items():
+            missing.extend([token] * max(0, count - output_counts.get(token, 0)))
+        if missing:
+            suffix = " ".join(missing)
+            result = f"{result} {suffix}".strip()
+    return result
+
+
+def _safe_fallback_translate_line(text: str) -> str:
+    """Harden the actual deterministic fallback used when Gemini is unavailable."""
+    translated = _BASE_TRANSLATE_LINE(text)
+    translated = _normalize_source_authorized_japanese(text, translated)
+    translated = _normalize_source_authorized_identity(text, translated)
+    translated = _restore_missing_source_tokens(text, translated)
+    return translated
+
+
 _BaseWriter = translation.ChannelStyleCaptionWriter
 
 
@@ -79,13 +115,18 @@ class ChannelStyleCaptionWriter(_BaseWriter):
             body = result.bodies.get(item.id, item.text)
             body = _normalize_source_authorized_japanese(item.text, body)
             body = _normalize_source_authorized_identity(item.text, body)
+            body = _restore_missing_source_tokens(item.text, body)
             repaired[item.id] = body
         return GroupCopy(result.title, result.category, repaired)
 
 
+# Harden the base neutral fallback itself so every caller, including benchmark
+# paths that hold an earlier writer-class reference, receives the same safe line.
+translation._translate_line = _safe_fallback_translate_line
+
 # New benchmark evidence must be regenerated for this production behavior.
-humanfix.HUMAN_GATE_VERSION = 3
-humanfix.HUMAN_GATE_FINGERPRINT = "channel-human-gate-v3"
+humanfix.HUMAN_GATE_VERSION = 4
+humanfix.HUMAN_GATE_FINGERPRINT = "channel-human-gate-v4"
 humanfix.verify_hard_facts = verify_hard_facts
 hardening.verify_hard_facts = verify_hard_facts
 runtime.verify_hard_facts = verify_hard_facts
