@@ -19,10 +19,11 @@ permissions:
   contents: read
 
 # Expensive translation evaluation must not be killed by ordinary validation
-# commits. One benchmark runs at a time; a newer pending run may replace an
-# older pending run, but the active run is allowed to finish and save evidence.
+# commits. v2 is intentionally a new concurrency lane because pre-v2 active
+# runs do not contain the current human-quality/fidelity fixes and cannot serve
+# as final evidence. Within v2, one active run is allowed to finish.
 concurrency:
-  group: channel-style-translation-benchmark-${{ github.event.pull_request.number || github.ref }}
+  group: channel-style-translation-benchmark-v2-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
 jobs:
