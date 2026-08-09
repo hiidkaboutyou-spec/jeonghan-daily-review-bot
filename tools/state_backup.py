@@ -91,8 +91,11 @@ def encrypt(state_dir: Path, output: Path) -> None:
     }
     output.parent.mkdir(parents=True, exist_ok=True)
     temp = output.with_suffix(output.suffix + ".tmp")
-    temp.write_text(json.dumps(envelope, sort_keys=True), encoding="utf-8")
-    os.replace(temp, output)
+    try:
+        temp.write_text(json.dumps(envelope, sort_keys=True), encoding="utf-8")
+        os.replace(temp, output)
+    finally:
+        temp.unlink(missing_ok=True)
 
 
 def _decrypt_blob(input_path: Path) -> dict[str, bytes]:
@@ -102,6 +105,8 @@ def _decrypt_blob(input_path: Path) -> dict[str, bytes]:
         if envelope.get("format") != FORMAT or envelope.get("algorithm") != "AES-256-GCM":
             raise BackupError("Encrypted state backup has an unsupported format.")
         nonce = base64.b64decode(str(envelope["nonce"]), validate=True)
+        if len(nonce) != 12:
+            raise BackupError("Encrypted state backup nonce is invalid.")
         ciphertext = base64.b64decode(str(envelope["ciphertext"]), validate=True)
         payload = AESGCM(key).decrypt(nonce, ciphertext, AAD)
         decoded = json.loads(payload.decode("utf-8"))
@@ -131,20 +136,48 @@ def _decrypt_blob(input_path: Path) -> dict[str, bytes]:
     return files
 
 
+def validate(input_path: Path) -> list[str]:
+    return sorted(_decrypt_blob(input_path))
+
+
 def restore(input_path: Path, state_dir: Path, *, only_missing: bool = True) -> list[str]:
     files = _decrypt_blob(input_path)
     state_dir.mkdir(parents=True, exist_ok=True)
-    restored: list[str] = []
-    # Validate every payload before mutating anything; then atomic replace each file.
-    for name, data in files.items():
-        destination = state_dir / name
-        if only_missing and destination.exists():
-            continue
-        temp = destination.with_suffix(destination.suffix + ".restore.tmp")
-        temp.write_bytes(data)
-        os.replace(temp, destination)
-        restored.append(name)
-    return restored
+    targets = [name for name in STATE_FILES if name in files and not (only_missing and (state_dir / name).exists())]
+    if not targets:
+        return []
+
+    staged: dict[str, Path] = {}
+    originals: dict[str, bytes | None] = {}
+    replaced: list[str] = []
+    try:
+        for name in targets:
+            destination = state_dir / name
+            originals[name] = destination.read_bytes() if destination.exists() else None
+            temp = destination.with_suffix(destination.suffix + ".restore.tmp")
+            temp.write_bytes(files[name])
+            staged[name] = temp
+        for name in targets:
+            os.replace(staged[name], state_dir / name)
+            replaced.append(name)
+        return replaced
+    except Exception as exc:
+        for name in reversed(replaced):
+            destination = state_dir / name
+            original = originals[name]
+            rollback = destination.with_suffix(destination.suffix + ".rollback.tmp")
+            try:
+                if original is None:
+                    destination.unlink(missing_ok=True)
+                else:
+                    rollback.write_bytes(original)
+                    os.replace(rollback, destination)
+            finally:
+                rollback.unlink(missing_ok=True)
+        raise BackupError("Encrypted state restore failed before atomic replacement completed.") from exc
+    finally:
+        for temp in staged.values():
+            temp.unlink(missing_ok=True)
 
 
 def main() -> int:
@@ -153,6 +186,8 @@ def main() -> int:
     enc = sub.add_parser("encrypt")
     enc.add_argument("--state-dir", default=".state")
     enc.add_argument("--output", required=True)
+    val = sub.add_parser("validate")
+    val.add_argument("--input", required=True)
     dec = sub.add_parser("restore")
     dec.add_argument("--input", required=True)
     dec.add_argument("--state-dir", default=".state")
@@ -161,6 +196,10 @@ def main() -> int:
     try:
         if args.command == "encrypt":
             encrypt(Path(args.state_dir), Path(args.output))
+            return 0
+        if args.command == "validate":
+            validate(Path(args.input))
+            print("Encrypted state backup validation: OK")
             return 0
         restored = restore(Path(args.input), Path(args.state_dir), only_missing=not args.overwrite)
         print("Restored encrypted state entries:", ", ".join(restored) if restored else "none (cache already present)")
