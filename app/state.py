@@ -9,7 +9,7 @@ from typing import Any
 
 from .models import Draft, Update
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class StateStore:
@@ -21,6 +21,7 @@ class StateStore:
         return {
             "schema": SCHEMA_VERSION,
             "telegram_offset": 0,
+            "telegram_failures": {},
             "last_auto_run": "",
             "last_x_error_notice": "",
             "seen": {},
@@ -61,6 +62,22 @@ class StateStore:
             raw = value.get(key)
             if isinstance(raw, dict):
                 fresh[key] = raw
+        failures = value.get("telegram_failures")
+        if isinstance(failures, dict):
+            clean: dict[str, dict[str, Any]] = {}
+            for key, raw in failures.items():
+                if not isinstance(raw, dict):
+                    continue
+                try:
+                    count = max(0, min(int(raw.get("count", 0) or 0), 100))
+                except (TypeError, ValueError):
+                    count = 0
+                clean[str(key)] = {
+                    "count": count,
+                    "last_failure_at": str(raw.get("last_failure_at", ""))[:80],
+                    "error_type": str(raw.get("error_type", ""))[:80],
+                }
+            fresh["telegram_failures"] = clean
         pending = value.get("pending_delivery")
         if isinstance(pending, list):
             fresh["pending_delivery"] = [item for item in pending if isinstance(item, dict)]
@@ -89,6 +106,31 @@ class StateStore:
     @telegram_offset.setter
     def telegram_offset(self, value: int) -> None:
         self.data["telegram_offset"] = int(value)
+
+    def record_telegram_failure(self, update_id: int, error_type: str) -> int:
+        """Record only bounded technical metadata; never store exception messages/secrets."""
+        key = str(int(update_id))
+        current = self.data.setdefault("telegram_failures", {}).get(key, {})
+        try:
+            count = int(current.get("count", 0) or 0) + 1
+        except (TypeError, ValueError):
+            count = 1
+        self.data["telegram_failures"][key] = {
+            "count": min(count, 100),
+            "last_failure_at": datetime.now(timezone.utc).isoformat(),
+            "error_type": str(error_type or "Error")[:80],
+        }
+        return count
+
+    def clear_telegram_failure(self, update_id: int) -> None:
+        self.data.setdefault("telegram_failures", {}).pop(str(int(update_id)), None)
+
+    def telegram_failure_count(self, update_id: int) -> int:
+        raw = self.data.setdefault("telegram_failures", {}).get(str(int(update_id)), {})
+        try:
+            return max(0, int(raw.get("count", 0) or 0))
+        except (AttributeError, TypeError, ValueError):
+            return 0
 
     def mark_seen(self, update: Update) -> None:
         self.data["seen"][update.id] = datetime.now(timezone.utc).isoformat()
@@ -173,6 +215,7 @@ class StateStore:
         now = datetime.now(timezone.utc)
         seen_cutoff = now - timedelta(days=45)
         session_cutoff = now - timedelta(days=2)
+        failure_cutoff = now - timedelta(days=2)
         self.data["seen"] = {
             key: value
             for key, value in self.data.get("seen", {}).items()
@@ -182,6 +225,12 @@ class StateStore:
             key: value
             for key, value in self.data.get("sessions", {}).items()
             if isinstance(value, dict) and _parse_dt(value.get("created_at", "")) >= session_cutoff
+        }
+        self.data["telegram_failures"] = {
+            key: value
+            for key, value in self.data.get("telegram_failures", {}).items()
+            if isinstance(value, dict)
+            and _parse_dt(value.get("last_failure_at", "")) >= failure_cutoff
         }
         archive = self.data.get("archive", {})
         if isinstance(archive, dict) and len(archive) > 30000:
