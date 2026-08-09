@@ -41,12 +41,12 @@ class ChannelStyleReviewApplication(ReminderReviewApplication):
             return
 
         try:
-            install_direct_v2(ChannelStyleCaptionWriter)
             self.writer = ChannelStyleCaptionWriter(
                 settings.gemini_api_key,
                 settings.gemini_model,
                 self.memory,
             )
+            install_direct_v2(self.writer)
         except Exception as exc:
             self.writer = self.legacy_writer
             self.channel_style_error = type(exc).__name__
