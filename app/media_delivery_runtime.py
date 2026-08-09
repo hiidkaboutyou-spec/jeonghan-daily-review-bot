@@ -5,6 +5,7 @@ from pathlib import Path
 
 from .callback_store import CallbackStore
 from .media_delivery import MediaDeliveryLedger
+from .message_delivery import MessageDeliveryStore
 from .models import Update
 from .private_telegram import telegram_file_identity
 from .reminder_runtime import ReminderReviewApplication
@@ -29,9 +30,10 @@ class MediaDedupReviewApplication(ReminderReviewApplication):
         # short opaque tokens so routing survives across scheduled workflow runs.
         telegram = getattr(self, "telegram", None)
         if durable_db is not None and telegram is not None:
-            existing_store = getattr(telegram, "callback_store", None)
-            if existing_store is None:
+            if getattr(telegram, "callback_store", None) is None:
                 telegram.callback_store = CallbackStore(durable_db)
+            if getattr(telegram, "message_delivery_store", None) is None:
+                telegram.message_delivery_store = MessageDeliveryStore(durable_db)
 
     async def _deliver_private_media(self, update: Update) -> None:
         # Intentional lightweight test doubles may omit persistent state entirely.
