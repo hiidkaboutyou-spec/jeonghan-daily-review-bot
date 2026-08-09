@@ -7,18 +7,19 @@ from .channel_style_safety import validate_production_style_memory
 from .channel_translation import ChannelStyleCaptionWriter
 from .channel_translation_v2_install import harden_legacy_instance, install_direct_v2
 from .config import ROOT
-from .reminder_runtime import ReminderReviewApplication
+from .media_delivery_runtime import MediaDedupReviewApplication
 
 logger = logging.getLogger(__name__)
 
 
-class ChannelStyleReviewApplication(ReminderReviewApplication):
+class ChannelStyleReviewApplication(MediaDedupReviewApplication):
     """Production private-review application using translation v2 behavior first.
 
     Existing writer class identities are preserved for compatibility, but normal
     production behavior is upgraded explicitly to the direct v2 pipeline. The
     compatibility fallback is also hardened so Jeonghan cannot be delivered with
-    a generic machine-transliteration spelling.
+    a generic machine-transliteration spelling. Exact media delivery is additionally
+    deduplicated in the production runtime before Telegram upload.
     """
 
     def __init__(self, settings):
