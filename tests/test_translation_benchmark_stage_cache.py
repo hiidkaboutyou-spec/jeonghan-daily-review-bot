@@ -5,7 +5,21 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.run_translation_benchmark_cached import _StageCache
+from tools.run_translation_benchmark_cached import _QuotaFailFastController, _StageCache
+
+
+def _payload(*, quota: bool) -> dict:
+    return {
+        "cases": [
+            {
+                "case_id": "B01",
+                "api_diagnostics": {
+                    "old_legacy": {"quota_429": False},
+                    "new_pipeline": {"quota_429": quota},
+                },
+            }
+        ]
+    }
 
 
 class TranslationBenchmarkStageCacheTests(unittest.TestCase):
@@ -58,6 +72,45 @@ class TranslationBenchmarkStageCacheTests(unittest.TestCase):
             self.assertNotIn("api_key", text.lower())
             self.assertIn('"cases"', text)
             self.assertIn('"api_stage_cache"', text)
+
+    def test_fail_fast_triggers_after_two_consecutive_checkpointed_quota_cases(self):
+        controller = _QuotaFailFastController(threshold=2)
+        self.assertFalse(controller.observe_checkpoint(_payload(quota=True), complete=False))
+        self.assertTrue(controller.observe_checkpoint(_payload(quota=True), complete=False))
+
+    def test_successful_case_resets_fail_fast_streak(self):
+        controller = _QuotaFailFastController(threshold=2)
+        self.assertFalse(controller.observe_checkpoint(_payload(quota=True), complete=False))
+        self.assertFalse(controller.observe_checkpoint(_payload(quota=False), complete=False))
+        self.assertFalse(controller.observe_checkpoint(_payload(quota=True), complete=False))
+        self.assertEqual(controller.consecutive_quota_cases, 1)
+
+    def test_complete_checkpoint_never_triggers_fail_fast(self):
+        controller = _QuotaFailFastController(threshold=1)
+        self.assertFalse(controller.observe_checkpoint(_payload(quota=True), complete=True))
+        self.assertEqual(controller.consecutive_quota_cases, 0)
+
+    def test_checkpoint_file_and_stage_cache_survive_fail_fast_decision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "benchmark.json"
+            checkpoint = _payload(quota=True)
+            path.write_text(json.dumps(checkpoint), encoding="utf-8")
+            cache = _StageCache(path, "gemini-2.5-flash-lite")
+            key = cache.response_key(
+                writer_model="gemini-2.5-flash-lite",
+                purpose="neutral fidelity",
+                prompt="source B",
+                schema={"type": "object"},
+                temperature=0.08,
+            )
+            cache.put_response(key, {"items": [{"id": "B01", "body": "saved"}]})
+            controller = _QuotaFailFastController(threshold=1)
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            self.assertTrue(controller.observe_checkpoint(payload, complete=False))
+            restored = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(restored["cases"][0]["case_id"], "B01")
+            self.assertIn("api_stage_cache", restored)
+            self.assertEqual(_StageCache(path, "gemini-2.5-flash-lite").get_response(key)["items"][0]["body"], "saved")
 
 
 if __name__ == "__main__":
