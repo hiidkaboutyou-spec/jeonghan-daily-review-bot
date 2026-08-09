@@ -5,7 +5,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.run_translation_benchmark_cached import _QuotaFailFastController, _StageCache
+from tools.run_translation_benchmark_cached import (
+    DEFAULT_QUOTA_FAIL_FAST_CASES,
+    _QuotaFailFastController,
+    _StageCache,
+)
 
 
 def _payload(*, quota: bool, successful: bool = False) -> dict:
@@ -78,7 +82,12 @@ class TranslationBenchmarkStageCacheTests(unittest.TestCase):
             self.assertIn('"cases"', text)
             self.assertIn('"api_stage_cache"', text)
 
-    def test_fail_fast_triggers_after_two_consecutive_checkpointed_quota_cases(self):
+    def test_default_fail_fast_stops_after_first_checkpointed_quota_case(self):
+        self.assertEqual(DEFAULT_QUOTA_FAIL_FAST_CASES, 1)
+        controller = _QuotaFailFastController()
+        self.assertTrue(controller.observe_checkpoint(_payload(quota=True), complete=False))
+
+    def test_explicit_two_case_threshold_still_supported(self):
         controller = _QuotaFailFastController(threshold=2)
         self.assertFalse(controller.observe_checkpoint(_payload(quota=True), complete=False))
         self.assertTrue(controller.observe_checkpoint(_payload(quota=True), complete=False))
