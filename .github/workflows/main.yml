@@ -137,8 +137,8 @@ jobs:
           TELEGRAM_REVIEW_CHAT_ID: ${{ secrets.TELEGRAM_REVIEW_CHAT_ID }}
           X_COOKIE: ${{ secrets.X_COOKIE }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          # Keep deployed private-review runtime on the same model as PART 4.
-          GEMINI_MODEL: gemini-3.1-flash-lite
+          # Keep deployed private-review runtime aligned with the approved production model.
+          GEMINI_MODEL: gemini-2.5-flash-lite
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: |
           echo "Starting responsive Telegram review window."
