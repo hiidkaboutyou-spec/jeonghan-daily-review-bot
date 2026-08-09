@@ -1,0 +1,91 @@
+name: Channel Style Translation Benchmark
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - "config/**"
+      - "data/translation_benchmark_cases.json"
+      - "docs/**"
+      - "tests/**"
+      - "tools/**"
+      - "requirements.txt"
+      - ".github/workflows/translation-benchmark.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Expensive translation evaluation must not be killed by ordinary validation
+# commits. One benchmark runs at a time; a newer pending run may replace an
+# older pending run, but the active run is allowed to finish and save evidence.
+concurrency:
+  group: channel-style-translation-benchmark-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PYTHONUNBUFFERED: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: python -m pip install -r requirements.txt
+
+      - name: Validate translation project
+        run: |
+          python -m compileall -q app tests tools
+          python -m app --check
+          python -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Restore PART 4 benchmark checkpoint
+        uses: actions/cache/restore@v5
+        with:
+          path: .state/part4-real-benchmark.json
+          key: part4-benchmark-v4-${{ runner.os }}-${{ github.event.pull_request.number || github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            part4-benchmark-v4-${{ runner.os }}-${{ github.event.pull_request.number || github.ref_name }}-
+            part4-benchmark-v3-${{ runner.os }}-pr-${{ github.event.pull_request.number }}-
+
+      - name: Generate fresh PART 4 human-gate benchmark
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+        run: |
+          python -m tools.run_translation_benchmark_human \
+            --output .state/part4-real-benchmark.json \
+            --pace-seconds 8 \
+            --batch-size 4 \
+            --batch-cooldown-seconds 65 \
+            --max-quota-retries 1 \
+            --resume
+
+      - name: Save PART 4 benchmark checkpoint
+        if: always() && hashFiles('.state/part4-real-benchmark.json') != ''
+        uses: actions/cache/save@v5
+        with:
+          path: .state/part4-real-benchmark.json
+          key: part4-benchmark-v4-${{ runner.os }}-${{ github.event.pull_request.number || github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Upload PART 4 benchmark artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: part4-real-translation-benchmark
+          path: .state/part4-real-benchmark.json
+          if-no-files-found: error
+          retention-days: 14
