@@ -45,8 +45,8 @@ permissions:
   contents: read
 
 # Fast validation may cancel an older validation run. Expensive translation
-# benchmarking now lives in translation-benchmark.yml with its own non-cancelling
-# concurrency group, so normal commits can no longer kill PART 4 progress.
+# benchmarking lives in translation-benchmark.yml with its own non-cancelling
+# concurrency group, so normal commits cannot kill PART 4 progress.
 concurrency:
   group: jeonghan-daily-review-bot-${{ (github.event_name == 'push' || github.event_name == 'pull_request') && 'validation' || 'runtime' }}
   cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
@@ -137,7 +137,8 @@ jobs:
           TELEGRAM_REVIEW_CHAT_ID: ${{ secrets.TELEGRAM_REVIEW_CHAT_ID }}
           X_COOKIE: ${{ secrets.X_COOKIE }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          # Keep deployed private-review runtime on the same model as PART 4.
+          GEMINI_MODEL: gemini-3.1-flash-lite
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: |
           echo "Starting responsive Telegram review window."
