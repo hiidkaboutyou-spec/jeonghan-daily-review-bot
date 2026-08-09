@@ -21,6 +21,7 @@ class HumanBenchmarkEntrypointTests(unittest.TestCase):
         self.assertIn("part4-benchmark-v6-", benchmark_workflow)
         self.assertIn("GEMINI_MODEL: gemini-2.5-flash-lite", benchmark_workflow)
         self.assertIn("part4-benchmark-v4-", benchmark_workflow)
+        self.assertIn("--max-quota-retries 0", benchmark_workflow)
 
     def test_human_entrypoint_explicitly_installs_resume_fingerprint_patch(self):
         source = (ROOT / "tools" / "run_translation_benchmark_human.py").read_text(encoding="utf-8")
