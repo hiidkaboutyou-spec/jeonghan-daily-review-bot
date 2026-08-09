@@ -8,8 +8,18 @@ from app.channel_translation import ChannelStyleCaptionWriter
 from app.models import EventGroup, Update
 
 
-JEONGHAN = {"category": "member_names", "canonical_form": "جونگهان", "alternatives": ["یون جونگهان"]}
-JOSHUA = {"category": "member_names", "canonical_form": "جاشوآ", "alternatives": ["شوا"]}
+JEONGHAN = {
+    "category": "member_names",
+    "canonical_form": "جونگهان",
+    "alternatives": ["یون جونگهان"],
+    "aliases": ["Jeonghan", "Yoon Jeonghan", "정한", "윤정한", "ジョンハン"],
+}
+JOSHUA = {
+    "category": "member_names",
+    "canonical_form": "جاشوآ",
+    "alternatives": ["شوا"],
+    "aliases": ["Joshua", "조슈아", "ジョシュア"],
+}
 
 
 class _Memory:
