@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from .callback_store import CallbackDataError
 from .config import ConfigError
 from .media_delivery_runtime import MediaDedupReviewApplication
 from .telegram import TelegramError
@@ -50,7 +51,19 @@ class TelegramSafeReviewApplication(MediaDedupReviewApplication):
         if "message" in item:
             await self.handle_message(item["message"])
         elif "callback_query" in item:
-            await self.handle_callback(item["callback_query"])
+            callback = dict(item["callback_query"])
+            raw = str(callback.get("data", ""))
+            try:
+                callback["data"] = self.telegram.decode_callback_data(raw)
+            except CallbackDataError:
+                callback_id = str(callback.get("id", ""))
+                try:
+                    self.telegram.answer_callback(callback_id, "این دکمه منقضی شده؛ دوباره صفحه را باز کن.")
+                except TelegramError:
+                    pass
+                self._safe_send("⚠️ این دکمه دیگر معتبر نیست. صفحه یا پیش‌نویس را دوباره باز کن.")
+                return
+            await self.handle_callback(callback)
         # Unsupported/malformed update types are intentionally treated as handled.
         # allowed_updates requests only message/callback_query, but Telegram notes
         # that old queued update types can briefly still appear after filters change.
