@@ -6,7 +6,7 @@ from typing import Any
 from .callback_store import CallbackDataError
 from .config import ConfigError
 from .media_delivery_runtime import MediaDedupReviewApplication
-from .telegram import TelegramError
+from .telegram import TelegramError, TelegramPermanentError, TelegramTransientError
 from .x_client import XCollectionError
 
 logger = logging.getLogger(__name__)
@@ -18,9 +18,8 @@ class TelegramSafeReviewApplication(MediaDedupReviewApplication):
 
     Telegram considers updates confirmed once a later getUpdates call uses an offset
     greater than their update_id. A transient command failure therefore must not
-    advance our durable offset first. Failed updates are retried in a later run, in
-    order, and quarantined after a small bounded number of failures so one poisoned
-    update cannot block the private bot forever.
+    advance our durable offset first. Failed non-transient application operations are
+    retried in a later run and bounded so one poisoned update cannot block forever.
     """
 
     async def process_telegram_updates(self) -> None:
@@ -36,6 +35,28 @@ class TelegramSafeReviewApplication(MediaDedupReviewApplication):
 
             try:
                 await self._process_one_telegram_update(item)
+            except TelegramTransientError as exc:
+                # A platform/network outage says nothing about whether the admin
+                # command itself is poisoned. Keep offset and poison counter intact,
+                # stop this run, and let the next scheduled run retry in order.
+                logger.warning(
+                    "Telegram update %s paused by transient platform failure (%s)",
+                    update_id,
+                    type(exc).__name__,
+                )
+                break
+            except TelegramPermanentError as exc:
+                # Repeating a permanent 4xx for the same exact request cannot heal.
+                # Quarantine this one update immediately rather than wasting three
+                # scheduled runs, but do not expose Telegram's raw description.
+                logger.warning(
+                    "Telegram update %s hit permanent Bot API failure (%s); quarantining request",
+                    update_id,
+                    type(exc).__name__,
+                )
+                self.state.clear_telegram_failure(update_id)
+                self.state.telegram_offset = max(self.state.telegram_offset, update_id + 1)
+                continue
             except (XCollectionError, TelegramError, ConfigError) as exc:
                 if not self._handle_telegram_update_failure(update_id, exc):
                     break
