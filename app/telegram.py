@@ -7,6 +7,7 @@ from typing import Any
 
 import requests
 
+from .callback_store import CALLBACK_MAX_BYTES, CallbackDataError, CallbackStore
 from .media import PreparedMedia
 
 logger = logging.getLogger(__name__)
@@ -18,12 +19,20 @@ class TelegramError(RuntimeError):
 
 
 class TelegramBot:
-    def __init__(self, token: str, admin_user_id: int, review_chat_id: int):
+    def __init__(
+        self,
+        token: str,
+        admin_user_id: int,
+        review_chat_id: int,
+        *,
+        callback_store: CallbackStore | None = None,
+    ):
         self.token = token
         self.admin_user_id = int(admin_user_id)
         self.review_chat_id = int(review_chat_id)
         self.base = f"https://api.telegram.org/bot{token}"
         self.session = requests.Session()
+        self.callback_store = callback_store
 
     def api(
         self,
@@ -98,6 +107,43 @@ class TelegramBot:
         )
         return list(result or [])
 
+    def _encode_reply_markup(self, reply_markup: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not reply_markup or "inline_keyboard" not in reply_markup:
+            return reply_markup
+        encoded = {key: value for key, value in reply_markup.items() if key != "inline_keyboard"}
+        rows = []
+        for row in reply_markup.get("inline_keyboard", []):
+            encoded_row = []
+            for button in row:
+                item = dict(button)
+                if "callback_data" in item:
+                    raw = str(item["callback_data"])
+                    byte_length = len(raw.encode("utf-8"))
+                    if byte_length < 1:
+                        raise CallbackDataError("Callback data must not be empty.")
+                    if byte_length > CALLBACK_MAX_BYTES:
+                        if self.callback_store is None:
+                            raise CallbackDataError(
+                                "Callback data exceeds 64 UTF-8 bytes and no durable callback store is configured."
+                            )
+                        raw = self.callback_store.encode(raw)
+                    item["callback_data"] = raw
+                encoded_row.append(item)
+            rows.append(encoded_row)
+        encoded["inline_keyboard"] = rows
+        return encoded
+
+    def decode_callback_data(self, value: str) -> str:
+        value = str(value)
+        byte_length = len(value.encode("utf-8"))
+        if byte_length < 1 or byte_length > CALLBACK_MAX_BYTES:
+            raise CallbackDataError("Callback data has an invalid UTF-8 byte length.")
+        if value.startswith("cb:"):
+            if self.callback_store is None:
+                raise CallbackDataError("Callback token cannot be resolved.")
+            return self.callback_store.decode(value)
+        return value
+
     def send_message(
         self,
         text: str,
@@ -115,8 +161,9 @@ class TelegramBot:
             "text": text,
             "disable_web_page_preview": "true" if disable_preview else "false",
         }
-        if reply_markup:
-            data["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False)
+        encoded_markup = self._encode_reply_markup(reply_markup)
+        if encoded_markup:
+            data["reply_markup"] = json.dumps(encoded_markup, ensure_ascii=False)
         return self.api("sendMessage", data=data)
 
     def edit_message_text(
@@ -137,7 +184,7 @@ class TelegramBot:
             "disable_web_page_preview": "true",
         }
         if reply_markup is not None:
-            data["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False)
+            data["reply_markup"] = json.dumps(self._encode_reply_markup(reply_markup), ensure_ascii=False)
         return self.api("editMessageText", data=data)
 
     def answer_callback(self, callback_id: str, text: str = "") -> None:
@@ -223,9 +270,14 @@ def _rewind_files(files) -> None:
 
 
 def inline_keyboard(rows: list[list[tuple[str, str]]]) -> dict[str, Any]:
+    """Build raw callback markup without ever truncating routing identifiers.
+
+    TelegramBot encodes any payload over 64 UTF-8 bytes into a durable opaque token
+    immediately before transmission.
+    """
     return {
         "inline_keyboard": [
-            [{"text": label, "callback_data": data[:64]} for label, data in row]
+            [{"text": label, "callback_data": str(data)} for label, data in row]
             for row in rows
         ]
     }
