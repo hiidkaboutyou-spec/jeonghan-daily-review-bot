@@ -12,6 +12,7 @@ from types import MethodType
 
 from .ai import CaptionWriter, GroupCopy
 from . import channel_translation as v1
+from .channel_entities import canonicalize_group, canonicalize_jeonghan, entity_failures
 from .channel_quality import rerank_for_mode
 from .channel_style_runtime import (
     CHANNEL_STYLE_VERSION,
@@ -24,9 +25,6 @@ from .channel_style_runtime import (
 from .channel_translation_v2 import (
     DIRECT_PIPELINE_VERSION,
     ChannelStyleCaptionWriter as V2Methods,
-    _canonicalize_group,
-    canonicalize_jeonghan,
-    entity_failures,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,7 +41,7 @@ def _installed_write_group(self, group, *, mode: str = "default") -> GroupCopy:
         )
     except Exception as exc:
         logger.error("V2 source analysis failed; using hardened v1: %s", v1._safe_error(exc))
-        return _canonicalize_group(group, _ORIGINAL_V1_WRITE_GROUP(self, group, mode=mode))
+        return canonicalize_group(group, _ORIGINAL_V1_WRITE_GROUP(self, group, mode=mode))
 
     try:
         examples = self.memory.retrieve_examples(
@@ -55,7 +53,7 @@ def _installed_write_group(self, group, *, mode: str = "default") -> GroupCopy:
         glossary = self.memory.relevant_glossary(source_text, source_text)
     except Exception as exc:
         logger.error("V2 style retrieval failed; using hardened v1: %s", v1._safe_error(exc))
-        return _canonicalize_group(group, _ORIGINAL_V1_WRITE_GROUP(self, group, mode=mode))
+        return canonicalize_group(group, _ORIGINAL_V1_WRITE_GROUP(self, group, mode=mode))
 
     client = self._client_or_none()
     self.last_diagnostics = {
@@ -75,7 +73,7 @@ def _installed_write_group(self, group, *, mode: str = "default") -> GroupCopy:
 
     if client is None:
         self.last_diagnostics["fallback"] = "gemini_unavailable_hardened_v1"
-        return _canonicalize_group(group, _ORIGINAL_V1_WRITE_GROUP(self, group, mode=mode))
+        return canonicalize_group(group, _ORIGINAL_V1_WRITE_GROUP(self, group, mode=mode))
 
     direct = self._direct_group(group, analysis, examples, glossary, mode, client)
     if direct is None:
@@ -85,9 +83,9 @@ def _installed_write_group(self, group, *, mode: str = "default") -> GroupCopy:
             category=group.category,
             bodies={item.id: v1._translate_preserving_structure(item.text) for item in group.updates},
         )
-        return _canonicalize_group(group, fallback)
+        return canonicalize_group(group, fallback)
 
-    direct = _canonicalize_group(group, direct)
+    direct = canonicalize_group(group, direct)
     failed_ids: list[str] = []
     for item in group.updates:
         candidate = direct.bodies.get(item.id, "")
@@ -103,7 +101,7 @@ def _installed_write_group(self, group, *, mode: str = "default") -> GroupCopy:
     self.last_diagnostics["direct_failed_ids"] = failed_ids
     repaired = self._repair_failed_items(group, direct, failed_ids, analysis, client)
     if repaired is not None:
-        repaired = _canonicalize_group(group, repaired)
+        repaired = canonicalize_group(group, repaired)
         still_bad: list[str] = []
         for item in group.updates:
             candidate = repaired.bodies.get(item.id, "")
@@ -145,7 +143,7 @@ def harden_legacy_instance(writer: CaptionWriter) -> CaptionWriter:
     original = writer.write_group
 
     def hardened(self, group, *, mode: str = "default") -> GroupCopy:
-        return _canonicalize_group(group, original(group, mode=mode))
+        return canonicalize_group(group, original(group, mode=mode))
 
     writer.write_group = MethodType(hardened, writer)
     writer._channel_entity_hardened = True
