@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .x_client import XCollectionError, XCollector
+from .x_client import XCollectionError
+from .x_completeness import CompleteWindowXCollector
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,8 +122,8 @@ class SourceHealthStore:
         self.conn.close()
 
 
-class HealthTrackingXCollector(XCollector):
-    """Existing X collector with sanitized per-source telemetry only."""
+class HealthTrackingXCollector(CompleteWindowXCollector):
+    """Completeness-guarded X collector with sanitized per-source telemetry only."""
 
     def __init__(self, cookies, sources, keyword_groups, health: SourceHealthStore):
         super().__init__(cookies, sources, keyword_groups)
