@@ -73,7 +73,7 @@ jobs:
             --pace-seconds 8 \
             --batch-size 4 \
             --batch-cooldown-seconds 65 \
-            --max-quota-retries 1 \
+            --max-quota-retries 0 \
             --resume
 
       - name: Save PART 4 benchmark checkpoint
