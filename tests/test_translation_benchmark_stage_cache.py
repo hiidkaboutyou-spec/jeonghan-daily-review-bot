@@ -8,18 +8,23 @@ from pathlib import Path
 from tools.run_translation_benchmark_cached import _QuotaFailFastController, _StageCache
 
 
-def _payload(*, quota: bool) -> dict:
-    return {
-        "cases": [
-            {
-                "case_id": "B01",
-                "api_diagnostics": {
-                    "old_legacy": {"quota_429": False},
-                    "new_pipeline": {"quota_429": quota},
-                },
-            }
-        ]
+def _payload(*, quota: bool, successful: bool = False) -> dict:
+    case = {
+        "case_id": "B01",
+        "api_diagnostics": {
+            "old_legacy": {"quota_429": False},
+            "new_pipeline": {"quota_429": quota},
+        },
     }
+    if successful:
+        case.update(
+            {
+                "output_mode": "styled",
+                "verifier_result": "PASS",
+                "verifier_failures": [],
+            }
+        )
+    return {"cases": [case]}
 
 
 class TranslationBenchmarkStageCacheTests(unittest.TestCase):
@@ -82,6 +87,14 @@ class TranslationBenchmarkStageCacheTests(unittest.TestCase):
         controller = _QuotaFailFastController(threshold=2)
         self.assertFalse(controller.observe_checkpoint(_payload(quota=True), complete=False))
         self.assertFalse(controller.observe_checkpoint(_payload(quota=False), complete=False))
+        self.assertFalse(controller.observe_checkpoint(_payload(quota=True), complete=False))
+        self.assertEqual(controller.consecutive_quota_cases, 1)
+
+    def test_styled_pass_resets_streak_even_if_transient_quota_was_seen(self):
+        controller = _QuotaFailFastController(threshold=2)
+        self.assertFalse(controller.observe_checkpoint(_payload(quota=True), complete=False))
+        self.assertFalse(controller.observe_checkpoint(_payload(quota=True, successful=True), complete=False))
+        self.assertEqual(controller.consecutive_quota_cases, 0)
         self.assertFalse(controller.observe_checkpoint(_payload(quota=True), complete=False))
         self.assertEqual(controller.consecutive_quota_cases, 1)
 
