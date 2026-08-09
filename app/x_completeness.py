@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from .models import Update, ensure_utc
-from .x_client import XCollectionError, XCollector, _dedupe, _safe_error
+from .x_client import XCollectionError, XCollector, _dedupe, _safe_error, normalize_handle
+
+
+class XCompletenessError(XCollectionError):
+    """The requested bounded source window could not be proven complete."""
 
 
 class CompleteWindowXCollector(XCollector):
@@ -13,6 +17,33 @@ class CompleteWindowXCollector(XCollector):
     boundary. Reaching the supplied limit while all observed items are still inside
     the window is an explicit incomplete result, not a successful 24-hour fetch.
     """
+
+    async def collect_source(self, handle: str, start, end) -> list[Update]:
+        """Return a proven-complete source window or fail explicitly.
+
+        A generic X search is useful for discovery, but it cannot prove that every
+        post/reply from a source was returned. Therefore the old search fallback is
+        intentionally not accepted as a successful result for the UI's "complete
+        24 hours" operation.
+        """
+        handle = normalize_handle(handle)
+        if not handle:
+            raise XCollectionError("Source handle is invalid.")
+        try:
+            return await self._collect_source_timeline(
+                handle,
+                start,
+                end,
+                limit=1000,
+                include_replies=True,
+            )
+        except XCompletenessError:
+            raise
+        except XCollectionError as exc:
+            raise XCompletenessError(
+                f"Could not prove a complete source timeline for @{handle}; "
+                f"search-only fallback was not used. {_safe_error(exc)}"
+            ) from exc
 
     async def _collect_source_timeline(
         self,
@@ -53,11 +84,13 @@ class CompleteWindowXCollector(XCollector):
                     updates.append(update)
 
             if raw_seen >= limit and not crossed_lower_boundary:
-                raise XCollectionError(
+                raise XCompletenessError(
                     f"X timeline completeness is unproven for @{handle}: "
                     f"the {limit}-item safety limit was reached before the requested start time."
                 )
             return _dedupe(updates)
+        except XCompletenessError:
+            raise
         except XCollectionError:
             raise
         except Exception as exc:
