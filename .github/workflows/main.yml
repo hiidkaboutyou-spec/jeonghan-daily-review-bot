@@ -43,6 +43,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 # Fast validation may cancel an older validation run. Expensive translation
 # benchmarking lives in translation-benchmark.yml with its own non-cancelling
@@ -58,6 +59,8 @@ jobs:
     env:
       PYTHONUNBUFFERED: "1"
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      # Optional 32-byte base64 AES key. It is never printed or persisted.
+      STATE_BACKUP_KEY: ${{ secrets.STATE_BACKUP_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -101,11 +104,12 @@ jobs:
         shell: bash
         run: |
           python -m pip install -r requirements.txt
+          python -m pip check
           if ! python -m pip install -r requirements-optional-media.txt; then
             echo "::warning::Optional gallery-dl install failed; existing direct/yt-dlp/FFmpeg fallbacks remain available."
           fi
 
-      - name: Restore bot state
+      - name: Restore bot state cache
         if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')
         uses: actions/cache/restore@v5
         with:
@@ -114,7 +118,7 @@ jobs:
           restore-keys: |
             jeonghan-state-v2-${{ runner.os }}-
 
-      - name: Restore private review database
+      - name: Restore private review database cache
         if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')
         uses: actions/cache/restore@v5
         with:
@@ -122,6 +126,35 @@ jobs:
           key: jeonghan-private-review-v1-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             jeonghan-private-review-v1-${{ runner.os }}-
+
+      - name: Restore encrypted state recovery backup when cache is missing
+        if: >-
+          (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')) &&
+          env.STATE_BACKUP_KEY != '' &&
+          (hashFiles('.state/state.json') == '' || hashFiles('.state/private-review.sqlite3') == '')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact_id="$(gh api \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/${GITHUB_REPOSITORY}/actions/artifacts?name=private-state-backup&per_page=20" \
+            --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | reverse | .[0].id // empty')"
+          if [ -z "$artifact_id" ]; then
+            echo "No encrypted recovery artifact exists yet; cache/first-run state will be used."
+            exit 0
+          fi
+          rm -rf /tmp/private-state-restore
+          mkdir -p /tmp/private-state-restore
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > /tmp/private-state-backup.zip
+          unzip -q /tmp/private-state-backup.zip -d /tmp/private-state-restore
+          python -m tools.state_backup restore \
+            --input /tmp/private-state-restore/private-state-backup.enc \
+            --state-dir .state
+          rm -rf /tmp/private-state-restore /tmp/private-state-backup.zip
 
       - name: Validate project
         run: |
@@ -178,12 +211,40 @@ jobs:
           if path.exists():
               conn = sqlite3.connect(path, timeout=15)
               try:
+                  result = conn.execute('PRAGMA quick_check').fetchone()
+                  if not result or str(result[0]).lower() != 'ok':
+                      raise SystemExit('private-review.sqlite3 failed quick_check')
                   conn.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchall()
               finally:
                   conn.close()
           PY
 
-      - name: Save bot state
+      - name: Create authenticated encrypted recovery backup
+        if: >-
+          always() &&
+          (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')) &&
+          env.STATE_BACKUP_KEY != '' &&
+          (hashFiles('.state/state.json') != '' || hashFiles('.state/private-review.sqlite3') != '')
+        run: |
+          python -m tools.state_backup encrypt \
+            --state-dir .state \
+            --output .state/private-state-backup.enc
+
+      - name: Upload encrypted recovery backup
+        if: >-
+          always() &&
+          (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')) &&
+          env.STATE_BACKUP_KEY != '' &&
+          hashFiles('.state/private-state-backup.enc') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: private-state-backup
+          path: .state/private-state-backup.enc
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+      - name: Save bot state cache
         if: >-
           always() &&
           (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')) &&
@@ -193,7 +254,7 @@ jobs:
           path: .state/state.json
           key: jeonghan-state-v2-${{ runner.os }}-${{ github.run_id }}
 
-      - name: Save private review database
+      - name: Save private review database cache
         if: >-
           always() &&
           (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')) &&
