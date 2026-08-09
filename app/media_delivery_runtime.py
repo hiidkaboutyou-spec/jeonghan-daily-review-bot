@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from .callback_store import CallbackStore
 from .media_delivery import MediaDeliveryLedger
 from .models import Update
 from .private_telegram import telegram_file_identity
@@ -20,11 +21,17 @@ class MediaDedupReviewApplication(ReminderReviewApplication):
         state_path = getattr(getattr(self, "state", None), "path", None)
         if state_path is None:
             state_path = getattr(settings, "state_path", None)
-        self.media_delivery = (
-            MediaDeliveryLedger(Path(state_path).with_name("private-review.sqlite3"))
-            if state_path is not None
-            else None
-        )
+        durable_db = Path(state_path).with_name("private-review.sqlite3") if state_path is not None else None
+        self.media_delivery = MediaDeliveryLedger(durable_db) if durable_db is not None else None
+
+        # The same private SQLite file is already persisted for review state. Callback
+        # payloads that exceed Telegram's 64-byte UTF-8 limit are mapped here to
+        # short opaque tokens so routing survives across scheduled workflow runs.
+        telegram = getattr(self, "telegram", None)
+        if durable_db is not None and telegram is not None:
+            existing_store = getattr(telegram, "callback_store", None)
+            if existing_store is None:
+                telegram.callback_store = CallbackStore(durable_db)
 
     async def _deliver_private_media(self, update: Update) -> None:
         # Intentional lightweight test doubles may omit persistent state entirely.
