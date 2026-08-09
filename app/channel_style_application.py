@@ -7,6 +7,9 @@ from .channel_style_safety import validate_production_style_memory
 from .channel_translation import ChannelStyleCaptionWriter
 from .channel_translation_v2_install import harden_legacy_instance, install_direct_v2
 from .config import ROOT
+# Compatibility export: older tests/extensions patch this symbol directly. The
+# safe runtime still inherits through it via the MediaDedup/TelegramSafe chain.
+from .reminder_runtime import ReminderReviewApplication
 from .telegram_update_runtime import TelegramSafeReviewApplication
 
 logger = logging.getLogger(__name__)
