@@ -7,6 +7,9 @@ import logging
 import re
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
@@ -14,13 +17,17 @@ import requests
 from bs4 import BeautifulSoup
 
 from .config import Settings
+from .fic_state import FicObservation, FicStateStore
+from .message_delivery import MessageDeliveryStore
 from .telegram import TelegramBot
 from .x_client import XCollector
 
 logger = logging.getLogger(__name__)
 AO3 = "https://archiveofourown.org"
-HEADERS = {"User-Agent": "Mozilla/5.0 JeonghanDailyReviewBot/1.0 personal-reading-digest"}
+HEADERS = {"User-Agent": "JeonghanDailyReviewBot/1.0 (+personal private reading digest; low-rate requests)"}
 JEONGHAN_TERMS = ("jeonghan", "yoon jeonghan", "정한", "윤정한", "ジョンハン")
+AO3_PAGE_LIMIT = 25
+AO3_PACE_SECONDS = 1.0
 
 SHIP_ALIASES = [
     ("Jeongcheol", ("Choi Seungcheol", "S.Coups")),
@@ -52,16 +59,22 @@ class Fic:
     hits: int = 0
     source_note: str = ""
     x_score: int = 0
+    chapters: str = ""
+    updated: str = ""
+    observation_status: str = ""
 
     @property
     def ship(self) -> str:
-        # Only inspect relationship tags that actually include Jeonghan. A work may
-        # have several unrelated side ships; those must not decide its Jeonghan ship.
         joined = " | ".join(_jeonghan_relationships(self.relationships)).casefold()
         for label, aliases in SHIP_ALIASES:
             if any(alias.casefold() in joined for alias in aliases):
                 return label
         return "Other Jeonghan ships"
+
+    @property
+    def work_id(self) -> str:
+        match = re.search(r"/works/(\d+)", self.url)
+        return match.group(1) if match else ""
 
 
 def _clean(text: str) -> str:
@@ -85,26 +98,51 @@ def _jeonghan_relationships(relationships: list[str]) -> list[str]:
 
 
 def _is_jeonghan(relationships: list[str], text: str = "") -> bool:
-    # The title or summary mentioning Jeonghan is not enough: the requested digest
-    # is specifically for Jeonghan ships, so require an AO3 relationship tag.
     del text
     return bool(_jeonghan_relationships(relationships))
 
 
+def _retry_after_seconds(response: requests.Response, default: float) -> float:
+    raw = str(response.headers.get("Retry-After", "") or "").strip()
+    if raw.isdigit():
+        return max(0.0, min(float(raw), 120.0))
+    if raw:
+        try:
+            when = parsedate_to_datetime(raw)
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=timezone.utc)
+            return max(0.0, min((when - datetime.now(timezone.utc)).total_seconds(), 120.0))
+        except (TypeError, ValueError, OverflowError):
+            pass
+    return max(0.0, min(default, 120.0))
+
+
 def _get(url: str, *, timeout: int = 20, attempts: int = 3) -> requests.Response | None:
+    attempts = max(1, int(attempts))
     for attempt in range(attempts):
         try:
             response = requests.get(url, headers=HEADERS, timeout=timeout, allow_redirects=True)
-            if response.status_code in {429, 502, 503, 504}:
-                time.sleep(2 + attempt * 2)
-                continue
+            if response.status_code == 429:
+                if attempt + 1 < attempts:
+                    time.sleep(_retry_after_seconds(response, 2.0 * (attempt + 1)))
+                    continue
+                return None
+            if response.status_code in {502, 503, 504}:
+                if attempt + 1 < attempts:
+                    time.sleep(min(8.0, 2.0 ** attempt))
+                    continue
+                return None
             response.raise_for_status()
             return response
         except requests.RequestException as exc:
-            logger.warning("HTTP attempt %s/%s failed for %s: %s", attempt + 1, attempts, url[:90], exc)
+            logger.warning("HTTP attempt %s/%s failed for AO3 request (%s)", attempt + 1, attempts, type(exc).__name__)
             if attempt + 1 < attempts:
-                time.sleep(1.5 + attempt)
+                time.sleep(min(8.0, 1.5 * (attempt + 1)))
     return None
+
+
+def _node_text(node: Any) -> str:
+    return _clean(node.get_text(" ", strip=True) if node else "")
 
 
 def _fic_from_search_blurb(work: Any) -> Fic | None:
@@ -119,25 +157,24 @@ def _fic_from_search_blurb(work: Any) -> Fic | None:
     if language_node and "english" not in _clean(language_node.get_text()).casefold():
         return None
     summary_node = work.select_one("blockquote.userstuff.summary")
-    summary = _clean(summary_node.get_text(" ", strip=True) if summary_node else "No public summary provided.")
     authors = work.select("h4.heading a[rel='author']")
-    words_node = work.select_one("dd.words")
-    rating_node = work.select_one("span.rating")
     return Fic(
         title=_clean(heading.get_text(" ", strip=True)),
         url=AO3 + href,
         author=", ".join(_clean(a.get_text(" ", strip=True)) for a in authors) or "Anonymous",
-        summary=summary,
+        summary=_clean(summary_node.get_text(" ", strip=True) if summary_node else "No public summary provided."),
         relationships=relationships,
-        rating=_clean(rating_node.get_text(" ", strip=True) if rating_node else ""),
-        words=_clean(words_node.get_text(" ", strip=True) if words_node else ""),
+        rating=_node_text(work.select_one("span.rating")),
+        words=_node_text(work.select_one("dd.words")),
         kudos=_num(work.select_one("dd.kudos")),
         bookmarks=_num(work.select_one("dd.bookmarks")),
         hits=_num(work.select_one("dd.hits")),
+        chapters=_node_text(work.select_one("dd.chapters")),
+        updated=_node_text(work.select_one("p.datetime")),
     )
 
 
-def search_ao3(limit: int = 36) -> list[Fic]:
+def search_ao3(limit: int = 36, *, max_pages: int = AO3_PAGE_LIMIT, pace_seconds: float = AO3_PACE_SECONDS) -> list[Fic]:
     if limit <= 0:
         return []
     base_params = {
@@ -149,33 +186,30 @@ def search_ao3(limit: int = 36) -> list[Fic]:
     }
     fics: list[Fic] = []
     seen: set[str] = set()
-    # AO3 search pages are typically much smaller than the requested digest size;
-    # paginate instead of pretending a one-page scrape can satisfy limit=36.
-    for page in range(1, 11):
+    for page in range(1, max(1, int(max_pages)) + 1):
         params = dict(base_params)
         params["page"] = str(page)
         response = _get(AO3 + "/works/search?" + urlencode(params), timeout=25, attempts=3)
         if response is None:
+            # A failed page means completeness is unknown; do not skip ahead and
+            # present later pages as though the gap were complete.
             break
         soup = BeautifulSoup(response.text, "html.parser")
         works = soup.select("li.work.blurb")
         if not works:
             break
-        added_this_page = 0
         for work in works:
             fic = _fic_from_search_blurb(work)
             if fic is None or fic.url in seen:
                 continue
             seen.add(fic.url)
             fics.append(fic)
-            added_this_page += 1
             if len(fics) >= limit:
                 return fics
-        if added_this_page == 0 and page >= 3:
-            # Avoid hammering AO3 indefinitely when the query pages contain no
-            # qualifying relationship-tagged works.
-            break
-        time.sleep(0.35)
+        # A page can legitimately contain no qualifying Jeonghan relationship tags;
+        # that is not evidence that AO3 has no later search pages.
+        if pace_seconds > 0 and page < max_pages:
+            time.sleep(float(pace_seconds))
     return fics
 
 
@@ -205,11 +239,13 @@ def fetch_ao3_work(url: str) -> Fic | None:
         author=", ".join(_clean(a.get_text(" ", strip=True)) for a in authors) or "Anonymous",
         summary=_clean(summary_node.get_text(" ", strip=True) if summary_node else "No public summary provided."),
         relationships=relationships,
-        rating=_clean(soup.select_one("dd.rating.tags").get_text(" ", strip=True) if soup.select_one("dd.rating.tags") else ""),
-        words=_clean(soup.select_one("dd.words").get_text(" ", strip=True) if soup.select_one("dd.words") else ""),
+        rating=_node_text(soup.select_one("dd.rating.tags")),
+        words=_node_text(soup.select_one("dd.words")),
         kudos=_num(soup.select_one("dd.kudos")),
         bookmarks=_num(soup.select_one("dd.bookmarks")),
         hits=_num(soup.select_one("dd.hits")),
+        chapters=_node_text(soup.select_one("dd.chapters")),
+        updated=_node_text(soup.select_one("dd.status")) or _node_text(soup.select_one("dd.published")),
     )
 
 
@@ -261,29 +297,25 @@ async def search_x_recommendations(settings: Settings, limit: int = 24) -> list[
                 if len(candidates) >= max(limit * 2, 36):
                     break
         except Exception as exc:
-            logger.warning("X fic recommendation query failed but digest will continue: %s", exc)
+            logger.warning("X fic recommendation query failed but digest will continue: %s", type(exc).__name__)
         await asyncio.sleep(0.5)
 
     ranked = sorted(candidates.values(), key=lambda item: item[1], reverse=True)[: max(limit * 2, limit)]
-    semaphore = asyncio.Semaphore(4)
-
-    async def load(candidate: tuple[str, int, str]) -> Fic | None:
-        url, score, note = candidate
-        async with semaphore:
+    found: list[Fic] = []
+    # AO3 has no supported public API. Fetch detail pages serially and paced instead
+    # of opening four simultaneous requests against a volunteer-run service.
+    for index, (url, score, note) in enumerate(ranked):
+        try:
             fic = await asyncio.to_thread(fetch_ao3_work, url)
+        except Exception as exc:
+            logger.warning("AO3 work lookup from X recommendation failed: %s", type(exc).__name__)
+            fic = None
         if fic is not None:
             fic.x_score = score
             fic.source_note = note
-        return fic
-
-    loaded = await asyncio.gather(*(load(candidate) for candidate in ranked), return_exceptions=True)
-    found: list[Fic] = []
-    for item in loaded:
-        if isinstance(item, Exception):
-            logger.warning("AO3 work lookup from X recommendation failed: %s", item)
-            continue
-        if item is not None:
-            found.append(item)
+            found.append(fic)
+        if index + 1 < len(ranked):
+            await asyncio.sleep(AO3_PACE_SECONDS)
     return sorted(found, key=lambda f: (f.x_score, f.kudos, f.bookmarks, f.hits), reverse=True)[:limit]
 
 
@@ -303,7 +335,7 @@ def _translate_summary(summary: str) -> str:
         translated = "".join(str(part[0]) for part in payload[0] if isinstance(part, list) and part and part[0]).strip()
         return translated or summary
     except Exception as exc:
-        logger.warning("Summary translation fallback failed: %s", exc)
+        logger.warning("Summary translation fallback failed: %s", type(exc).__name__)
         return summary
 
 
@@ -367,14 +399,13 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
                         result.update(_fallback_summaries(missing))
                     return {fic.url: result.get(fic.url, fic.summary) for fic in fics}
             except Exception as exc:
-                logger.warning("Fic Gemini model %s failed; trying fallback: %s", model, exc)
+                logger.warning("Fic Gemini model %s failed; trying fallback: %s", model, type(exc).__name__)
     except Exception as exc:
-        logger.warning("Gemini summary layer unavailable: %s", exc)
+        logger.warning("Gemini summary layer unavailable: %s", type(exc).__name__)
     return _fallback_summaries(fics)
 
 
 def _chunks(text: str, max_len: int = 3800) -> list[str]:
-    """Split Telegram text without ever truncating a long fic block."""
     if max_len < 1:
         raise ValueError("max_len must be positive")
     chunks: list[str] = []
@@ -398,7 +429,6 @@ def _chunks(text: str, max_len: int = 3800) -> list[str]:
             if remaining.startswith("\n"):
                 remaining = remaining[1:]
         pieces.append(remaining)
-
         for piece in pieces:
             if not piece and not current:
                 continue
@@ -430,6 +460,8 @@ def format_digest(title: str, fics: list[Fic], summaries: dict[str, str], source
             stats = f"Kudos {fic.kudos:,} · Bookmarks {fic.bookmarks:,} · Hits {fic.hits:,}"
             if source == "x":
                 stats += f" · X score {fic.x_score:,}"
+            if fic.chapters:
+                stats += f" · Chapters {fic.chapters}"
             jh_relationships = _jeonghan_relationships(fic.relationships)
             rel = "; ".join(jh_relationships[:3]) or ship
             lines += [
@@ -445,25 +477,54 @@ def format_digest(title: str, fics: list[Fic], summaries: dict[str, str], source
     return "\n".join(lines).strip()
 
 
-async def build_digests(settings: Settings) -> tuple[str, str]:
+def observe_fics(store: FicStateStore, fics: list[Fic]) -> None:
+    for fic in fics:
+        if not fic.work_id:
+            continue
+        fic.observation_status = store.classify(
+            FicObservation(work_id=fic.work_id, chapters=fic.chapters, updated=fic.updated)
+        )
+
+
+async def build_digests(settings: Settings, *, fic_store: FicStateStore | None = None) -> tuple[str, str]:
     x_fics = await search_x_recommendations(settings)
+    if fic_store is not None:
+        observe_fics(fic_store, x_fics)
     x_summaries = await asyncio.to_thread(summarize_fics_persian, settings, x_fics)
     x_text = format_digest("🌙 لیست شبانه فن‌فیک — پیشنهادهای پیدا شده در X", x_fics, x_summaries, "x")
 
     ao3_fics = await asyncio.to_thread(search_ao3, 36)
     ao3_fics.sort(key=lambda f: (f.kudos, f.bookmarks, f.hits), reverse=True)
+    if fic_store is not None:
+        observe_fics(fic_store, ao3_fics)
     ao3_summaries = await asyncio.to_thread(summarize_fics_persian, settings, ao3_fics)
     ao3_text = format_digest("📚 لیست شبانه فن‌فیک — بهترین‌های خود AO3", ao3_fics, ao3_summaries, "ao3")
     return x_text, ao3_text
 
 
 async def send_digests(settings: Settings, bot: TelegramBot | None = None) -> None:
-    bot = bot or TelegramBot(settings.telegram_token, settings.admin_user_id, settings.review_chat_id)
-    x_text, ao3_text = await build_digests(settings)
-    for chunk in _chunks(x_text):
-        bot.send_message(chunk)
-    for chunk in _chunks(ao3_text):
-        bot.send_message(chunk)
+    db_path = settings.state_path.with_name("private-review.sqlite3")
+    message_store = MessageDeliveryStore(db_path)
+    fic_store = FicStateStore(db_path)
+    bot = bot or TelegramBot(
+        settings.telegram_token,
+        settings.admin_user_id,
+        settings.review_chat_id,
+        message_delivery_store=message_store,
+    )
+    if getattr(bot, "message_delivery_store", None) is None:
+        bot.message_delivery_store = message_store
+    try:
+        x_text, ao3_text = await build_digests(settings, fic_store=fic_store)
+        day = datetime.now(settings.timezone).strftime("%Y-%m-%d")
+        bot.send_message(x_text, delivery_key=f"fic:{day}:x")
+        bot.send_message(ao3_text, delivery_key=f"fic:{day}:ao3")
+    finally:
+        fic_store.close()
+        # Do not close an externally supplied bot's pre-existing store.
+        if bot.message_delivery_store is message_store:
+            message_store.close()
+            bot.message_delivery_store = None
 
 
 async def main_async() -> int:
