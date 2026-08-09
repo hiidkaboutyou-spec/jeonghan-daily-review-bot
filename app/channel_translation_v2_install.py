@@ -2,9 +2,9 @@ from __future__ import annotations
 
 """Explicit production installer for translation v2.
 
-Keeping the existing writer class identity preserves compatibility with the rest of
-this bot and its regression suite. Only behavior is upgraded; no import-time global
-patch is performed here. The application calls the installer deliberately.
+The existing writer class identity is preserved for compatibility. V2 behavior is
+bound only to the concrete production writer instance, so v1 regression tests and
+other callers remain untouched.
 """
 
 import logging
@@ -126,15 +126,16 @@ def _installed_write_group(self, group, *, mode: str = "default") -> GroupCopy:
     return GroupCopy(direct.title or group.title, group.category, bodies)
 
 
-def install_direct_v2(target_cls) -> None:
-    """Upgrade the existing production writer class without changing its identity."""
-    if getattr(target_cls, "_channel_direct_v2_installed", False):
-        return
-    target_cls._direct_group = V2Methods._direct_group
-    target_cls._repair_failed_items = V2Methods._repair_failed_items
-    target_cls._generate_json_v2 = V2Methods._generate_json_v2
-    target_cls.write_group = _installed_write_group
-    target_cls._channel_direct_v2_installed = True
+def install_direct_v2(writer):
+    """Bind v2 behavior only to this production writer instance."""
+    if getattr(writer, "_channel_direct_v2_installed", False):
+        return writer
+    writer._direct_group = MethodType(V2Methods._direct_group, writer)
+    writer._repair_failed_items = MethodType(V2Methods._repair_failed_items, writer)
+    writer._generate_json_v2 = MethodType(V2Methods._generate_json_v2, writer)
+    writer.write_group = MethodType(_installed_write_group, writer)
+    writer._channel_direct_v2_installed = True
+    return writer
 
 
 def harden_legacy_instance(writer: CaptionWriter) -> CaptionWriter:
