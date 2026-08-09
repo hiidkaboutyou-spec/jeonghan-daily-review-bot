@@ -13,7 +13,7 @@ from app.config import Settings
 from tools import run_translation_benchmark as benchmark
 
 CACHE_VERSION = 1
-DEFAULT_QUOTA_FAIL_FAST_CASES = 2
+DEFAULT_QUOTA_FAIL_FAST_CASES = 1
 
 
 def _stable_hash(payload: Any) -> str:
@@ -31,17 +31,16 @@ def _output_path_from_argv(argv: list[str]) -> Path:
 
 
 class QuotaFailFast(RuntimeError):
-    """Benchmark-only signal that sustained external quota exhaustion was checkpointed."""
+    """Benchmark-only signal that external quota exhaustion was checkpointed."""
 
 
 class _QuotaFailFastController:
-    """Stop only after consecutive unresolved checkpointed cases hit Gemini quota.
+    """Stop after checkpointing unresolved Gemini quota exhaustion.
 
-    This controller never changes production behavior or benchmark quality semantics.
-    It observes the already-materialized benchmark result after the normal checkpoint
-    has been written. A genuinely successful styled + verifier-PASS case resets the
-    streak even if one model attempt transiently returned 429 before a cached/alternate
-    successful stage completed. Non-quota cases also reset the streak.
+    The default is deliberately one unresolved quota-limited case. Repeating the
+    same request immediately has already proven wasteful for this benchmark and
+    cannot improve its quality gates. A genuinely successful styled + verifier-PASS
+    case still resets the streak, and production behavior is never changed.
     """
 
     def __init__(self, threshold: int = DEFAULT_QUOTA_FAIL_FAST_CASES):
@@ -257,11 +256,11 @@ def _install_stage_cache(
         complete = bool(kwargs.get("complete", False))
         if quota_controller.observe_checkpoint(payload, complete=complete):
             print(
-                "PART4 quota fail-fast: sustained 429/RESOURCE_EXHAUSTED after "
-                f"{quota_controller.consecutive_quota_cases} unresolved checkpointed cases; exiting with progress preserved.",
+                "PART4 quota fail-fast: unresolved 429/RESOURCE_EXHAUSTED was checkpointed; "
+                "stopping immediately to avoid wasting quota while preserving all progress.",
                 flush=True,
             )
-            raise QuotaFailFast("sustained Gemini quota exhaustion; checkpoint preserved")
+            raise QuotaFailFast("Gemini quota exhaustion; checkpoint preserved")
         return payload
 
     ChannelStyleCaptionWriter._generate_json = cached_generate
