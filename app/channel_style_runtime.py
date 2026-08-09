@@ -45,6 +45,7 @@ _HARD_NAME_GROUPS = {
 }
 _SPEAKER_RE = re.compile(r"^\s*([^\s:：]{1,24})\s*[:：]\s*(.+)$", re.M)
 _QUOTE_MARK_RE = re.compile(r'(?:["“«][^"”»\n]{2,}["”»])')
+_CJK_OR_HANGUL_RE = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]")
 
 _GLOSSARY_SOURCE_ALIASES = {
     "جونگهان": ("jeonghan", "yoon jeonghan", "정한", "윤정한", "ジョンハン"),
@@ -325,10 +326,25 @@ class ChannelStyleMemory(_BaseChannelStyleMemory):
         return result
 
 
+def _alias_present(text: str, alias: str) -> bool:
+    haystack = str(text or "").casefold()
+    needle = str(alias or "").casefold().strip()
+    if not needle:
+        return False
+    # Korean/Japanese names are commonly followed by particles/honorifics without
+    # whitespace, so substring matching remains intentional for those scripts.
+    if _CJK_OR_HANGUL_RE.search(needle):
+        return needle in haystack
+    # Latin and Persian aliases must be token-bounded. This prevents short aliases
+    # such as Persian "جون" (JUN) from matching inside "جونگهان" (JEONGHAN), while
+    # still accepting punctuation/emoji/whitespace around a genuine name mention.
+    pattern = rf"(?<![\w\u200c]){re.escape(needle)}(?![\w\u200c])"
+    return re.search(pattern, haystack, flags=re.UNICODE) is not None
+
+
 def _canonical_identity(value: str) -> str:
-    low = str(value or "").casefold()
     for canonical, aliases in _HARD_NAME_GROUPS.items():
-        if any(alias.casefold() in low for alias in aliases):
+        if any(_alias_present(value, alias) for alias in aliases):
             return canonical
     return ""
 
@@ -353,11 +369,9 @@ def verify_hard_facts(source: str, output: str, analysis: SourceAnalysis | None 
         if any(ord(ch) > 0x1F000 for ch in speaker) and speaker not in output:
             failures.append(f"missing speaker label: {speaker}")
 
-    source_cf = source.casefold()
-    output_cf = output.casefold()
     for canonical, aliases in _HARD_NAME_GROUPS.items():
-        in_source = any(form.casefold() in source_cf for form in aliases)
-        in_output = any(form.casefold() in output_cf for form in aliases)
+        in_source = any(_alias_present(source, form) for form in aliases)
+        in_output = any(_alias_present(output, form) for form in aliases)
         if in_source:
             if not in_output:
                 failures.append(f"name/identity dropped: {canonical}")
