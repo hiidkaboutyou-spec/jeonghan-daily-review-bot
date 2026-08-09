@@ -1,6 +1,6 @@
 {
   "timezone": "Asia/Tehran",
-  "gemini_model": "gemini-2.5-flash-lite",
+  "gemini_model": "gemini-3.1-flash-lite",
   "state_path": ".state/state.json",
   "runtime": {
     "max_auto_items_per_run": 1000,
