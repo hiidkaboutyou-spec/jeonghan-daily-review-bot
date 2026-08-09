@@ -175,54 +175,76 @@ class PrivateReviewApplication(Application):
         total_updates = sum(len(group.updates) for group in groups)
         self.telegram.send_message(ensure_rtl_line(f"{total_updates} آپدیت در {len(groups)} گروه پیدا شد؛ ارسال از قدیمی به جدید شروع شد."), reply_markup=main_keyboard())
         for group in groups:
-            copy = self.writer.write_group(group)
-            group.title = copy.title or group.title
-            if copy.category in self.settings.themes.get("themes", {}):
-                group.category = copy.category
-            for part, update in enumerate(group.updates, start=1):
-                body = copy.bodies.get(update.id) or update.text
-                generated_caption = self.themes.caption(group, update, body, part, len(group.updates))
-                if update.media:
-                    await self._deliver_private_media(update)
-
-                if force:
-                    draft_id = short_id(f"force:{update.id}:{datetime.now(timezone.utc).timestamp()}")
-                    caption = generated_caption
-                    delivery_key = None
-                else:
-                    # Stable across workflow retries. Save the exact text before the
-                    # first Telegram call so a partial multi-part failure cannot cause
-                    # a regenerated Gemini variant to duplicate already-sent parts.
+            existing_drafts: dict[str, Draft] = {}
+            if not force:
+                for update in group.updates:
                     draft_id = short_id(f"scheduled:{group.key}:{update.id}")
                     existing = self.state.get_draft(draft_id)
-                    caption = existing.caption if existing is not None else generated_caption
-                    delivery_key = f"draft:{draft_id}"
+                    if existing is not None:
+                        existing_drafts[update.id] = existing
 
-                draft = Draft(
-                    id=draft_id,
-                    update_id=update.id,
-                    event_key=group.key,
-                    caption=caption,
-                    mode="default",
-                    telegram_message_id=0,
-                    created_at=(
-                        self.state.get_draft(draft_id).created_at
-                        if self.state.get_draft(draft_id) is not None
-                        else datetime.now(timezone.utc).isoformat()
-                    ),
-                )
+            # A failed send leaves the complete group's drafts behind. On retry we
+            # must resume those exact captions without invoking Gemini again. If a
+            # legacy/partial state is missing any draft, generate once and persist
+            # every missing caption before the first network delivery in the group.
+            copy = None
+            if force or len(existing_drafts) != len(group.updates):
+                copy = self.writer.write_group(group)
+                group.title = copy.title or group.title
+                if copy.category in self.settings.themes.get("themes", {}):
+                    group.category = copy.category
+
+            prepared: list[tuple[Update, Draft, str | None]] = []
+            for part, update in enumerate(group.updates, start=1):
+                existing = existing_drafts.get(update.id)
+                if existing is not None:
+                    draft = existing
+                    delivery_key = f"draft:{draft.id}"
+                else:
+                    assert copy is not None
+                    body = copy.bodies.get(update.id) or update.text
+                    caption = self.themes.caption(group, update, body, part, len(group.updates))
+                    if force:
+                        draft_id = short_id(f"force:{update.id}:{datetime.now(timezone.utc).timestamp()}")
+                        delivery_key = None
+                    else:
+                        draft_id = short_id(f"scheduled:{group.key}:{update.id}")
+                        delivery_key = f"draft:{draft_id}"
+                    draft = Draft(
+                        id=draft_id,
+                        update_id=update.id,
+                        event_key=group.key,
+                        caption=caption,
+                        mode="default",
+                        telegram_message_id=0,
+                        created_at=datetime.now(timezone.utc).isoformat(),
+                    )
+                    self.state.save_draft(draft)
+                prepared.append((update, draft, delivery_key))
+
+            # StateStore is normally flushed by Application.run's finally block,
+            # but a workflow can be terminated at its execution deadline. Flush the
+            # whole immutable group plan before its first Telegram network call.
+            self.state.save()
+
+            for update, draft, delivery_key in prepared:
+                if update.media:
+                    await self._deliver_private_media(update)
                 self.state.save_draft(draft)
                 sent = self.telegram.send_message(
-                    caption,
-                    reply_markup=draft_keyboard(draft_id),
+                    draft.caption,
+                    reply_markup=draft_keyboard(draft.id),
                     delivery_key=delivery_key,
                 )
                 draft.telegram_message_id = int(sent.get("message_id", 0) or 0)
                 self.state.save_draft(draft)
                 self.state.archive_update(update)
                 self.inbox.upsert(draft, update, status="pending")
-                self.archive_db.index_update(update, caption=caption)
+                self.archive_db.index_update(update, caption=draft.caption)
                 self.state.mark_seen(update)
+                # A later hard timeout must resume at the first unconfirmed update,
+                # not replay work already acknowledged by Telegram.
+                self.state.save()
 
     async def _deliver_private_media(self, update: Update) -> None:
         media = list(update.media[:20])
