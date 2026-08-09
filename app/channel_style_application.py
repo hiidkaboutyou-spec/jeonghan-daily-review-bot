@@ -4,7 +4,8 @@ import logging
 
 from .ai import CaptionWriter
 from .channel_style_safety import validate_production_style_memory
-from .channel_translation_v2 import ChannelStyleCaptionWriter, SafeLegacyCaptionWriter
+from .channel_translation import ChannelStyleCaptionWriter
+from .channel_translation_v2_install import harden_legacy_instance, install_direct_v2
 from .config import ROOT
 from .reminder_runtime import ReminderReviewApplication
 
@@ -12,11 +13,12 @@ logger = logging.getLogger(__name__)
 
 
 class ChannelStyleReviewApplication(ReminderReviewApplication):
-    """Production private-review application using translation v2 first.
+    """Production private-review application using translation v2 behavior first.
 
-    The compatibility writer is retained only as a safe fallback, but even that
-    fallback applies source-authorized channel entity spelling (for example
-    Jeonghan -> جونگهان) before a private-review draft is delivered.
+    Existing writer class identities are preserved for compatibility, but normal
+    production behavior is upgraded explicitly to the direct v2 pipeline. The
+    compatibility fallback is also hardened so Jeonghan cannot be delivered with
+    a generic machine-transliteration spelling.
     """
 
     def __init__(self, settings):
@@ -25,15 +27,10 @@ class ChannelStyleReviewApplication(ReminderReviewApplication):
         self.channel_style_error = ""
         self.channel_style_indexed_examples = 0
 
-        # Never retain the raw legacy writer as the final production fallback.
-        # It uses a generic machine-translation path and cannot enforce the
-        # channel's canonical entity spellings.
-        legacy_writer = SafeLegacyCaptionWriter(
-            settings.gemini_api_key,
-            settings.gemini_model,
-            self.memory,
-        )
-        self.legacy_writer = legacy_writer
+        legacy_writer = self.writer
+        if not isinstance(legacy_writer, CaptionWriter):
+            legacy_writer = CaptionWriter(settings.gemini_api_key, settings.gemini_model, self.memory)
+        self.legacy_writer = harden_legacy_instance(legacy_writer)
 
         ok, reason, indexed = validate_production_style_memory(self.memory, ROOT)
         self.channel_style_indexed_examples = indexed
@@ -44,6 +41,7 @@ class ChannelStyleReviewApplication(ReminderReviewApplication):
             return
 
         try:
+            install_direct_v2(ChannelStyleCaptionWriter)
             self.writer = ChannelStyleCaptionWriter(
                 settings.gemini_api_key,
                 settings.gemini_model,
@@ -60,6 +58,6 @@ class ChannelStyleReviewApplication(ReminderReviewApplication):
 
         self.channel_style_enabled = True
         logger.info(
-            "Channel translation v2 active as PRIMARY production writer with %s historical examples.",
+            "Channel translation v2 active as PRIMARY production behavior with %s historical examples.",
             indexed,
         )
