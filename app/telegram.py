@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import random
 import time
 from typing import Any
 
@@ -14,10 +15,25 @@ from .message_delivery import MessageDeliveryStore
 
 logger = logging.getLogger(__name__)
 TELEGRAM_TEXT_LIMIT = 4096
+MAX_RETRY_SLEEP_SECONDS = 120.0
 
 
 class TelegramError(RuntimeError):
     pass
+
+
+class TelegramTransientError(TelegramError):
+    """Network/5xx failure that may succeed in a later workflow run."""
+
+
+class TelegramRateLimitError(TelegramTransientError):
+    def __init__(self, retry_after: int):
+        self.retry_after = max(1, int(retry_after or 1))
+        super().__init__("Telegram rate limit reached; retry later.")
+
+
+class TelegramPermanentError(TelegramError):
+    """Non-retryable Bot API failure for the current request."""
 
 
 class TelegramBot:
@@ -38,6 +54,21 @@ class TelegramBot:
         self.callback_store = callback_store
         self.message_delivery_store = message_delivery_store
 
+    def _sleep_before_retry(self, attempt: int, *, retry_after: int | None = None) -> None:
+        if retry_after is not None:
+            base = min(MAX_RETRY_SLEEP_SECONDS, float(max(1, retry_after)))
+        else:
+            base = min(8.0, float(2 ** max(0, attempt)))
+        # Small jitter avoids synchronized retries while never materially ignoring
+        # Telegram's server-provided retry_after value.
+        time.sleep(base + random.uniform(0.0, 0.25))
+
+    def _safe_api_description(self, payload: dict[str, Any]) -> str:
+        description = str(payload.get("description") or "Telegram API error")[:600]
+        if self.token:
+            description = description.replace(self.token, "<redacted>")
+        return description.replace(self.base, "<telegram-api>")
+
     def api(
         self,
         method: str,
@@ -47,8 +78,8 @@ class TelegramBot:
         timeout: int = 60,
         attempts: int = 3,
     ) -> Any:
-        last_description = "Telegram request failed."
-        for attempt in range(max(1, attempts)):
+        attempts = max(1, int(attempts))
+        for attempt in range(attempts):
             _rewind_files(files)
             try:
                 response = self.session.post(
@@ -58,41 +89,55 @@ class TelegramBot:
                     timeout=timeout,
                 )
             except requests.RequestException as exc:
-                # Never include or chain the requests exception here: its message may
-                # contain the full Bot API URL, which embeds TELEGRAM_BOT_TOKEN.
-                last_description = f"Telegram network request failed ({type(exc).__name__})."
                 if attempt + 1 < attempts:
-                    time.sleep(1.0 + attempt)
+                    self._sleep_before_retry(attempt)
                     continue
-                raise TelegramError(last_description) from None
+                # Do not include/chains requests exception: it may contain the Bot API
+                # URL, which embeds TELEGRAM_BOT_TOKEN.
+                raise TelegramTransientError(
+                    f"Telegram network request failed ({type(exc).__name__})."
+                ) from None
 
             try:
                 payload = response.json()
-            except ValueError as exc:
-                if response.status_code >= 500 and attempt + 1 < attempts:
-                    time.sleep(1.0 + attempt)
-                    continue
-                raise TelegramError(
+            except ValueError:
+                if response.status_code >= 500:
+                    if attempt + 1 < attempts:
+                        self._sleep_before_retry(attempt)
+                        continue
+                    raise TelegramTransientError(
+                        f"Telegram returned HTTP {response.status_code} without valid JSON."
+                    ) from None
+                raise TelegramPermanentError(
                     f"Telegram returned HTTP {response.status_code} without valid JSON."
-                ) from exc
+                ) from None
+            if not isinstance(payload, dict):
+                raise TelegramPermanentError("Telegram returned an invalid JSON payload.")
 
-            if response.status_code == 429 or int(payload.get("error_code", 0) or 0) == 429:
-                retry_after = int((payload.get("parameters") or {}).get("retry_after", 1) or 1)
-                last_description = "Telegram rate limit reached."
+            error_code = int(payload.get("error_code", 0) or 0)
+            if response.status_code == 429 or error_code == 429:
+                try:
+                    retry_after = int((payload.get("parameters") or {}).get("retry_after", 1) or 1)
+                except (TypeError, ValueError):
+                    retry_after = 1
                 if attempt + 1 < attempts:
-                    time.sleep(max(1, min(retry_after, 60)))
+                    self._sleep_before_retry(attempt, retry_after=retry_after)
                     continue
+                raise TelegramRateLimitError(retry_after)
 
-            if response.status_code >= 500 and attempt + 1 < attempts:
-                time.sleep(1.0 + attempt)
-                continue
+            if response.status_code >= 500 or error_code >= 500:
+                if attempt + 1 < attempts:
+                    self._sleep_before_retry(attempt)
+                    continue
+                raise TelegramTransientError(f"Telegram {method} temporarily failed with HTTP {response.status_code}.")
 
             if not response.ok or not payload.get("ok"):
-                description = str(payload.get("description") or "Telegram API error")[:600]
-                raise TelegramError(f"Telegram {method} failed: {description}")
+                raise TelegramPermanentError(
+                    f"Telegram {method} failed: {self._safe_api_description(payload)}"
+                )
             return payload.get("result")
 
-        raise TelegramError(last_description)
+        raise TelegramTransientError("Telegram request exhausted its retry budget.")
 
     def ensure_polling_mode(self) -> None:
         """Remove an old webhook without dropping queued updates before getUpdates polling."""
@@ -165,7 +210,7 @@ class TelegramBot:
         """
         parts = split_telegram_text(str(text), TELEGRAM_TEXT_LIMIT)
         if not parts:
-            raise TelegramError("Telegram message text must not be empty.")
+            raise TelegramPermanentError("Telegram message text must not be empty.")
         target_chat = self.review_chat_id if chat_id is None else chat_id
         last_result: dict[str, Any] = {}
         for index, part in enumerate(parts):
@@ -206,7 +251,7 @@ class TelegramBot:
     ) -> dict[str, Any]:
         parts = split_telegram_text(str(text), TELEGRAM_TEXT_LIMIT)
         if not parts:
-            raise TelegramError("Edited Telegram message text must not be empty.")
+            raise TelegramPermanentError("Edited Telegram message text must not be empty.")
         first_markup = reply_markup if len(parts) == 1 else None
         data: dict[str, Any] = {
             "chat_id": self.review_chat_id,
