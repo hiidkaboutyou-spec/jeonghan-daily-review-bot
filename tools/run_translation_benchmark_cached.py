@@ -35,11 +35,13 @@ class QuotaFailFast(RuntimeError):
 
 
 class _QuotaFailFastController:
-    """Stop only after consecutive checkpointed cases hit Gemini quota.
+    """Stop only after consecutive unresolved checkpointed cases hit Gemini quota.
 
     This controller never changes production behavior or benchmark quality semantics.
     It observes the already-materialized benchmark result after the normal checkpoint
-    has been written. Successful or non-quota cases reset the streak.
+    has been written. A genuinely successful styled + verifier-PASS case resets the
+    streak even if one model attempt transiently returned 429 before a cached/alternate
+    successful stage completed. Non-quota cases also reset the streak.
     """
 
     def __init__(self, threshold: int = DEFAULT_QUOTA_FAIL_FAST_CASES):
@@ -56,7 +58,19 @@ class _QuotaFailFastController:
         if not isinstance(cases, list) or not cases:
             return False
         latest = cases[-1]
-        diagnostics = latest.get("api_diagnostics", {}) if isinstance(latest, dict) else {}
+        if not isinstance(latest, dict):
+            return False
+
+        successful = (
+            latest.get("output_mode") == "styled"
+            and latest.get("verifier_result") == "PASS"
+            and not latest.get("verifier_failures")
+        )
+        if successful:
+            self.consecutive_quota_cases = 0
+            return False
+
+        diagnostics = latest.get("api_diagnostics", {})
         old_diag = diagnostics.get("old_legacy", {}) if isinstance(diagnostics, dict) else {}
         new_diag = diagnostics.get("new_pipeline", {}) if isinstance(diagnostics, dict) else {}
         quota = bool(
@@ -244,7 +258,7 @@ def _install_stage_cache(
         if quota_controller.observe_checkpoint(payload, complete=complete):
             print(
                 "PART4 quota fail-fast: sustained 429/RESOURCE_EXHAUSTED after "
-                f"{quota_controller.consecutive_quota_cases} checkpointed cases; exiting with progress preserved.",
+                f"{quota_controller.consecutive_quota_cases} unresolved checkpointed cases; exiting with progress preserved.",
                 flush=True,
             )
             raise QuotaFailFast("sustained Gemini quota exhaustion; checkpoint preserved")
