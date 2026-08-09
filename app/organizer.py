@@ -23,6 +23,14 @@ AIRPORT_WORDS = ("airport", "incheon", "gimpo", "공항", "فرودگاه")
 JEONGHAN_OWN_HANDLES = {"jeonghaniyoo_n", "jeonghan", "yoonjeonghan"}
 
 
+def _stable_id_key(value: str) -> tuple[int, int | str]:
+    """Comparable deterministic key for numeric and synthetic/non-numeric IDs."""
+    text = str(value)
+    if text.isdigit():
+        return (0, int(text))
+    return (1, text)
+
+
 def detect_category(update: Update) -> str:
     text = f"{update.text} {update.author}".lower()
     if any(word in text for word in LIVE_WORDS):
@@ -143,7 +151,7 @@ def organize_updates(updates: list[Update]) -> list[EventGroup]:
         if update.category == "live" and not is_threaded:
             live_by_author[(update.author.lower(), update.created_at.strftime("%Y-%m-%d"))].append(update)
     for items in live_by_author.values():
-        items.sort(key=lambda item: (item.created_at, int(item.id) if item.id.isdigit() else item.id))
+        items.sort(key=lambda item: (item.created_at, _stable_id_key(item.id)))
         cluster = 0
         previous = None
         for item in items:
@@ -170,12 +178,12 @@ def organize_updates(updates: list[Update]) -> list[EventGroup]:
                 return (
                     number if number is not None else 10_000,
                     item.created_at,
-                    int(item.id) if item.id.isdigit() else item.id,
+                    _stable_id_key(item.id),
                 )
             return (
                 item.created_at,
                 number if number is not None else 10_000,
-                int(item.id) if item.id.isdigit() else item.id,
+                _stable_id_key(item.id),
             )
 
         items.sort(key=sort_key)
