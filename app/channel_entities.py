@@ -5,12 +5,12 @@ from __future__ import annotations
 Jeonghan has three valid Persian renderings in this channel, selected by context:
 - «یون جونگهان» for an explicit full-name reference.
 - «هانی» for an explicit Hani/하니 nickname reference.
-- «جونگهان» for the ordinary stage/name reference.
+- «جونگهان» for the ordinary/default name reference.
 
-When the source is mixed or the model deliberately chooses another one of those
-three valid forms for a plain Jeonghan reference, that valid choice is preserved.
-Bad transliterations and untranslated EN/KR/JP forms are normalized into the same
-name family. URLs, hashtags and @mentions are protected byte-for-byte.
+For a plain Jeonghan/정한/ジョンハン source, the translator may contextually choose
+any of those three valid Persian forms. Deterministic repair only fixes malformed or
+untranslated forms and defaults an invalid plain-name fallback to «جونگهان».
+URLs, hashtags and @mentions are protected byte-for-byte.
 """
 
 import re
@@ -88,16 +88,14 @@ def source_names_jeonghan(source: str) -> bool:
 
 
 def preferred_jeonghan_form(source: str) -> str | None:
-    """Return a forced Persian form only when source naming intent is unambiguous."""
+    """Return a forced form only for an explicit full-name or Hani nickname source."""
     kinds = _source_kinds(source)
     if kinds == {"full"}:
         return "یون جونگهان"
     if kinds == {"hani"}:
         return "هانی"
-    if kinds == {"plain"}:
-        return "جونگهان"
-    # Mixed source styles: preserve each valid family chosen by the translation and
-    # only repair malformed/untranslated forms.
+    # Plain references are intentionally context-sensitive: the translation may use
+    # یون جونگهان، جونگهان، or هانی. Mixed source styles are also not flattened.
     return None
 
 
@@ -131,8 +129,8 @@ def canonicalize_jeonghan(source: str, output: str) -> str:
     """Normalize Jeonghan references without flattening valid contextual naming.
 
     Explicit full-name and nickname sources force their matching Persian form.
-    Plain references force «جونگهان». Mixed-source text preserves the family of
-    each translated mention while fixing spelling/untranslated-script errors.
+    Plain references preserve any already-valid contextual choice among the three
+    accepted forms. Malformed/untranslated plain forms normalize to «جونگهان».
     """
     result = str(output or "")
     if not source_names_jeonghan(source):
