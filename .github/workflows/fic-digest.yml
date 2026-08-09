@@ -17,6 +17,7 @@ on:
       - "app/config.py"
       - "app/telegram.py"
       - "tools/state_backup.py"
+      - "docs/**"
       - "tests/**"
       - "requirements.txt"
       - ".github/workflows/fic-digest.yml"
@@ -31,6 +32,7 @@ on:
       - "app/config.py"
       - "app/telegram.py"
       - "tools/state_backup.py"
+      - "docs/**"
       - "tests/**"
       - "requirements.txt"
       - ".github/workflows/fic-digest.yml"
@@ -39,8 +41,6 @@ permissions:
   contents: read
   actions: read
 
-# Runtime uses the exact same group as the main bot so both workflows never write
-# the shared private SQLite state concurrently. Push/PR validation remains cancelable.
 concurrency:
   group: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'jeonghan-daily-review-bot-runtime' || format('nightly-jeonghan-fic-validation-{0}', github.ref) }}
   cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
@@ -68,6 +68,12 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip check
 
+      - name: Report encrypted recovery disabled
+        if: >-
+          (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+          env.STATE_BACKUP_KEY == ''
+        run: echo "::warning::Encrypted state recovery is disabled because STATE_BACKUP_KEY is not configured; Actions cache remains best-effort only."
+
       - name: Restore shared private review database cache
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         uses: actions/cache/restore@v5
@@ -77,7 +83,7 @@ jobs:
           restore-keys: |
             jeonghan-private-review-v1-${{ runner.os }}-
 
-      - name: Restore encrypted recovery database when cache is missing
+      - name: Restore newest valid encrypted recovery database when cache is missing
         if: >-
           (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
           env.STATE_BACKUP_KEY != '' &&
@@ -87,22 +93,42 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          artifact_id="$(gh api \
-            -H 'Accept: application/vnd.github+json' \
-            "/repos/${GITHUB_REPOSITORY}/actions/artifacts?name=private-state-backup&per_page=20" \
-            --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | reverse | .[0].id // empty')"
-          if [ -z "$artifact_id" ]; then
+          work=/tmp/private-state-restore
+          zip=/tmp/private-state-backup.zip
+          trap 'rm -rf "$work" "$zip"' EXIT
+          mapfile -t artifact_ids < <(gh api -H 'Accept: application/vnd.github+json' \
+            "/repos/${GITHUB_REPOSITORY}/actions/artifacts?name=private-state-backup&per_page=100" \
+            --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | reverse | .[].id')
+          if [ "${#artifact_ids[@]}" -eq 0 ]; then
             echo "No encrypted recovery artifact exists yet; starting from cache/empty fic state."
             exit 0
           fi
-          rm -rf /tmp/private-state-restore
-          mkdir -p /tmp/private-state-restore
-          gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > /tmp/private-state-backup.zip
-          unzip -q /tmp/private-state-backup.zip -d /tmp/private-state-restore
-          python -m tools.state_backup restore \
-            --input /tmp/private-state-restore/private-state-backup.enc \
-            --state-dir .state
-          rm -rf /tmp/private-state-restore /tmp/private-state-backup.zip
+          selected=""
+          for artifact_id in "${artifact_ids[@]}"; do
+            rm -rf "$work" "$zip"
+            mkdir -p "$work"
+            if ! gh api -H 'Accept: application/vnd.github+json' \
+              "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > "$zip"; then
+              echo "::warning::Could not download encrypted recovery artifact ${artifact_id}; trying older backup."
+              continue
+            fi
+            if ! unzip -q "$zip" -d "$work"; then
+              echo "::warning::Could not unpack encrypted recovery artifact ${artifact_id}; trying older backup."
+              continue
+            fi
+            candidate="$work/private-state-backup.enc"
+            if [ -f "$candidate" ] && python -m tools.state_backup validate --input "$candidate"; then
+              selected="$candidate"
+              echo "Selected newest valid encrypted recovery artifact ${artifact_id}."
+              break
+            fi
+            echo "::warning::Encrypted recovery artifact ${artifact_id} did not validate; trying older backup."
+          done
+          if [ -z "$selected" ]; then
+            echo "::error::Encrypted recovery artifacts exist but none authenticated successfully; refusing to run with potentially lost private state."
+            exit 1
+          fi
+          python -m tools.state_backup restore --input "$selected" --state-dir .state
 
       - name: Validate fanfic and shared bot code
         run: |
@@ -147,10 +173,7 @@ jobs:
           (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
           env.STATE_BACKUP_KEY != '' &&
           hashFiles('.state/private-review.sqlite3') != ''
-        run: |
-          python -m tools.state_backup encrypt \
-            --state-dir .state \
-            --output .state/private-state-backup.enc
+        run: python -m tools.state_backup encrypt --state-dir .state --output .state/private-state-backup.enc
 
       - name: Upload encrypted recovery backup
         if: >-
