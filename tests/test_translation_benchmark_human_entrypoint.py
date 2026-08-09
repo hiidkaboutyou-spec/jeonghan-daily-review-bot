@@ -14,6 +14,8 @@ class HumanBenchmarkEntrypointTests(unittest.TestCase):
 
         self.assertNotIn("python -m tools.run_translation_benchmark_human", main_workflow)
         self.assertNotIn("python -m tools.run_translation_benchmark_cached", main_workflow)
+        self.assertIn("GEMINI_MODEL: gemini-2.5-flash-lite", main_workflow)
+        self.assertNotIn("GEMINI_MODEL: gemini-3.1-flash-lite", main_workflow)
         self.assertIn("python -m tools.run_translation_benchmark_human", benchmark_workflow)
         self.assertNotIn("python -m tools.run_translation_benchmark_cached", benchmark_workflow)
         self.assertIn("cancel-in-progress: false", benchmark_workflow)
