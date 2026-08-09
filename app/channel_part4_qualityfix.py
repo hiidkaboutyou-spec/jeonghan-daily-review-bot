@@ -2,8 +2,8 @@ from __future__ import annotations
 
 """Narrow human-gate fixes discovered from fresh SOURCE→OLD→NEW evidence.
 
-This remains source-authorized: it tightens laughter fidelity and normalizes one
-well-defined Japanese welcome-back phrase without adding any new fact.
+All repairs remain source-authorized: they tighten laughter fidelity and normalize
+well-defined mistranslations/transliterations without adding any new fact.
 """
 
 import re
@@ -17,6 +17,8 @@ from .ai import GroupCopy
 
 _LAUGHTER_RE = re.compile(r"(?:ㅋ{2,}|ㅎ{2,})")
 _BASE_VERIFY = humanfix.verify_hard_facts
+_JEONGHAN_SOURCE_ALIASES = ("jeonghan", "yoon jeonghan", "정한", "윤정한", "ジョンハン")
+_JEONGHAN_BAD_PERSIAN = ("جئونگان", "جونگان", "جئونگهان", "جونگ‌هان")
 
 
 def _laughter_count_failures(source: str, output: str) -> list[str]:
@@ -50,6 +52,22 @@ def _normalize_source_authorized_japanese(source: str, output: str) -> str:
     return result
 
 
+def _normalize_source_authorized_identity(source: str, output: str) -> str:
+    """Repair known Persian transliteration drift only when SOURCE names Jeonghan."""
+    source_cf = str(source or "").casefold()
+    result = str(output or "")
+    if not any(alias.casefold() in source_cf for alias in _JEONGHAN_SOURCE_ALIASES):
+        return result
+    for variant in _JEONGHAN_BAD_PERSIAN:
+        # Never rewrite inside hashtags/@mentions; those are exact source facts.
+        result = re.sub(
+            rf"(?<![#@\w\u200c]){re.escape(variant)}(?![\w\u200c])",
+            "جونگهان",
+            result,
+        )
+    return result
+
+
 _BaseWriter = translation.ChannelStyleCaptionWriter
 
 
@@ -59,13 +77,15 @@ class ChannelStyleCaptionWriter(_BaseWriter):
         repaired: dict[str, str] = {}
         for item in group.updates:
             body = result.bodies.get(item.id, item.text)
-            repaired[item.id] = _normalize_source_authorized_japanese(item.text, body)
+            body = _normalize_source_authorized_japanese(item.text, body)
+            body = _normalize_source_authorized_identity(item.text, body)
+            repaired[item.id] = body
         return GroupCopy(result.title, result.category, repaired)
 
 
 # New benchmark evidence must be regenerated for this production behavior.
-humanfix.HUMAN_GATE_VERSION = 2
-humanfix.HUMAN_GATE_FINGERPRINT = "channel-human-gate-v2"
+humanfix.HUMAN_GATE_VERSION = 3
+humanfix.HUMAN_GATE_FINGERPRINT = "channel-human-gate-v3"
 humanfix.verify_hard_facts = verify_hard_facts
 hardening.verify_hard_facts = verify_hard_facts
 runtime.verify_hard_facts = verify_hard_facts
