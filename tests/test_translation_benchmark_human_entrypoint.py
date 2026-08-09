@@ -18,8 +18,9 @@ class HumanBenchmarkEntrypointTests(unittest.TestCase):
         self.assertNotIn("python -m tools.run_translation_benchmark_cached", benchmark_workflow)
         self.assertIn("cancel-in-progress: false", benchmark_workflow)
         self.assertIn("timeout-minutes: 35", benchmark_workflow)
-        self.assertIn("part4-benchmark-v5-", benchmark_workflow)
-        self.assertIn("GEMINI_MODEL: gemini-3.1-flash-lite", benchmark_workflow)
+        self.assertIn("part4-benchmark-v6-", benchmark_workflow)
+        self.assertIn("GEMINI_MODEL: gemini-2.5-flash-lite", benchmark_workflow)
+        self.assertIn("part4-benchmark-v4-", benchmark_workflow)
 
     def test_human_entrypoint_explicitly_installs_resume_fingerprint_patch(self):
         source = (ROOT / "tools" / "run_translation_benchmark_human.py").read_text(encoding="utf-8")
