@@ -47,9 +47,7 @@ Classification is deliberately conservative. Mocked/CI evidence is not promoted 
 
 ## Totals
 
-These totals must be recalculated only if classifications above change in a later final-head review:
-
-- VERIFIED WORKING: 29
+- VERIFIED WORKING: 30
 - IMPLEMENTED BUT NOT VERIFIED: 8
 - PARTIALLY WORKING: 1
 - BROKEN: 0
@@ -57,6 +55,6 @@ These totals must be recalculated only if classifications above change in a late
 - MISSING: 0
 - BLOCKED BY EXTERNAL ACCESS: 1
 
-Total rows: 39? **Closure rule:** the table is authoritative; the final closure script/report must count rows programmatically or by inspection and correct this totals block if needed before merge review. (The matrix IDs F01–F40 are the intended 40 capabilities.)
+Total: 40 capabilities.
 
-> Note: F35 is intentionally not promoted to VERIFIED simply because the harness exists. It needs human judgment over a fresh complete live benchmark. F40 likewise needs owner secret configuration and a real scheduled recovery run before production verification.
+> F35 is intentionally not promoted to VERIFIED simply because the harness exists. It needs human judgment over a fresh complete live benchmark. F40 likewise needs owner secret configuration and a real scheduled recovery run before production verification.
