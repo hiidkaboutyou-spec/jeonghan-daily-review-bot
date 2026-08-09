@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import time
@@ -9,6 +10,7 @@ import requests
 
 from .callback_store import CALLBACK_MAX_BYTES, CallbackDataError, CallbackStore
 from .media import PreparedMedia
+from .message_delivery import MessageDeliveryStore
 
 logger = logging.getLogger(__name__)
 TELEGRAM_TEXT_LIMIT = 4096
@@ -26,6 +28,7 @@ class TelegramBot:
         review_chat_id: int,
         *,
         callback_store: CallbackStore | None = None,
+        message_delivery_store: MessageDeliveryStore | None = None,
     ):
         self.token = token
         self.admin_user_id = int(admin_user_id)
@@ -33,6 +36,7 @@ class TelegramBot:
         self.base = f"https://api.telegram.org/bot{token}"
         self.session = requests.Session()
         self.callback_store = callback_store
+        self.message_delivery_store = message_delivery_store
 
     def api(
         self,
@@ -151,20 +155,47 @@ class TelegramBot:
         chat_id: int | None = None,
         reply_markup: dict[str, Any] | None = None,
         disable_preview: bool = True,
+        delivery_key: str | None = None,
     ) -> dict[str, Any]:
-        if len(text) > TELEGRAM_TEXT_LIMIT:
-            raise TelegramError(
-                f"Telegram message is {len(text)} characters; caller must split it before sending."
-            )
-        data: dict[str, Any] = {
-            "chat_id": self.review_chat_id if chat_id is None else chat_id,
-            "text": text,
-            "disable_web_page_preview": "true" if disable_preview else "false",
-        }
-        encoded_markup = self._encode_reply_markup(reply_markup)
-        if encoded_markup:
-            data["reply_markup"] = json.dumps(encoded_markup, ensure_ascii=False)
-        return self.api("sendMessage", data=data)
+        """Send every character, splitting long Unicode text at safe boundaries.
+
+        Inline keyboards are attached only to the final part. When delivery_key is
+        supplied and a durable MessageDeliveryStore is configured, each successful
+        part is checkpointed so a later retry skips already-confirmed parts.
+        """
+        parts = split_telegram_text(str(text), TELEGRAM_TEXT_LIMIT)
+        if not parts:
+            raise TelegramError("Telegram message text must not be empty.")
+        target_chat = self.review_chat_id if chat_id is None else chat_id
+        last_result: dict[str, Any] = {}
+        for index, part in enumerate(parts):
+            is_final = index == len(parts) - 1
+            if delivery_key and self.message_delivery_store is not None:
+                confirmed = self.message_delivery_store.confirmed_message_id(delivery_key, index, part)
+                if confirmed is not None:
+                    last_result = {"message_id": confirmed}
+                    continue
+            data: dict[str, Any] = {
+                "chat_id": target_chat,
+                "text": part,
+                "disable_web_page_preview": "true" if disable_preview else "false",
+            }
+            if is_final:
+                encoded_markup = self._encode_reply_markup(reply_markup)
+                if encoded_markup:
+                    data["reply_markup"] = json.dumps(encoded_markup, ensure_ascii=False)
+            result = self.api("sendMessage", data=data)
+            if not isinstance(result, dict):
+                result = {}
+            last_result = result
+            if delivery_key and self.message_delivery_store is not None:
+                self.message_delivery_store.confirm(
+                    delivery_key,
+                    index,
+                    part,
+                    int(result.get("message_id", 0) or 0),
+                )
+        return last_result
 
     def edit_message_text(
         self,
@@ -173,19 +204,34 @@ class TelegramBot:
         *,
         reply_markup: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        if len(text) > TELEGRAM_TEXT_LIMIT:
-            raise TelegramError(
-                f"Edited Telegram message is {len(text)} characters; it cannot be edited as one message."
-            )
+        parts = split_telegram_text(str(text), TELEGRAM_TEXT_LIMIT)
+        if not parts:
+            raise TelegramError("Edited Telegram message text must not be empty.")
+        first_markup = reply_markup if len(parts) == 1 else None
         data: dict[str, Any] = {
             "chat_id": self.review_chat_id,
             "message_id": message_id,
-            "text": text,
+            "text": parts[0],
             "disable_web_page_preview": "true",
         }
-        if reply_markup is not None:
-            data["reply_markup"] = json.dumps(self._encode_reply_markup(reply_markup), ensure_ascii=False)
-        return self.api("editMessageText", data=data)
+        if first_markup is not None:
+            data["reply_markup"] = json.dumps(self._encode_reply_markup(first_markup), ensure_ascii=False)
+        result = self.api("editMessageText", data=data)
+        if not isinstance(result, dict):
+            result = {}
+        if len(parts) == 1:
+            return result
+
+        # Re-editing part 1 is idempotent. Extra parts use a deterministic receipt
+        # key so retries after a partial split do not duplicate already-sent tails.
+        digest = hashlib.sha256(str(text).encode("utf-8")).hexdigest()[:24]
+        for index, part in enumerate(parts[1:], start=1):
+            result = self.send_message(
+                part,
+                reply_markup=reply_markup if index == len(parts) - 1 else None,
+                delivery_key=f"edit:{message_id}:{digest}:{index}",
+            )
+        return result
 
     def answer_callback(self, callback_id: str, text: str = "") -> None:
         self.api("answerCallbackQuery", data={"callback_query_id": callback_id, "text": text[:180]})
@@ -256,6 +302,30 @@ class TelegramBot:
             int(sender.get("id", 0)) == self.admin_user_id
             and int(chat.get("id", 0)) == self.review_chat_id
         )
+
+
+def split_telegram_text(text: str, limit: int = TELEGRAM_TEXT_LIMIT) -> list[str]:
+    """Losslessly split text on newline/whitespace before falling back to code points."""
+    text = str(text)
+    if not text:
+        return []
+    limit = max(1, int(limit))
+    parts: list[str] = []
+    remaining = text
+    while len(remaining) > limit:
+        window = remaining[:limit]
+        newline = window.rfind("\n")
+        whitespace = max(window.rfind(" "), window.rfind("\t"))
+        split_at = newline + 1 if newline >= max(1, limit // 3) else 0
+        if not split_at and whitespace >= max(1, limit // 3):
+            split_at = whitespace + 1
+        if not split_at:
+            split_at = limit
+        parts.append(remaining[:split_at])
+        remaining = remaining[split_at:]
+    if remaining:
+        parts.append(remaining)
+    return parts
 
 
 def _rewind_files(files) -> None:
