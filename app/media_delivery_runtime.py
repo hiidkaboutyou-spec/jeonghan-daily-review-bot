@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from .media_delivery import MediaDeliveryLedger
 from .models import Update
@@ -16,11 +17,22 @@ class MediaDedupReviewApplication(ReminderReviewApplication):
 
     def __init__(self, settings):
         super().__init__(settings)
-        self.media_delivery = MediaDeliveryLedger(
-            settings.state_path.with_name("private-review.sqlite3")
+        state_path = getattr(getattr(self, "state", None), "path", None)
+        if state_path is None:
+            state_path = getattr(settings, "state_path", None)
+        self.media_delivery = (
+            MediaDeliveryLedger(Path(state_path).with_name("private-review.sqlite3"))
+            if state_path is not None
+            else None
         )
 
     async def _deliver_private_media(self, update: Update) -> None:
+        # Intentional lightweight test doubles may omit persistent state entirely.
+        # Real production always has StateStore.path; in the no-state test case,
+        # preserve the parent behavior instead of constructing a fake durable path.
+        if self.media_delivery is None:
+            return await super()._deliver_private_media(update)
+
         media = list(update.media[:20])
         if not media:
             return
