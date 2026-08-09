@@ -33,6 +33,7 @@ _LABEL_CANONICAL = {
     "에스쿱스": "سونگچول",
     "エスクプス": "سونگچول",
 }
+_BASE_VERIFY = hardening.verify_hard_facts
 
 
 def _source_emoji_failures(source: str, output: str) -> list[str]:
@@ -56,7 +57,7 @@ def _metadata_line_failures(source: str, output: str) -> list[str]:
 
 
 def verify_hard_facts(source: str, output: str, analysis=None) -> list[str]:
-    failures = list(hardening.verify_hard_facts(source, output, analysis))
+    failures = list(_BASE_VERIFY(source, output, analysis))
     failures.extend(_source_emoji_failures(source, output))
     failures.extend(_metadata_line_failures(source, output))
     return list(dict.fromkeys(failures))
@@ -172,7 +173,6 @@ ITEMS: {json.dumps(needs, ensure_ascii=False)}
         return GroupCopy(result.title, result.category, repaired)
 
 
-# Install the stricter hard facts and the human-gate writer for normal production.
 hardening.verify_hard_facts = verify_hard_facts
 runtime.verify_hard_facts = verify_hard_facts
 translation.verify_hard_facts = verify_hard_facts
