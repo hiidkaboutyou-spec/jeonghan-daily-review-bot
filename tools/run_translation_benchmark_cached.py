@@ -13,6 +13,7 @@ from app.config import Settings
 from tools import run_translation_benchmark as benchmark
 
 CACHE_VERSION = 1
+DEFAULT_QUOTA_FAIL_FAST_CASES = 2
 
 
 def _stable_hash(payload: Any) -> str:
@@ -27,6 +28,46 @@ def _output_path_from_argv(argv: list[str]) -> Path:
         if value.startswith("--output="):
             return Path(value.split("=", 1)[1])
     raise SystemExit("--output is required")
+
+
+class QuotaFailFast(RuntimeError):
+    """Benchmark-only signal that sustained external quota exhaustion was checkpointed."""
+
+
+class _QuotaFailFastController:
+    """Stop only after consecutive checkpointed cases hit Gemini quota.
+
+    This controller never changes production behavior or benchmark quality semantics.
+    It observes the already-materialized benchmark result after the normal checkpoint
+    has been written. Successful or non-quota cases reset the streak.
+    """
+
+    def __init__(self, threshold: int = DEFAULT_QUOTA_FAIL_FAST_CASES):
+        if threshold < 1:
+            raise ValueError("quota fail-fast threshold must be >= 1")
+        self.threshold = threshold
+        self.consecutive_quota_cases = 0
+
+    def observe_checkpoint(self, payload: dict[str, Any], *, complete: bool) -> bool:
+        if complete:
+            self.consecutive_quota_cases = 0
+            return False
+        cases = payload.get("cases", [])
+        if not isinstance(cases, list) or not cases:
+            return False
+        latest = cases[-1]
+        diagnostics = latest.get("api_diagnostics", {}) if isinstance(latest, dict) else {}
+        old_diag = diagnostics.get("old_legacy", {}) if isinstance(diagnostics, dict) else {}
+        new_diag = diagnostics.get("new_pipeline", {}) if isinstance(diagnostics, dict) else {}
+        quota = bool(
+            isinstance(old_diag, dict) and old_diag.get("quota_429")
+            or isinstance(new_diag, dict) and new_diag.get("quota_429")
+        )
+        if quota:
+            self.consecutive_quota_cases += 1
+        else:
+            self.consecutive_quota_cases = 0
+        return self.consecutive_quota_cases >= self.threshold
 
 
 class _StageCache:
@@ -148,11 +189,15 @@ class _StageCache:
         self.persist()
 
 
-def _install_stage_cache(cache: _StageCache) -> Callable[[], None]:
+def _install_stage_cache(
+    cache: _StageCache,
+    quota_controller: _QuotaFailFastController | None = None,
+) -> Callable[[], None]:
     original_generate = ChannelStyleCaptionWriter._generate_json
     original_legacy_write = CaptionWriter.write_group
     original_checkpoint = benchmark._write_checkpoint
     legacy_code_fingerprint = hashlib.sha256(inspect.getsource(original_legacy_write).encode("utf-8")).hexdigest()
+    quota_controller = quota_controller or _QuotaFailFastController()
 
     def cached_generate(self, client, prompt, schema, *, temperature, purpose):
         key = cache.response_key(
@@ -195,6 +240,14 @@ def _install_stage_cache(cache: _StageCache) -> Callable[[], None]:
     def cached_checkpoint(*args, **kwargs):
         payload = original_checkpoint(*args, **kwargs)
         cache.persist()
+        complete = bool(kwargs.get("complete", False))
+        if quota_controller.observe_checkpoint(payload, complete=complete):
+            print(
+                "PART4 quota fail-fast: sustained 429/RESOURCE_EXHAUSTED after "
+                f"{quota_controller.consecutive_quota_cases} checkpointed cases; exiting with progress preserved.",
+                flush=True,
+            )
+            raise QuotaFailFast("sustained Gemini quota exhaustion; checkpoint preserved")
         return payload
 
     ChannelStyleCaptionWriter._generate_json = cached_generate
@@ -216,6 +269,8 @@ def main() -> int:
     restore = _install_stage_cache(cache)
     try:
         return benchmark.main()
+    except QuotaFailFast:
+        return 3
     finally:
         cache.persist()
         restore()
