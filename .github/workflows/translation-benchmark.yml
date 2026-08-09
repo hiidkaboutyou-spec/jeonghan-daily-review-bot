@@ -19,11 +19,10 @@ permissions:
   contents: read
 
 # Expensive translation evaluation must not be killed by ordinary validation
-# commits. v2 is intentionally a new concurrency lane because pre-v2 active
-# runs do not contain the current human-quality/fidelity fixes and cannot serve
-# as final evidence. Within v2, one active run is allowed to finish.
+# commits. v3 is a fresh lane for the production-model migration and v4 writer
+# fingerprint; pre-v3 artifacts cannot serve as final human-gate evidence.
 concurrency:
-  group: channel-style-translation-benchmark-v2-${{ github.event.pull_request.number || github.ref }}
+  group: channel-style-translation-benchmark-v3-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -57,15 +56,16 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: .state/part4-real-benchmark.json
-          key: part4-benchmark-v4-${{ runner.os }}-${{ github.event.pull_request.number || github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: part4-benchmark-v5-${{ runner.os }}-${{ github.event.pull_request.number || github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            part4-benchmark-v4-${{ runner.os }}-${{ github.event.pull_request.number || github.ref_name }}-
-            part4-benchmark-v3-${{ runner.os }}-pr-${{ github.event.pull_request.number }}-
+            part4-benchmark-v5-${{ runner.os }}-${{ github.event.pull_request.number || github.ref_name }}-
 
       - name: Generate fresh PART 4 human-gate benchmark
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          # Production model for this branch. Gemini 3.1 Flash-Lite is stable,
+          # free-tier capable and optimized by Google for high-volume translation.
+          GEMINI_MODEL: gemini-3.1-flash-lite
         run: |
           python -m tools.run_translation_benchmark_human \
             --output .state/part4-real-benchmark.json \
@@ -80,7 +80,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: .state/part4-real-benchmark.json
-          key: part4-benchmark-v4-${{ runner.os }}-${{ github.event.pull_request.number || github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: part4-benchmark-v5-${{ runner.os }}-${{ github.event.pull_request.number || github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload PART 4 benchmark artifact
         if: always()
