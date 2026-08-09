@@ -44,9 +44,13 @@ on:
 permissions:
   contents: read
 
+# Translation benchmark work is expensive and checkpointed. New PR commits may
+# replace an older pending run, but an already-running benchmark is allowed to
+# finish so its checkpoint/artifact is not lost. Runtime runs remain serialized
+# by the same group.
 concurrency:
   group: jeonghan-daily-review-bot-${{ (github.event_name == 'push' || github.event_name == 'pull_request') && 'validation' || 'runtime' }}
-  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 jobs:
   validate-and-run:
