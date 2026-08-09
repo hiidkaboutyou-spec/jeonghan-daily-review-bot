@@ -142,7 +142,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
         run: |
-          python -m tools.run_translation_benchmark_cached \
+          python -m tools.run_translation_benchmark_human \
             --output .state/part4-real-benchmark.json \
             --pace-seconds 8 \
             --batch-size 1 \
