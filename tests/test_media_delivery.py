@@ -5,6 +5,8 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from app.channel_style_application import ChannelStyleReviewApplication
 from app.media import PreparedMedia
@@ -54,6 +56,27 @@ class MediaDeliveryLedgerTests(unittest.TestCase):
 
     def test_production_application_includes_media_dedup_runtime(self):
         self.assertTrue(issubclass(ChannelStyleReviewApplication, MediaDedupReviewApplication))
+
+    def test_runtime_prefers_canonical_state_store_path(self):
+        with tempfile.TemporaryDirectory() as temp:
+            canonical = Path(temp) / "state" / "state.json"
+            wrong = Path(temp) / "wrong" / "settings.json"
+
+            def fake_parent(app, settings):
+                app.state = SimpleNamespace(path=canonical)
+
+            with patch("app.media_delivery_runtime.ReminderReviewApplication.__init__", fake_parent):
+                app = MediaDedupReviewApplication(SimpleNamespace(state_path=wrong))
+            self.assertEqual(app.media_delivery.path, canonical.with_name("private-review.sqlite3"))
+            app.media_delivery.close()
+
+    def test_intentional_no_state_test_double_constructs_without_fake_persistence(self):
+        def fake_parent(app, settings):
+            pass
+
+        with patch("app.media_delivery_runtime.ReminderReviewApplication.__init__", fake_parent):
+            app = MediaDedupReviewApplication(SimpleNamespace())
+        self.assertIsNone(app.media_delivery)
 
 
 class _NoCache:
