@@ -181,14 +181,45 @@ class PrivateReviewApplication(Application):
                 group.category = copy.category
             for part, update in enumerate(group.updates, start=1):
                 body = copy.bodies.get(update.id) or update.text
-                caption = self.themes.caption(group, update, body, part, len(group.updates))
+                generated_caption = self.themes.caption(group, update, body, part, len(group.updates))
                 if update.media:
                     await self._deliver_private_media(update)
-                draft_id = short_id(f"{update.id}:{datetime.now(timezone.utc).timestamp()}")
-                sent = self.telegram.send_message(caption, reply_markup=draft_keyboard(draft_id))
-                self.state.archive_update(update)
-                draft = Draft(id=draft_id, update_id=update.id, event_key=group.key, caption=caption, mode="default", telegram_message_id=int(sent.get("message_id", 0) or 0), created_at=datetime.now(timezone.utc).isoformat())
+
+                if force:
+                    draft_id = short_id(f"force:{update.id}:{datetime.now(timezone.utc).timestamp()}")
+                    caption = generated_caption
+                    delivery_key = None
+                else:
+                    # Stable across workflow retries. Save the exact text before the
+                    # first Telegram call so a partial multi-part failure cannot cause
+                    # a regenerated Gemini variant to duplicate already-sent parts.
+                    draft_id = short_id(f"scheduled:{group.key}:{update.id}")
+                    existing = self.state.get_draft(draft_id)
+                    caption = existing.caption if existing is not None else generated_caption
+                    delivery_key = f"draft:{draft_id}"
+
+                draft = Draft(
+                    id=draft_id,
+                    update_id=update.id,
+                    event_key=group.key,
+                    caption=caption,
+                    mode="default",
+                    telegram_message_id=0,
+                    created_at=(
+                        self.state.get_draft(draft_id).created_at
+                        if self.state.get_draft(draft_id) is not None
+                        else datetime.now(timezone.utc).isoformat()
+                    ),
+                )
                 self.state.save_draft(draft)
+                sent = self.telegram.send_message(
+                    caption,
+                    reply_markup=draft_keyboard(draft_id),
+                    delivery_key=delivery_key,
+                )
+                draft.telegram_message_id = int(sent.get("message_id", 0) or 0)
+                self.state.save_draft(draft)
+                self.state.archive_update(update)
                 self.inbox.upsert(draft, update, status="pending")
                 self.archive_db.index_update(update, caption=caption)
                 self.state.mark_seen(update)
