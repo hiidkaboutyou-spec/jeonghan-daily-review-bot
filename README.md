@@ -11,7 +11,7 @@
 - dedup رسانه با شناسه/هش و receiptهای پایدار
 - ترجمهٔ فارسی ChannelStyle با corpus محلی 16,306 نمونه، hard fidelity checks و fallback امن
 - callbackهای تلگرام با limit واقعی UTF-8 bytes؛ payloadهای بلند با token opaque و mapping خصوصی SQLite
-- پیام‌های بلند بدون truncation؛ multipart delivery با receipt برای ادامهٔ امن بعد از failure
+- پیام‌های بلند بدون truncation؛ بخش‌بندی پویا با برچسب `بخش X از Y`، plan پایدار، receipt هر بخش، keyboard فقط روی بخش آخر و pacing کوتاه و rate-aware برای ادامهٔ امن بعد از failure
 - handling محدود و typed برای Telegram 429/5xx/network/permanent errors
 - inbox، reminder، source health و private archive SQLite
 - `📚 فن‌فیک` و Nightly AO3/X digest با pagination محدود، pacing، fic-state و multipart receipts

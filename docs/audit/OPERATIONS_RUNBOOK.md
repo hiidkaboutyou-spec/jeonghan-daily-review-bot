@@ -199,6 +199,13 @@ Expected blocked state while quota is unavailable:
 - Benchmark harness: VERIFIED WORKING
 - Live Gemini generation: BLOCKED BY EXTERNAL QUOTA
 - Human quality gate: NOT PASSED
+- Merge authorization: NOT GRANTED
+
+The benchmark workflow treats only exit code 3 backed by an `INCOMPLETE`
+checkpoint containing explicit 429/`RESOURCE_EXHAUSTED` evidence as
+`BLOCKED_BY_EXTERNAL_QUOTA`. It uploads that incomplete artifact and writes the
+warning to the job summary. Exit 3 without that evidence, malformed checkpoints,
+verifier defects, and all other non-zero exits remain genuine workflow failures.
 
 ## Interpret common workflow failures
 

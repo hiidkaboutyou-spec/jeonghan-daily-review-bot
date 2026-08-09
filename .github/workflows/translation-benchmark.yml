@@ -64,10 +64,13 @@ jobs:
             part4-benchmark-v3-${{ runner.os }}-pr-${{ github.event.pull_request.number }}-
 
       - name: Generate fresh PART 4 human-gate benchmark
+        id: benchmark
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: gemini-2.5-flash-lite
+        shell: bash
         run: |
+          set +e
           python -m tools.run_translation_benchmark_human \
             --output .state/part4-real-benchmark.json \
             --pace-seconds 8 \
@@ -75,6 +78,32 @@ jobs:
             --batch-cooldown-seconds 65 \
             --max-quota-retries 0 \
             --resume
+          benchmark_exit=$?
+          set -e
+          python -m tools.benchmark_status \
+            --checkpoint .state/part4-real-benchmark.json \
+            --exit-code "$benchmark_exit"
+
+      - name: Publish benchmark status summary
+        if: always() && steps.benchmark.outputs.status != ''
+        env:
+          BENCHMARK_STATUS: ${{ steps.benchmark.outputs.status }}
+        run: |
+          {
+            echo "## Translation benchmark"
+            echo
+            if [ "$BENCHMARK_STATUS" = "BLOCKED_BY_EXTERNAL_QUOTA" ]; then
+              echo "⚠️ **Live benchmark: BLOCKED BY EXTERNAL QUOTA**"
+              echo
+              echo "- Repository regression: no"
+              echo "- Benchmark harness: verified working"
+              echo "- Quality status: INCOMPLETE"
+              echo "- Human quality gate: NOT PASSED"
+              echo "- Merge authorization: NOT GRANTED"
+            else
+              echo "- Live benchmark status: $BENCHMARK_STATUS"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Save PART 4 benchmark checkpoint
         if: always() && hashFiles('.state/part4-real-benchmark.json') != ''

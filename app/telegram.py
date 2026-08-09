@@ -4,6 +4,8 @@ import hashlib
 import json
 import logging
 import random
+import re
+import threading
 import time
 from typing import Any
 
@@ -15,7 +17,10 @@ from .message_delivery import MessageDeliveryStore
 
 logger = logging.getLogger(__name__)
 TELEGRAM_TEXT_LIMIT = 4096
+TELEGRAM_SAFE_TEXT_TARGET = 4000
+DEFAULT_SEND_PACING_SECONDS = 1.1
 MAX_RETRY_SLEEP_SECONDS = 120.0
+_PART_LABEL_RE = re.compile(r"^بخش ([0-9]+) از ([0-9]+)\n\n")
 
 
 class TelegramError(RuntimeError):
@@ -45,6 +50,8 @@ class TelegramBot:
         *,
         callback_store: CallbackStore | None = None,
         message_delivery_store: MessageDeliveryStore | None = None,
+        send_pacing_seconds: float = DEFAULT_SEND_PACING_SECONDS,
+        sleep_fn=None,
     ):
         self.token = token
         self.admin_user_id = int(admin_user_id)
@@ -53,15 +60,21 @@ class TelegramBot:
         self.session = requests.Session()
         self.callback_store = callback_store
         self.message_delivery_store = message_delivery_store
+        self.send_pacing_seconds = max(0.0, float(send_pacing_seconds))
+        self._sleep_fn = sleep_fn
+        self._delivery_lock = threading.RLock()
+        self._last_api_had_rate_limit = False
 
     def _sleep_before_retry(self, attempt: int, *, retry_after: int | None = None) -> None:
         if retry_after is not None:
             base = min(MAX_RETRY_SLEEP_SECONDS, float(max(1, retry_after)))
+            (self._sleep_fn or time.sleep)(base)
+            return
         else:
             base = min(8.0, float(2 ** max(0, attempt)))
         # Small jitter avoids synchronized retries while never materially ignoring
         # Telegram's server-provided retry_after value.
-        time.sleep(base + random.uniform(0.0, 0.25))
+        (self._sleep_fn or time.sleep)(base + random.uniform(0.0, 0.25))
 
     def _safe_api_description(self, payload: dict[str, Any]) -> str:
         description = str(payload.get("description") or "Telegram API error")[:600]
@@ -79,6 +92,7 @@ class TelegramBot:
         attempts: int = 3,
     ) -> Any:
         attempts = max(1, int(attempts))
+        self._last_api_had_rate_limit = False
         for attempt in range(attempts):
             _rewind_files(files)
             try:
@@ -116,6 +130,7 @@ class TelegramBot:
 
             error_code = int(payload.get("error_code", 0) or 0)
             if response.status_code == 429 or error_code == 429:
+                self._last_api_had_rate_limit = True
                 try:
                     retry_after = int((payload.get("parameters") or {}).get("retry_after", 1) or 1)
                 except (TypeError, ValueError):
@@ -208,39 +223,55 @@ class TelegramBot:
         supplied and a durable MessageDeliveryStore is configured, each successful
         part is checkpointed so a later retry skips already-confirmed parts.
         """
-        parts = split_telegram_text(str(text), TELEGRAM_TEXT_LIMIT)
-        if not parts:
-            raise TelegramPermanentError("Telegram message text must not be empty.")
-        target_chat = self.review_chat_id if chat_id is None else chat_id
-        last_result: dict[str, Any] = {}
-        for index, part in enumerate(parts):
-            is_final = index == len(parts) - 1
+        with self._delivery_lock:
+            full_text = str(text)
+            parts: list[str] | None = None
             if delivery_key and self.message_delivery_store is not None:
-                confirmed = self.message_delivery_store.confirmed_message_id(delivery_key, index, part)
-                if confirmed is not None:
-                    last_result = {"message_id": confirmed}
-                    continue
-            data: dict[str, Any] = {
-                "chat_id": target_chat,
-                "text": part,
-                "disable_web_page_preview": "true" if disable_preview else "false",
-            }
-            if is_final:
-                encoded_markup = self._encode_reply_markup(reply_markup)
-                if encoded_markup:
-                    data["reply_markup"] = json.dumps(encoded_markup, ensure_ascii=False)
-            result = self.api("sendMessage", data=data)
-            if not isinstance(result, dict):
-                result = {}
-            last_result = result
-            if delivery_key and self.message_delivery_store is not None:
-                self.message_delivery_store.confirm(
-                    delivery_key,
-                    index,
-                    part,
-                    int(result.get("message_id", 0) or 0),
-                )
-        return last_result
+                persisted = self.message_delivery_store.get_plan(delivery_key)
+                if persisted is not None:
+                    _persisted_text, parts = persisted
+            if parts is None:
+                parts = split_telegram_text(full_text)
+                if delivery_key and self.message_delivery_store is not None and parts:
+                    self.message_delivery_store.save_plan(delivery_key, full_text, parts)
+            if not parts:
+                raise TelegramPermanentError("Telegram message text must not be empty.")
+            target_chat = self.review_chat_id if chat_id is None else chat_id
+            last_result: dict[str, Any] = {}
+            sent_network_part = False
+            previous_send_was_rate_limited = False
+            for index, part in enumerate(parts):
+                is_final = index == len(parts) - 1
+                if delivery_key and self.message_delivery_store is not None:
+                    confirmed = self.message_delivery_store.confirmed_message_id(delivery_key, index, part)
+                    if confirmed is not None:
+                        last_result = {"message_id": confirmed}
+                        continue
+                if sent_network_part and not previous_send_was_rate_limited and self.send_pacing_seconds:
+                    (self._sleep_fn or time.sleep)(self.send_pacing_seconds)
+                data: dict[str, Any] = {
+                    "chat_id": target_chat,
+                    "text": part,
+                    "disable_web_page_preview": "true" if disable_preview else "false",
+                }
+                if is_final:
+                    encoded_markup = self._encode_reply_markup(reply_markup)
+                    if encoded_markup:
+                        data["reply_markup"] = json.dumps(encoded_markup, ensure_ascii=False)
+                result = self.api("sendMessage", data=data)
+                sent_network_part = True
+                previous_send_was_rate_limited = self._last_api_had_rate_limit
+                if not isinstance(result, dict):
+                    result = {}
+                last_result = result
+                if delivery_key and self.message_delivery_store is not None:
+                    self.message_delivery_store.confirm(
+                        delivery_key,
+                        index,
+                        part,
+                        int(result.get("message_id", 0) or 0),
+                    )
+            return last_result
 
     def edit_message_text(
         self,
@@ -249,7 +280,17 @@ class TelegramBot:
         *,
         reply_markup: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        parts = split_telegram_text(str(text), TELEGRAM_TEXT_LIMIT)
+        with self._delivery_lock:
+            return self._edit_message_text_locked(message_id, text, reply_markup=reply_markup)
+
+    def _edit_message_text_locked(
+        self,
+        message_id: int,
+        text: str,
+        *,
+        reply_markup: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        parts = split_telegram_text(str(text))
         if not parts:
             raise TelegramPermanentError("Edited Telegram message text must not be empty.")
         first_markup = reply_markup if len(parts) == 1 else None
@@ -270,12 +311,23 @@ class TelegramBot:
         # Re-editing part 1 is idempotent. Extra parts use a deterministic receipt
         # key so retries after a partial split do not duplicate already-sent tails.
         digest = hashlib.sha256(str(text).encode("utf-8")).hexdigest()[:24]
+        previous_network_send = True
+        previous_send_was_rate_limited = self._last_api_had_rate_limit
         for index, part in enumerate(parts[1:], start=1):
+            tail_key = f"edit:{message_id}:{digest}:{index}"
+            confirmed = None
+            if self.message_delivery_store is not None:
+                confirmed = self.message_delivery_store.confirmed_message_id(tail_key, 0, part)
+            if confirmed is None and previous_network_send and not previous_send_was_rate_limited and self.send_pacing_seconds:
+                (self._sleep_fn or time.sleep)(self.send_pacing_seconds)
             result = self.send_message(
                 part,
                 reply_markup=reply_markup if index == len(parts) - 1 else None,
-                delivery_key=f"edit:{message_id}:{digest}:{index}",
+                delivery_key=tail_key,
             )
+            if confirmed is None:
+                previous_network_send = True
+                previous_send_was_rate_limited = self._last_api_had_rate_limit
         return result
 
     def answer_callback(self, callback_id: str, text: str = "") -> None:
@@ -349,21 +401,56 @@ class TelegramBot:
         )
 
 
-def split_telegram_text(text: str, limit: int = TELEGRAM_TEXT_LIMIT) -> list[str]:
-    """Losslessly split text on newline/whitespace before falling back to code points."""
+def split_telegram_text(text: str, limit: int = TELEGRAM_SAFE_TEXT_TARGET) -> list[str]:
+    """Create dynamic, labeled Telegram parts using semantic boundaries."""
     text = str(text)
     if not text:
         return []
-    limit = max(1, int(limit))
+    limit = min(TELEGRAM_TEXT_LIMIT, max(1, int(limit)))
+    if len(text) <= limit:
+        return [text]
+
+    total = 2
+    while True:
+        label_lengths = [len(f"بخش {index} از {total}\n\n") for index in range(1, total + 1)]
+        content_limit = max(1, limit - max(label_lengths))
+        chunks = _split_unlabeled_text(text, content_limit)
+        actual_total = len(chunks)
+        if actual_total == total:
+            break
+        total = actual_total
+    parts = [f"بخش {index} از {total}\n\n{chunk}" for index, chunk in enumerate(chunks, start=1)]
+    if any(len(part) > limit for part in parts):
+        raise TelegramPermanentError("Unable to construct Telegram parts within the safe limit.")
+    return parts
+
+
+def strip_part_label(part: str) -> str:
+    return _PART_LABEL_RE.sub("", str(part), count=1)
+
+
+def _split_unlabeled_text(text: str, limit: int) -> list[str]:
     parts: list[str] = []
     remaining = text
     while len(remaining) > limit:
         window = remaining[:limit]
-        newline = window.rfind("\n")
-        whitespace = max(window.rfind(" "), window.rfind("\t"))
-        split_at = newline + 1 if newline >= max(1, limit // 3) else 0
-        if not split_at and whitespace >= max(1, limit // 3):
-            split_at = whitespace + 1
+        floor = max(1, limit // 3)
+        split_at = 0
+        paragraph = window.rfind("\n\n")
+        if paragraph >= floor:
+            split_at = paragraph + 2
+        if not split_at:
+            newline = window.rfind("\n")
+            if newline >= floor:
+                split_at = newline + 1
+        if not split_at:
+            sentence = max(window.rfind(mark) for mark in (". ", "! ", "? ", "؟ ", "。", "！", "？"))
+            if sentence >= floor:
+                split_at = sentence + (1 if window[sentence] in "。！？" else 2)
+        if not split_at:
+            whitespace = max(window.rfind(" "), window.rfind("\t"))
+            if whitespace >= floor:
+                split_at = whitespace + 1
         if not split_at:
             split_at = limit
         parts.append(remaining[:split_at])
