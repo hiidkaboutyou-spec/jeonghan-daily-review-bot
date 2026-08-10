@@ -1,0 +1,74 @@
+{
+  "authority_message_count": 16306,
+  "channel_style_version": 1,
+  "chronological_base_weight": 1.0,
+  "corpus_format_version": 1,
+  "date_score_contribution": 0.0,
+  "deduplication": "stable channel_id + message_id only",
+  "recency_weighting": "NONE",
+  "result_3_contribution": 15206,
+  "result_4_contribution": 1100,
+  "shards": [
+    {
+      "bytes": 870333,
+      "example_count": 1631,
+      "filename": "examples-0001.jsonl",
+      "sha256": "5236ed92afde233f223e6b0ba766e88a1a8f9521293f065808f5c4e678989afb"
+    },
+    {
+      "bytes": 934961,
+      "example_count": 1631,
+      "filename": "examples-0002.jsonl",
+      "sha256": "520a0594c3a7a424bba4c67b75b1696ec71df67c130eb545b6b45b5b8c4c3168"
+    },
+    {
+      "bytes": 852552,
+      "example_count": 1631,
+      "filename": "examples-0003.jsonl",
+      "sha256": "f33db67092c75404bdd0571f6c4d20dacd381b20a9ea6e4bddab09bb77398eb0"
+    },
+    {
+      "bytes": 849189,
+      "example_count": 1631,
+      "filename": "examples-0004.jsonl",
+      "sha256": "15a4f20f4f08d696ecc6729e175519fe29a6f0570bb19eddfe046649630a15dc"
+    },
+    {
+      "bytes": 848323,
+      "example_count": 1631,
+      "filename": "examples-0005.jsonl",
+      "sha256": "02f9cd85d59efb9fc4893bfa124aa3f346f547a25dc6d7a8a48b115708ef647e"
+    },
+    {
+      "bytes": 763792,
+      "example_count": 1631,
+      "filename": "examples-0006.jsonl",
+      "sha256": "e3eb4ec9df0cf3399427db31ce4288e77edfeffc50c390c6c6048e33c7dd930c"
+    },
+    {
+      "bytes": 802366,
+      "example_count": 1631,
+      "filename": "examples-0007.jsonl",
+      "sha256": "7f47e7a5b28ed11facf2c24ddc346c4be2c69629a0ad2ab0e5e6f6da8cebb854"
+    },
+    {
+      "bytes": 781313,
+      "example_count": 1631,
+      "filename": "examples-0008.jsonl",
+      "sha256": "36bed2e67fa2874357a6b9784bb88e599b03f88d87703c102af8c55ac4e1e499"
+    },
+    {
+      "bytes": 887295,
+      "example_count": 1631,
+      "filename": "examples-0009.jsonl",
+      "sha256": "3c441b170b21538f4f649ac674a5281fb50208a8f36c4f0ba8c395465f222050"
+    },
+    {
+      "bytes": 927985,
+      "example_count": 1627,
+      "filename": "examples-0010.jsonl",
+      "sha256": "4339c082c1d3002b50b707e763ebcbdc0a2643b4534e94b988ac4d053ad76987"
+    }
+  ],
+  "text_similarity_deduplication": false
+}

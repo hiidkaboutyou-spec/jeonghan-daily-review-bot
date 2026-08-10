@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ROOT = Path(__file__).resolve().parents[1]
 HANDLE_RE = re.compile(r"^[A-Za-z0-9_]{1,15}$")
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite"
 
 
 class ConfigError(RuntimeError):
@@ -127,8 +128,8 @@ class Settings:
         except ZoneInfoNotFoundError as exc:
             raise ConfigError(f"Unknown timezone in config/settings.json: {timezone_name}") from exc
 
-        configured_model = str(settings_json.get("gemini_model", "gemini-2.5-flash-lite")).strip()
-        gemini_model = os.getenv("GEMINI_MODEL", "").strip() or configured_model or "gemini-2.5-flash-lite"
+        configured_model = str(settings_json.get("gemini_model", DEFAULT_GEMINI_MODEL)).strip()
+        gemini_model = os.getenv("GEMINI_MODEL", "").strip() or configured_model or DEFAULT_GEMINI_MODEL
         return cls(
             telegram_token=token,
             admin_user_id=admin_id,

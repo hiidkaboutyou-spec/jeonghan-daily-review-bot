@@ -11,9 +11,13 @@ on:
       - "agent/**"
     paths:
       - "app/fic_digest.py"
+      - "app/fic_state.py"
+      - "app/message_delivery.py"
       - "app/x_client.py"
       - "app/config.py"
       - "app/telegram.py"
+      - "tools/state_backup.py"
+      - "docs/**"
       - "tests/**"
       - "requirements.txt"
       - ".github/workflows/fic-digest.yml"
@@ -22,24 +26,33 @@ on:
       - main
     paths:
       - "app/fic_digest.py"
+      - "app/fic_state.py"
+      - "app/message_delivery.py"
       - "app/x_client.py"
       - "app/config.py"
       - "app/telegram.py"
+      - "tools/state_backup.py"
+      - "docs/**"
       - "tests/**"
       - "requirements.txt"
       - ".github/workflows/fic-digest.yml"
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  group: nightly-jeonghan-fic-digest-${{ (github.event_name == 'push' || github.event_name == 'pull_request') && github.ref || 'runtime' }}
+  group: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'jeonghan-daily-review-bot-runtime' || format('nightly-jeonghan-fic-validation-{0}', github.ref) }}
   cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
 
 jobs:
   send-digest:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
+    env:
+      PYTHONUNBUFFERED: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      STATE_BACKUP_KEY: ${{ secrets.STATE_BACKUP_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -51,7 +64,71 @@ jobs:
           cache: pip
 
       - name: Install
-        run: python -m pip install -r requirements.txt
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip check
+
+      - name: Report encrypted recovery disabled
+        if: >-
+          (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+          env.STATE_BACKUP_KEY == ''
+        run: echo "::warning::Encrypted state recovery is disabled because STATE_BACKUP_KEY is not configured; Actions cache remains best-effort only."
+
+      - name: Restore shared private review database cache
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        uses: actions/cache/restore@v5
+        with:
+          path: .state/private-review.sqlite3
+          key: jeonghan-private-review-v1-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            jeonghan-private-review-v1-${{ runner.os }}-
+
+      - name: Restore newest valid encrypted recovery database when cache is missing
+        if: >-
+          (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+          env.STATE_BACKUP_KEY != '' &&
+          hashFiles('.state/private-review.sqlite3') == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          work=/tmp/private-state-restore
+          zip=/tmp/private-state-backup.zip
+          trap 'rm -rf "$work" "$zip"' EXIT
+          mapfile -t artifact_ids < <(gh api -H 'Accept: application/vnd.github+json' \
+            "/repos/${GITHUB_REPOSITORY}/actions/artifacts?name=private-state-backup&per_page=100" \
+            --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | reverse | .[].id')
+          if [ "${#artifact_ids[@]}" -eq 0 ]; then
+            echo "No encrypted recovery artifact exists yet; starting from cache/empty fic state."
+            exit 0
+          fi
+          selected=""
+          for artifact_id in "${artifact_ids[@]}"; do
+            rm -rf "$work" "$zip"
+            mkdir -p "$work"
+            if ! gh api -H 'Accept: application/vnd.github+json' \
+              "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > "$zip"; then
+              echo "::warning::Could not download encrypted recovery artifact ${artifact_id}; trying older backup."
+              continue
+            fi
+            if ! unzip -q "$zip" -d "$work"; then
+              echo "::warning::Could not unpack encrypted recovery artifact ${artifact_id}; trying older backup."
+              continue
+            fi
+            candidate="$work/private-state-backup.enc"
+            if [ -f "$candidate" ] && python -m tools.state_backup validate --input "$candidate"; then
+              selected="$candidate"
+              echo "Selected newest valid encrypted recovery artifact ${artifact_id}."
+              break
+            fi
+            echo "::warning::Encrypted recovery artifact ${artifact_id} did not validate; trying older backup."
+          done
+          if [ -z "$selected" ]; then
+            echo "::error::Encrypted recovery artifacts exist but none authenticated successfully; refusing to run with potentially lost private state."
+            exit 1
+          fi
+          python -m tools.state_backup restore --input "$selected" --state-dir .state
 
       - name: Validate fanfic and shared bot code
         run: |
@@ -69,3 +146,55 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
         run: python -m app.fic_digest
+
+      - name: Checkpoint shared private review database
+        if: >-
+          always() &&
+          (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+          hashFiles('.state/private-review.sqlite3') != ''
+        run: |
+          python - <<'PY'
+          import sqlite3
+          from pathlib import Path
+          path = Path('.state/private-review.sqlite3')
+          conn = sqlite3.connect(path, timeout=15)
+          try:
+              result = conn.execute('PRAGMA quick_check').fetchone()
+              if not result or str(result[0]).lower() != 'ok':
+                  raise SystemExit('private-review.sqlite3 failed quick_check')
+              conn.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchall()
+          finally:
+              conn.close()
+          PY
+
+      - name: Create authenticated encrypted recovery backup
+        if: >-
+          always() &&
+          (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+          env.STATE_BACKUP_KEY != '' &&
+          hashFiles('.state/private-review.sqlite3') != ''
+        run: python -m tools.state_backup encrypt --state-dir .state --output .state/private-state-backup.enc
+
+      - name: Upload encrypted recovery backup
+        if: >-
+          always() &&
+          (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+          env.STATE_BACKUP_KEY != '' &&
+          hashFiles('.state/private-state-backup.enc') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: private-state-backup
+          path: .state/private-state-backup.enc
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+
+      - name: Save shared private review database cache
+        if: >-
+          always() &&
+          (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+          hashFiles('.state/private-review.sqlite3') != ''
+        uses: actions/cache/save@v5
+        with:
+          path: .state/private-review.sqlite3
+          key: jeonghan-private-review-v1-${{ runner.os }}-${{ github.run_id }}

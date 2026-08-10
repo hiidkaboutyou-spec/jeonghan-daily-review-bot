@@ -108,10 +108,13 @@ class ReminderReviewApplication(HealthReviewApplication):
             if draft is None:
                 self.reminders.cancel(job.id)
                 continue
-            # Mark sent only AFTER Telegram confirms delivery. Failure leaves it pending.
+            # Mark sent only AFTER Telegram confirms every part. The durable
+            # delivery key prevents already-confirmed long-message parts from being
+            # duplicated if a later part fails and the scheduled run retries.
             self.telegram.send_message(
                 "⏰ یادآوری خصوصی\n\n" + draft.caption,
                 reply_markup=draft_keyboard(draft.id),
+                delivery_key=f"reminder:{job.id}",
             )
             self.reminders.mark_sent(job.id, now)
 

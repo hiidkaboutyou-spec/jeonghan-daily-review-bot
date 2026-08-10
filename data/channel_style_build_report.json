@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "unique_textual_messages": 16306,
+  "source_stats": {
+    "result 4": {
+      "complete_messages_recovered": 2400,
+      "valid_json": false,
+      "messages_array_closed": false,
+      "incomplete_tail_ignored": true,
+      "valid_textual_messages": 1100,
+      "stable_id_duplicates_removed": 0
+    },
+    "result 3": {
+      "complete_messages_recovered": 30859,
+      "valid_json": true,
+      "messages_array_closed": true,
+      "incomplete_tail_ignored": false,
+      "valid_textual_messages": 15206,
+      "stable_id_duplicates_removed": 0
+    }
+  },
+  "stable_identity_deduplication": true,
+  "text_similarity_deduplication": false,
+  "chronological_weighting": "none",
+  "base_style_weight": 1.0
+}

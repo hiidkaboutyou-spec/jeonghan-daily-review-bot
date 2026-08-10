@@ -33,8 +33,18 @@ _COLLECTIBLE_PATTERNS = [
     r"\bmerch(?:andise)?\b", r"\bsealed\b", r"\bpre[- ]?order\b",
     r"포카", r"포토카드", r"앨범\s*판매", r"トレカ", r"フォトカード",
 ]
+# X-only solicitation spam. Adult/sexual content inside AO3 fiction summaries is
+# explicitly allowed and is never filtered by this collection rule.
+_SOLICITATION_SPAM_PATTERNS = [
+    r"스폰서", r"알바", r"아르바이트", r"고수익", r"일일\s*일탈", r"조건\s*만남",
+    r"섹스\s*(?:파트너|알바)", r"투잡", r"고액\s*급여", r"단기\s*알바",
+    r"\bsponsor(?:ed)?\s+(?:job|work|dating)\b", r"\bpart[- ]?time\s+(?:job|work)\b",
+    r"\bhigh[- ]?income\b", r"\bhigh[- ]?pay(?:ing)?\b", r"\bdaily\s+deviation\b",
+    r"\bsex\s+(?:job|work|partner)\b", r"\btelegram\s*[:@]", r"\bwhatsapp\s*[:+]",
+]
 _TRANSACTION_RE = re.compile("|".join(f"(?:{p})" for p in _TRANSACTION_PATTERNS), re.I)
 _COLLECTIBLE_RE = re.compile("|".join(f"(?:{p})" for p in _COLLECTIBLE_PATTERNS), re.I)
+_SOLICITATION_SPAM_RE = re.compile("|".join(f"(?:{p})" for p in _SOLICITATION_SPAM_PATTERNS), re.I)
 _STRONG_JH_RE = re.compile(
     r"\bjeonghan\b|\byoon\s+jeonghan\b|#jeonghan\b|#yoonjeonghan\b|윤정한|(?<![가-힣])정한(?![가-힣])|ジョンハン|ユンジョンハン",
     re.I,
@@ -47,9 +57,11 @@ _OTHER_MEMBER_RE = re.compile(
 
 def is_relevant_jeonghan_update(update: Update, *, trusted_source: bool = False) -> bool:
     """Reject trading/sales noise while keeping genuine Jeonghan updates."""
-    text = (update.text or "").strip()
+    text = "\n".join(part for part in (update.text, update.quoted_text) if part).strip()
     has_jh = bool(_STRONG_JH_RE.search(text))
     if text:
+        if _SOLICITATION_SPAM_RE.search(text):
+            return False
         if _TRANSACTION_RE.search(text):
             return False
         if _COLLECTIBLE_RE.search(text) and not has_jh:
@@ -365,6 +377,10 @@ class XCollector:
         reply_to_id = str(getattr(tweet, "inReplyToTweetIdStr", "") or getattr(tweet, "inReplyToTweetId", "") or "")
         quoted = getattr(tweet, "quotedTweet", None)
         quoted_id = str(getattr(quoted, "id_str", "") or getattr(quoted, "id", "") or "")
+        quoted_text = str(getattr(quoted, "rawContent", "") or "").strip()
+        quoted_user = getattr(quoted, "user", None)
+        quoted_author = str(getattr(quoted_user, "username", "") or "").lstrip("@")
+        quoted_media = self._convert_media(getattr(quoted, "media", None))
         lang = str(getattr(tweet, "lang", "") or "")
         media = self._convert_media(getattr(tweet, "media", None))
         url = str(getattr(tweet, "url", "") or "") or (f"https://x.com/{author}/status/{tweet_id}" if author else f"https://x.com/i/status/{tweet_id}")
@@ -378,6 +394,9 @@ class XCollector:
             conversation_id=conversation_id,
             reply_to_id=reply_to_id,
             quoted_id=quoted_id,
+            quoted_text=quoted_text,
+            quoted_author=quoted_author,
+            quoted_media=quoted_media,
             lang=lang,
             media=media,
             source_priority=self.source_priority.get(author.lower(), 100),

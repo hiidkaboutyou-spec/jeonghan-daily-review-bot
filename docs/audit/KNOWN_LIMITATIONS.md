@@ -1,0 +1,34 @@
+# Known Limitations
+
+This file lists only residual limitations that remain after the forensic repairs. Repaired defects are not restated as current problems.
+
+| Limitation | Impact | Likelihood | Current mitigation | Can more repository code remove it? | Owner action |
+|---|---|---|---|---|---|
+| Telegram has no application-provided idempotency key for ordinary media/message sends | A retry cannot prove with absolute certainty that Telegram did not accept a previous request | Low but non-zero during crashes/network ambiguity | Stable local delivery keys/receipts; exact-media dedup; retries skip locally confirmed parts | Not completely; Telegram platform semantics are external | Observe duplicate reports; do not clear receipts casually |
+| Crash window after Telegram accepts a send but before local receipt commit | A message/media can be accepted remotely, process can die before receipt persists, and retry can duplicate that part | Low | Receipts commit immediately after confirmed API success; runtime serialization; media identity dedup | Cannot be made exactly-once without a Telegram client idempotency primitive | Accept as residual platform risk; investigate only if observed |
+| GitHub Actions `schedule` uses the default branch | PR branch scheduled code is not production-scheduled before merge | Certain | PR/push validation tests code; production verification explicitly deferred | No, not without changing deployment architecture | After human-approved merge, verify next scheduled run commit |
+| GitHub Actions scheduled runs can be delayed under load | Cron minute is not an exact execution SLA | Occasional | Bot logic uses time windows/state rather than assuming perfect cron timing | No | Diagnose by run timestamps/commit, not cron minute alone |
+| Actions Cache is evictable and non-authoritative | Cache-only state may disappear | Real by platform design | Cache treated as acceleration; encrypted artifact recovery added | Cannot make GitHub cache durable via repository code | Configure `STATE_BACKUP_KEY` to enable stronger recovery |
+| Encrypted recovery requires `STATE_BACKUP_KEY` | Without the secret, only best-effort cache continuity is available | Certain if owner has not configured it | Explicit runtime warning; ordinary bot remains operable | Code cannot create/store the owner's long-lived secret safely on its own | Generate and add secret through GitHub Settings if recovery is desired |
+| Encrypted artifact retention is finite (workflow requests 90 days) | A backup older than retention can expire | Certain over long idle periods | Normal scheduled/live runs create newer encrypted backups when key is configured | Retention can be changed only within GitHub/account policy | Ensure healthy scheduled runs continue; monitor backup artifacts |
+| Production encrypted restore has not been externally verified with the owner's real secret | Unit/CI tests prove cryptographic/failure semantics, but not the owner's actual secret/artifact/scheduled environment | Current | Extensive fake-key tests; newest-valid workflow validation; fail-closed restore chain | Repository code cannot prove an unseen GitHub Secret exists | After merge/configuration, verify backup creation and controlled restore evidence |
+| Gemini live benchmark is quota-blocked by `429 RESOURCE_EXHAUSTED` | Fresh complete model-generated benchmark cannot finish | Current | Bounded fail-fast, checkpoint/resume, stage cache, no fake outputs | No if project/account quota is exhausted | Wait for quota availability / inspect AI Studio limits, then resume |
+| Human translation-quality gate has not passed after the latest hardening | Merge cannot be represented as human-approved translation quality | Current | Deterministic fidelity gates and historical human-found regressions hardened | No automated test can replace the required human judgment | After live benchmark completes, review representative SOURCE→OLD→NEW cases |
+| AO3 integration relies on public HTML structure | AO3 markup/anti-abuse behavior can change and break parsing | Possible | No mandatory live CI calls; bounded retries, 25-page cap, pacing, fail-safe empty results | Parser can be updated, but external HTML cannot be controlled | If nightly results suddenly drop, inspect AO3 markup before increasing retries/load |
+| AO3 live availability is external | Network/5xx/429 can yield incomplete/empty digest for a run | Occasional | Bounded Retry-After handling; digest wording avoids claiming an empty result means no fics | No | Allow next scheduled run; avoid aggressive manual retries |
+| X authentication/search/timeline behavior is external and unofficial dependency behavior can change | Retrieval can fail or become incomplete despite correct local code | Possible | Completeness proof rules, partial-error recording, source health, bounded collection | No | Rotate `X_COOKIE` when authorized/needed; inspect source health |
+| Cached Telegram `file_id` validity is controlled by Telegram | A previously cached ID may later be rejected | Low | Invalid cached values are refreshed via normal media retrieval | No | No action unless observed |
+| Heuristic relevance/marketplace filtering is not semantic omniscience | A rare relevant post may be filtered or irrelevant post may pass | Low/medium | Trusted-source distinctions and regression examples | Can be incrementally improved, not eliminated | Report concrete false positives/negatives with source text for a targeted test |
+| GitHub-hosted workflow runtime/storage policies are external | Actions outages, retention changes or quota can interrupt execution | Possible | Explicit checks, bounded runtime, recovery artifacts, no local secret dependency | No | Check GitHub Actions status/settings when workflows fail without code errors |
+
+## Platform references
+
+- Telegram Bot API: <https://core.telegram.org/bots/api>
+- GitHub schedule semantics: <https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#schedule>
+- GitHub cache eviction: <https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching>
+- GitHub artifact retention/access: <https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts>, <https://docs.github.com/en/rest/actions/artifacts>
+- Gemini rate limits: <https://ai.google.dev/gemini-api/docs/rate-limits>
+
+## Non-limitations (already repaired)
+
+The following should not be reopened as unresolved limitations without new evidence: Python-character callback truncation, constructor crash on intentional no-state test doubles, transient Telegram failures poisoning updates, AO3 stopping solely on a non-qualifying page, concurrent AO3 detail hammering, cache being described as a durable database, newest-artifact-without-validation recovery selection, and half-applied multi-file restore after a local replacement failure.

@@ -1,86 +1,114 @@
 # Jeonghan Daily Review Bot
 
-بات خصوصی برای جمع‌آوری، مرتب‌سازی و آماده‌سازی آپدیت‌های یون جونگهان از X و ارسال آن‌ها به چت خصوصی بررسی در تلگرام.
+بات خصوصی برای جمع‌آوری، مرتب‌سازی، ترجمه و آماده‌سازی آپدیت‌های یون جونگهان از X و ارسال آن‌ها به چت خصوصی بررسی در تلگرام. این پروژه مسیر انتشار خودکار در کانال عمومی ندارد.
 
-## قابلیت‌های فعلی
+## قابلیت‌های اصلی
 
-- اسکن ۲۲ منبع تنظیم‌شده در `config/sources.json`
-- سرچ جداگانهٔ نام/هشتگ جونگهان به انگلیسی، کره‌ای و ژاپنی برای recall بهتر
-- فیلتر سخت‌گیرانهٔ محتوای فروش/خرید/ترید، فوتوکارت، آلبوم و پست‌های نامرتبط
-- تشخیص تفاوت اکانت‌های اختصاصی جونگهان با اکانت‌های عمومی/شیپ؛ منابع عمومی فقط وقتی وارد دیلی می‌شوند که خود پست واقعاً به جونگهان مربوط باشد
-- `🕑 ۲ ساعت اخیر`: بازفرستادن تمام موارد دو ساعت گذشته حتی اگر قبلاً دیده شده باشند
-- `🗂 ۲۴ ساعت منبع`: دریافت موارد مرتبط یک منبع از قدیمی‌ترین به جدیدترین
-- `🔎 سرچ آرشیو`: سرچ با تاریخ یا توضیح آزاد، پیشنهاد حداکثر ۸ رویداد و سپس جمع‌آوری thread/event انتخاب‌شده
-- گروه‌بندی و ترتیب chronological برای لایوها و رویدادها
-- عکس original و انتخاب بهترین MP4 موجود؛ fallback با yt-dlp و FFmpeg برای ویدئو
-- ترجمه و کپشن فارسی با Gemini + fallback ترجمه در صورت خطای مدل/Quota
-- حافظهٔ لحن از `data/channel_memory.jsonl` و `data/channel_voice_profile.json`
-- تم‌های ثابت و RTL صحیح برای سیمبل‌های فارسی
-- منوی ثابت تلگرام با دکمه‌های ضروری
-- `📚 فن‌فیک`: اجرای فوری دو لیست جدا از پیشنهادهای X و بهترین‌های AO3
-- Nightly Fanfic Digest هر شب حدود ساعت ۲۲ تهران؛ English-only، دسته‌بندی بر اساس ship، لینک و خلاصهٔ فارسی
-- هیچ انتشار خودکار در کانال عمومی؛ خروجی ابتدا در review chat می‌آید
+- اسکن ۲۲ منبع تنظیم‌شده در `config/sources.json` و جست‌وجوی چندزبانهٔ EN/KR/JP
+- replay دو ساعت اخیر، دریافت کامل ۲۴ ساعت یک منبع و جست‌وجوی آرشیو خصوصی
+- گروه‌بندی chronological رویدادها و لایوها
+- رسانهٔ باکیفیت با direct URL و fallbackهای yt-dlp/FFmpeg و gallery-dl اختیاری
+- dedup رسانه با شناسه/هش و receiptهای پایدار
+- ترجمهٔ فارسی ChannelStyle با corpus محلی 16,306 نمونه، hard fidelity checks و fallback امن
+- callbackهای تلگرام با limit واقعی UTF-8 bytes؛ payloadهای بلند با token opaque و mapping خصوصی SQLite
+- پیام‌های بلند بدون truncation؛ بخش‌بندی پویا با برچسب `بخش X از Y`، plan پایدار، receipt هر بخش، keyboard فقط روی بخش آخر و pacing کوتاه و rate-aware برای ادامهٔ امن بعد از failure
+- handling محدود و typed برای Telegram 429/5xx/network/permanent errors
+- inbox، reminder، source health و private archive SQLite
+- `📚 فن‌فیک` و Nightly AO3/X digest با pagination محدود، pacing، fic-state و multipart receipts
+- هیچ autopublish عمومی؛ همهٔ خروجی‌ها در review chat خصوصی می‌مانند
 
 ## منوی تلگرام
 
-- `🕑 ۲ ساعت اخیر`
-- `🗂 ۲۴ ساعت منبع`
-- `🔎 سرچ آرشیو`
-- `📚 فن‌فیک`
-- `📋 وضعیت`
-- `❔ راهنما`
+`/start` یا `/menu` منوی ثابت را نمایش می‌دهد. دستورهای `/recent2h`, `/source24`, `/search`, `/sources`, `/fic`, `/status`, `/help` فعال‌اند.
 
-`/start` یا `/menu` منوی ثابت را نمایش می‌دهد. دستورهای `/recent2h`, `/source24`, `/search`, `/sources`, `/fic`, `/status`, `/help` نیز فعال‌اند.
+## ساختار
 
-## ساختار اصلی
+- `app/` — runtime اصلی
+- `config/` — sources/themes/settings و channel-style metadata
+- `data/channel_style/` — corpus sharded لحن
+- `tests/` — regression suite
+- `tools/` — corpus/benchmark و encrypted state-backup tooling
+- `docs/audit/` — گزارش forensic، matrix و runbook
+- `.github/workflows/main.yml` — validation + private-review runtime
+- `.github/workflows/fic-digest.yml` — nightly fic digest
+- `.github/workflows/translation-benchmark.yml` — benchmark مستقل ChannelStyle
+- `.state/state.json` — state JSON runtime
+- `.state/private-review.sqlite3` — private archive/callback/delivery/fic state
 
-- `app/` — کد اصلی
-- `config/sources.json` — منابع، اولویت‌ها و keywordها
-- `config/themes.json` — تم‌ها و سیمبل‌ها
-- `config/settings.json` — تنظیمات runtime
-- `data/` — حافظه و پروفایل لحن
-- `tests/` — تست‌های داخلی
-- `.github/workflows/main.yml` — Validation + اجرای بات
-- `.github/workflows/fic-digest.yml` — فن‌فیک شبانه
-- `.state/` — state runtime که در GitHub Actions Cache نگه‌داری می‌شود و در Git commit نمی‌شود
+`.state/` در Git commit نمی‌شود.
 
-## Secrets
+## Persistence: cache در برابر recovery backup
 
-این مقادیر فقط در `Settings → Secrets and variables → Actions` نگه‌داری شوند:
+GitHub Actions Cache فقط برای سرعت و continuity best-effort استفاده می‌شود و database یا durable backup محسوب نمی‌شود. Runtime علاوه بر cache می‌تواند یک artifact رمزگذاری‌شدهٔ recovery بسازد.
 
-- `TELEGRAM_BOT_TOKEN`
-- `TELEGRAM_ADMIN_USER_ID`
-- `TELEGRAM_REVIEW_CHAT_ID`
-- `X_COOKIE`
-- `GEMINI_API_KEY`
+وقتی `STATE_BACKUP_KEY` تنظیم شده باشد:
 
-هیچ Token/Cookie واقعی نباید داخل فایل‌های ریپو نوشته شود.
+1. cacheهای JSON و SQLite ابتدا restore می‌شوند؛
+2. اگر state لازم از cache موجود نباشد، workflow artifactهای غیرمنقضی `private-state-backup` را از جدیدترین به قدیمی‌تر بررسی می‌کند؛
+3. هر candidate قبل از mutation با AES-256-GCM authenticate و سپس JSON/SQLite validate می‌شود؛
+4. اولین backup معتبر restore می‌شود؛
+5. بعد از runtime، SQLite checkpoint/quick-check می‌شود و backup جدید فقط به شکل ciphertext در artifact ذخیره می‌شود.
+
+اگر `STATE_BACKUP_KEY` تنظیم نشده باشد bot همچنان اجرا می‌شود و workflow صریحاً warning می‌دهد که encrypted recovery غیرفعال است. مقدار secret هرگز log نمی‌شود.
+
+فرمت کلید: base64 یک کلید تصادفی دقیقاً 32-byte. نمونهٔ تولید امن:
+
+```bash
+python -c "import base64,secrets; print(base64.b64encode(secrets.token_bytes(32)).decode())"
+```
+
+خروجی این فرمان را فقط در GitHub Actions Secret با نام `STATE_BACKUP_KEY` قرار دهید؛ آن را داخل فایل، issue، PR یا log نگذارید.
+
+## Secrets و variables
+
+### Required برای اجرای واقعی main/nightly
+
+- `TELEGRAM_BOT_TOKEN` — secret
+- `TELEGRAM_ADMIN_USER_ID` — secret configuration value؛ باید positive integer باشد
+- `TELEGRAM_REVIEW_CHAT_ID` — secret configuration value؛ non-zero numeric chat ID
+- `X_COOKIE` — secret؛ باید حداقل `auth_token` و `ct0` داشته باشد
+
+### Optional
+
+- `GEMINI_API_KEY` — در نبود آن fallback فعال است
+- `STATE_BACKUP_KEY` — encrypted recovery؛ نبود آن bot را متوقف نمی‌کند
+- `SENTRY_DSN` — observability فنیِ scrubbed در main workflow
+- `GEMINI_MODEL` — env/Actions variable override؛ default کد `gemini-2.5-flash-lite`
+
+هیچ secret واقعی نباید در tracked file، artifact plaintext، issue یا log نوشته شود.
+
+## Shared private SQLite
+
+`private-review.sqlite3` شامل داده‌های private review مانند archive، callback-token mappings، multipart receipts، media-delivery identity و fic observations است. Main runtime و fic runtime از یک concurrency group استفاده می‌کنند تا همزمان این state مشترک را ننویسند.
+
+## Telegram limits و retry behavior
+
+- callback data بر اساس UTF-8 byte length کنترل می‌شود؛ بیش از limit به token opaque تبدیل می‌شود و truncate نمی‌شود.
+- long text به‌صورت lossless split می‌شود و keyboard فقط روی part نهایی قرار می‌گیرد.
+- 429 با `retry_after` و retry محدود مدیریت می‌شود؛ transient platform failures poison counter را بالا نمی‌برند.
+- Telegram client-side idempotency key برای media send ندارد؛ residual crash-window در `docs/audit/KNOWN_LIMITATIONS.md` توضیح داده شده است.
+
+## AO3 digest
+
+AO3 از HTML public pages خوانده می‌شود؛ CI به live AO3 وابسته نیست. Search pagination حداکثر 25 page دارد، requestها paced و bounded هستند و یک صفحهٔ بدون ship واجدشرایط باعث stop اشتباه نمی‌شود. Fic work/chapter/update observations و delivery receipts در همان private SQLite نگه‌داری می‌شوند.
+
+## Translation benchmark
+
+Benchmark انسانی/مدلی از workflow اصلی جداست و checkpoint/resume دارد. `429 RESOURCE_EXHAUSTED` باعث bounded exit و حفظ checkpoint می‌شود؛ completed cases دوباره تولید نمی‌شوند. سبز بودن unit tests به معنی PASS شدن human-quality gate نیست.
 
 ## Validation
 
-قبل از هر اجرای واقعی و بعد از تغییر کد، Workflow این موارد را بررسی می‌کند:
+Workflowهای validation اجرا می‌کنند:
 
 ```bash
-python -m compileall -q app tests
+python -m pip check
+python -m compileall -q app tests tools
 python -m app --check
 python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
-Validation روی push از اجرای طولانی بات جداست، بنابراین تغییرات جدید پشت پنجرهٔ live در صف نمی‌مانند.
+Lint/type-check جداگانه‌ای در repository configure نشده است؛ بنابراین چیزی به‌عنوان check موجود ادعا نمی‌شود.
 
-## اضافه‌کردن منبع
+## عملیات و forensic status
 
-هر منبع در `config/sources.json` یک فیلد `jeonghan_only` دارد:
-
-```json
-{
-  "handle": "username_without_at",
-  "label": "نام نمایشی",
-  "enabled": true,
-  "priority": 30,
-  "include_replies": true,
-  "jeonghan_only": false
-}
-```
-
-`jeonghan_only: true` فقط برای اکانتی استفاده شود که عملاً مختص جونگهان است. برای اکانت‌های گروه، شیپ یا چندعضوی مقدار `false` بماند تا relevance filter سخت‌گیرانه اعمال شود.
+برای setup، recovery، key rotation، production verification و rollback به `docs/audit/OPERATIONS_RUNBOOK.md` مراجعه کنید. وضعیت دقیق هر capability در `docs/audit/FEATURE_VERIFICATION_MATRIX.md` ثبت شده است.

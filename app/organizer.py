@@ -17,21 +17,30 @@ LIVE_WORDS = (
     "생방",
 )
 INSTAGRAM_WORDS = ("instagram", "insta", "ig update", "인스타", "اینستا", "reel", "story")
-BRAND_WORDS = ("campaign", "brand", "banila", "ad ", "ambassador", "برند", "광고")
+BRAND_WORDS = ("campaign", "brand", "banila", "ambassador", "برند", "광고")
+BRAND_RE = re.compile(r"(?<![\w#])(?:ad|sponsored)(?![\w-])", re.I)
 FANSIGN_WORDS = ("fansign", "fan sign", "fancall", "fan call", "영통", "팬싸", "فن کال", "فنساین")
 AIRPORT_WORDS = ("airport", "incheon", "gimpo", "공항", "فرودگاه")
 JEONGHAN_OWN_HANDLES = {"jeonghaniyoo_n", "jeonghan", "yoonjeonghan"}
 
 
+def _stable_id_key(value: str) -> tuple[int, int | str]:
+    """Comparable deterministic key for numeric and synthetic/non-numeric IDs."""
+    text = str(value)
+    if text.isdigit():
+        return (0, int(text))
+    return (1, text)
+
+
 def detect_category(update: Update) -> str:
-    text = f"{update.text} {update.author}".lower()
+    text = f"{update.text} {update.quoted_text} {update.author}".lower()
     if any(word in text for word in LIVE_WORDS):
         return "live"
     if any(word in text for word in INSTAGRAM_WORDS):
         if update.author.lower() in JEONGHAN_OWN_HANDLES or "jeonghan instagram" in text:
             return "jeonghan_instagram"
         return "member_instagram"
-    if any(word in text for word in BRAND_WORDS):
+    if any(word in text for word in BRAND_WORDS) or BRAND_RE.search(text):
         return "brand"
     if any(word in text for word in FANSIGN_WORDS):
         return "fansign"
@@ -87,8 +96,9 @@ def fallback_title(category: str, update: Update) -> str:
         "general": "آپدیت جونگهان",
     }
     base = labels.get(category, labels["general"])
-    tokens = normalized_event_tokens(update.text)
-    return f"{base} — {tokens[:55]}" if tokens else base
+    # A raw source-language suffix is not a useful Persian heading and previously
+    # leaked fragments such as "to seungcheol" into ready-looking drafts.
+    return base
 
 
 def initial_event_key(update: Update) -> str:
@@ -143,7 +153,7 @@ def organize_updates(updates: list[Update]) -> list[EventGroup]:
         if update.category == "live" and not is_threaded:
             live_by_author[(update.author.lower(), update.created_at.strftime("%Y-%m-%d"))].append(update)
     for items in live_by_author.values():
-        items.sort(key=lambda item: (item.created_at, int(item.id) if item.id.isdigit() else item.id))
+        items.sort(key=lambda item: (item.created_at, _stable_id_key(item.id)))
         cluster = 0
         previous = None
         for item in items:
@@ -170,12 +180,12 @@ def organize_updates(updates: list[Update]) -> list[EventGroup]:
                 return (
                     number if number is not None else 10_000,
                     item.created_at,
-                    int(item.id) if item.id.isdigit() else item.id,
+                    _stable_id_key(item.id),
                 )
             return (
                 item.created_at,
                 number if number is not None else 10_000,
-                int(item.id) if item.id.isdigit() else item.id,
+                _stable_id_key(item.id),
             )
 
         items.sort(key=sort_key)

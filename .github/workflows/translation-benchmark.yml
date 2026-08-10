@@ -1,0 +1,125 @@
+name: Channel Style Translation Benchmark
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - "config/**"
+      - "data/translation_benchmark_cases.json"
+      - "data/translation_benchmark_human_reviews.json"
+      - "docs/**"
+      - "tests/**"
+      - "tools/**"
+      - "requirements.txt"
+      - ".github/workflows/translation-benchmark.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Expensive translation evaluation must not be killed by ordinary validation
+# commits. v6 returns to the approved production model while retaining the v4
+# human-gate writer hardening. Older 2.5 stage caches are eligible as stage-only
+# acceleration; completed cases still have to pass the current writer fingerprint.
+concurrency:
+  group: channel-style-translation-benchmark-v4-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      PYTHONUNBUFFERED: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: python -m pip install -r requirements.txt
+
+      - name: Validate translation project
+        run: |
+          python -m compileall -q app tests tools
+          python -m app --check
+          python -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Restore PART 4 benchmark checkpoint
+        uses: actions/cache/restore@v5
+        with:
+          path: .state/part4-real-benchmark.json
+          key: part4-benchmark-v6-${{ runner.os }}-${{ github.event.pull_request.number || github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            part4-benchmark-v6-${{ runner.os }}-${{ github.event.pull_request.number || github.ref_name }}-
+            part4-benchmark-v4-${{ runner.os }}-pr-${{ github.event.pull_request.number }}-
+            part4-benchmark-v3-${{ runner.os }}-pr-${{ github.event.pull_request.number }}-
+
+      - name: Generate fresh PART 4 human-gate benchmark
+        id: benchmark
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: gemini-2.5-flash-lite
+        shell: bash
+        run: |
+          # The observed project limit accepts three direct-v2 cases in the
+          # rolling window, so cool down before attempting the fourth.
+          set +e
+          python -m tools.run_translation_benchmark_human \
+            --output .state/part4-real-benchmark.json \
+            --pace-seconds 8 \
+            --batch-size 3 \
+            --batch-cooldown-seconds 65 \
+            --max-quota-retries 1 \
+            --resume
+          benchmark_exit=$?
+          set -e
+          python -m tools.benchmark_status \
+            --checkpoint .state/part4-real-benchmark.json \
+            --exit-code "$benchmark_exit"
+
+      - name: Publish benchmark status summary
+        if: always() && steps.benchmark.outputs.status != ''
+        env:
+          BENCHMARK_STATUS: ${{ steps.benchmark.outputs.status }}
+        run: |
+          {
+            echo "## Translation benchmark"
+            echo
+            if [ "$BENCHMARK_STATUS" = "BLOCKED_BY_EXTERNAL_QUOTA" ]; then
+              echo "⚠️ **Live benchmark: BLOCKED BY EXTERNAL QUOTA**"
+              echo
+              echo "- Repository regression: no"
+              echo "- Benchmark harness: verified working"
+              echo "- Quality status: INCOMPLETE"
+              echo "- Human quality gate: NOT PASSED"
+              echo "- Merge authorization: NOT GRANTED"
+            else
+              echo "- Live benchmark status: $BENCHMARK_STATUS"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save PART 4 benchmark checkpoint
+        if: always() && hashFiles('.state/part4-real-benchmark.json') != ''
+        uses: actions/cache/save@v5
+        with:
+          path: .state/part4-real-benchmark.json
+          key: part4-benchmark-v6-${{ runner.os }}-${{ github.event.pull_request.number || github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Upload PART 4 benchmark artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: part4-real-translation-benchmark
+          path: .state/part4-real-benchmark.json
+          if-no-files-found: error
+          retention-days: 14

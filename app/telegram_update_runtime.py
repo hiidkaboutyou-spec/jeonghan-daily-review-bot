@@ -1,0 +1,118 @@
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from .callback_store import CallbackDataError
+from .config import ConfigError
+from .media_delivery_runtime import MediaDedupReviewApplication
+from .telegram import TelegramError, TelegramPermanentError, TelegramTransientError
+from .x_client import XCollectionError
+
+logger = logging.getLogger(__name__)
+MAX_TELEGRAM_UPDATE_ATTEMPTS = 3
+
+
+class TelegramSafeReviewApplication(MediaDedupReviewApplication):
+    """Process polling updates before advancing the durable getUpdates offset.
+
+    Telegram considers updates confirmed once a later getUpdates call uses an offset
+    greater than their update_id. A transient command failure therefore must not
+    advance our durable offset first. Failed non-transient application operations are
+    retried in a later run and bounded so one poisoned update cannot block forever.
+    """
+
+    async def process_telegram_updates(self) -> None:
+        updates = self.telegram.get_updates(self.state.telegram_offset)
+        for item in updates:
+            try:
+                update_id = int(item.get("update_id", 0) or 0)
+            except (TypeError, ValueError):
+                logger.warning("Ignoring malformed Telegram update without a numeric update_id")
+                continue
+            if update_id < self.state.telegram_offset:
+                continue
+
+            try:
+                await self._process_one_telegram_update(item)
+            except TelegramTransientError as exc:
+                # A platform/network outage says nothing about whether the admin
+                # command itself is poisoned. Keep offset and poison counter intact,
+                # stop this run, and let the next scheduled run retry in order.
+                logger.warning(
+                    "Telegram update %s paused by transient platform failure (%s)",
+                    update_id,
+                    type(exc).__name__,
+                )
+                break
+            except TelegramPermanentError as exc:
+                # Repeating a permanent 4xx for the same exact request cannot heal.
+                # Quarantine this one update immediately rather than wasting three
+                # scheduled runs, but do not expose Telegram's raw description.
+                logger.warning(
+                    "Telegram update %s hit permanent Bot API failure (%s); quarantining request",
+                    update_id,
+                    type(exc).__name__,
+                )
+                self.state.clear_telegram_failure(update_id)
+                self.state.telegram_offset = max(self.state.telegram_offset, update_id + 1)
+                continue
+            except (XCollectionError, TelegramError, ConfigError) as exc:
+                if not self._handle_telegram_update_failure(update_id, exc):
+                    break
+            except Exception as exc:
+                logger.exception("Unexpected Telegram update handler failure")
+                if not self._handle_telegram_update_failure(update_id, exc):
+                    break
+            else:
+                self.state.clear_telegram_failure(update_id)
+                self.state.telegram_offset = max(self.state.telegram_offset, update_id + 1)
+
+    async def _process_one_telegram_update(self, item: dict[str, Any]) -> None:
+        if "message" in item:
+            await self.handle_message(item["message"])
+        elif "callback_query" in item:
+            callback = dict(item["callback_query"])
+            raw = str(callback.get("data", ""))
+            try:
+                callback["data"] = self.telegram.decode_callback_data(raw)
+            except CallbackDataError:
+                callback_id = str(callback.get("id", ""))
+                try:
+                    self.telegram.answer_callback(callback_id, "این دکمه منقضی شده؛ دوباره صفحه را باز کن.")
+                except TelegramError:
+                    pass
+                self._safe_send("⚠️ این دکمه دیگر معتبر نیست. صفحه یا پیش‌نویس را دوباره باز کن.")
+                return
+            await self.handle_callback(callback)
+        # Unsupported/malformed update types are intentionally treated as handled.
+        # allowed_updates requests only message/callback_query, but Telegram notes
+        # that old queued update types can briefly still appear after filters change.
+
+    def _handle_telegram_update_failure(self, update_id: int, exc: Exception) -> bool:
+        """Return True only when the failed update has been quarantined and may be skipped."""
+        attempts = self.state.record_telegram_failure(update_id, type(exc).__name__)
+        logger.warning(
+            "Telegram update %s failed on attempt %s/%s (%s)",
+            update_id,
+            attempts,
+            MAX_TELEGRAM_UPDATE_ATTEMPTS,
+            type(exc).__name__,
+        )
+        if attempts < MAX_TELEGRAM_UPDATE_ATTEMPTS:
+            self._safe_send(
+                f"❌ انجام درخواست تلگرام کامل نشد؛ تلاش {attempts}/{MAX_TELEGRAM_UPDATE_ATTEMPTS}. "
+                "در اجرای بعدی دوباره امتحان می‌کنم."
+            )
+            return False
+
+        # No exception text is persisted or shown. Advance only after the bounded
+        # retry budget is exhausted, otherwise this single update would permanently
+        # block every later admin command in Telegram's ordered queue.
+        self.state.clear_telegram_failure(update_id)
+        self.state.telegram_offset = max(self.state.telegram_offset, update_id + 1)
+        self._safe_send(
+            "⚠️ یک درخواست تلگرام بعد از چند تلاش متوالی قرنطینه شد تا صف قفل نشود. "
+            "درخواست را اگر هنوز لازم است دوباره بفرست."
+        )
+        return True
