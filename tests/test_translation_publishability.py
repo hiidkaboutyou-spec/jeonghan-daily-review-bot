@@ -101,6 +101,17 @@ class TranslationPublishabilityTests(unittest.TestCase):
         )
         self.assertIn("bookish or machine-like register for informal source", semantic_quality_failures(item, bad))
 
+    def test_real_live_artifact_formal_fallback_and_broken_clitic_are_rejected(self):
+        interview = update(
+            "Jeonghan: I think I’m happiest when I can make the people around me laugh."
+        )
+        formal = "جونگهان: فکر می‌کنم وقتی می‌توانم اطرافیانم را بخندانم خوشحال می‌شوم."
+        self.assertTrue(natural_persian_failures(interview, formal))
+
+        reaction = update("THAT’S JEONGHAN’S ORANGE IPHONE ㅋㅋㅋ mirror selca 😂")
+        broken = "این آیفون نارنجی مال جونگهان ـه ㅋㅋㅋ 😂"
+        self.assertTrue(natural_persian_failures(reaction, broken))
+
 
 if __name__ == "__main__":
     unittest.main()

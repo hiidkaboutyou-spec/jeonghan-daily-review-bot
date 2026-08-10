@@ -167,6 +167,9 @@ def classify_content_type(text: str) -> str:
     if FACT_SIGNAL_RE.search(value) and not reaction:
         return "FACTUAL_INFORMATION"
 
+    if len(speakers) == 1 and len(value) < 420:
+        return "MEMBER_QUOTE"
+
     return "OTHER"
 
 
