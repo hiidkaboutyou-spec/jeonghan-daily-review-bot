@@ -35,6 +35,7 @@ from .translation_safety import semantic_quality_failures
 logger = logging.getLogger(__name__)
 
 DIRECT_PIPELINE_VERSION = "channel-direct-v2"
+GEMINI_REQUEST_TIMEOUT_MS = 120_000
 
 # This is an editorial spelling rule requested by the channel owner, not a fact
 # learned from historical posts. It is applied only when the CURRENT SOURCE names
@@ -359,6 +360,7 @@ TRANSLATION REQUIREMENTS:
                         temperature=temperature,
                         response_mime_type="application/json",
                         response_json_schema=schema,
+                        http_options=types.HttpOptions(timeout=GEMINI_REQUEST_TIMEOUT_MS),
                     ),
                 )
                 parsed = json.loads(response.text or "{}")

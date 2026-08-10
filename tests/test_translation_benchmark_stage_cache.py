@@ -13,6 +13,7 @@ from tools.run_translation_benchmark_cached import (
     _install_stage_cache,
 )
 from app.channel_translation_v2_install import V2Methods
+from app.channel_translation_v2 import GEMINI_REQUEST_TIMEOUT_MS
 
 
 def _payload(*, quota: bool, successful: bool = False) -> dict:
@@ -35,6 +36,29 @@ def _payload(*, quota: bool, successful: bool = False) -> dict:
 
 
 class TranslationBenchmarkStageCacheTests(unittest.TestCase):
+    def test_direct_v2_gemini_call_has_a_bounded_request_timeout(self):
+        captured = {}
+
+        def generate_content(**kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(text='{"items": []}')
+
+        client = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+        writer = SimpleNamespace(_model_candidates=lambda: ["gemini-2.5-flash-lite"])
+
+        result = V2Methods._generate_json_v2(
+            writer,
+            client,
+            "prompt",
+            {"type": "object"},
+            temperature=0.1,
+            purpose="direct channel translation",
+            system_instruction="system",
+        )
+
+        self.assertEqual(result, {"items": []})
+        self.assertEqual(captured["config"].http_options.timeout, GEMINI_REQUEST_TIMEOUT_MS)
+
     def test_direct_v2_success_is_cached_and_reused_without_api_call(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "benchmark.json"
