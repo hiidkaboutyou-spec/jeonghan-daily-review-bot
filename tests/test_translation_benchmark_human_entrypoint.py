@@ -19,11 +19,11 @@ class HumanBenchmarkEntrypointTests(unittest.TestCase):
         self.assertIn("python -m tools.run_translation_benchmark_human", benchmark_workflow)
         self.assertNotIn("python -m tools.run_translation_benchmark_cached", benchmark_workflow)
         self.assertIn("cancel-in-progress: false", benchmark_workflow)
-        self.assertIn("timeout-minutes: 35", benchmark_workflow)
+        self.assertIn("timeout-minutes: 55", benchmark_workflow)
         self.assertIn("part4-benchmark-v6-", benchmark_workflow)
         self.assertIn("GEMINI_MODEL: gemini-2.5-flash-lite", benchmark_workflow)
         self.assertIn("part4-benchmark-v4-", benchmark_workflow)
-        self.assertIn("--max-quota-retries 0", benchmark_workflow)
+        self.assertIn("--max-quota-retries 1", benchmark_workflow)
         self.assertIn("--batch-size 3", benchmark_workflow)
 
     def test_human_entrypoint_explicitly_installs_resume_fingerprint_patch(self):

@@ -30,7 +30,7 @@ jobs:
   benchmark:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 55
     env:
       PYTHONUNBUFFERED: "1"
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
@@ -78,7 +78,7 @@ jobs:
             --pace-seconds 8 \
             --batch-size 3 \
             --batch-cooldown-seconds 65 \
-            --max-quota-retries 0 \
+            --max-quota-retries 1 \
             --resume
           benchmark_exit=$?
           set -e
