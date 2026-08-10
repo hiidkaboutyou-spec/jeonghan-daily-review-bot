@@ -112,6 +112,20 @@ class TranslationPublishabilityTests(unittest.TestCase):
         broken = "این آیفون نارنجی مال جونگهان ـه ㅋㅋㅋ 😂"
         self.assertTrue(natural_persian_failures(reaction, broken))
 
+    def test_real_b01_artifact_machine_register_and_mixed_token_fail_closed(self):
+        item = update(
+            "THAT’S JEONGHAN’S ORANGE IPHONE ㅋㅋㅋ bae jeewan took his mirror "
+            "selca at the clothing store in jeju using jeonghan’s phone😂"
+        )
+        bad = (
+            "این آیفون نارنجی جونگهان است ㅋㅋㅋ باe jeewan سلکای آینه خود را در "
+            "فروشگاه لباس در ججو با استفاده از تلفن جونگهان گرفت 😂 این به وضوح "
+            "متعلق به جونگهان است."
+        )
+        failures = semantic_quality_failures(item, bad)
+        self.assertIn("bookish or machine-like register for informal source", failures)
+        self.assertIn("malformed mixed-script token", failures)
+
 
 if __name__ == "__main__":
     unittest.main()

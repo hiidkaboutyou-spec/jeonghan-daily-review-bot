@@ -35,6 +35,7 @@ _INFORMAL_TYPES = {
 _BOOKISH_RE = re.compile(
     r"(?:\bاو\b|\bایشان\b|می کند|می دهد|می شود|نمی کند|نمی کنم|"
     r"می[‌ ]?(?:توانم|تواند|شوم|شود|خواهم)|اطرافیانم را|"
+    r"به وضوح|متعلق به|با استفاده از|خود را|"
     r"به هیچ چیز[^.؟!]{0,40}نیاز ندارم|من الان \d+ ساله هستم|"
     r"به دوربین لبخند می زند|دارد چه کار می کند|\sـ(?:ه|ست)(?:\s|$))",
     re.I,
@@ -87,6 +88,8 @@ def semantic_quality_failures(update: Update, output: str) -> list[str]:
     # Uppercase official titles such as BAD/SUPER are intentionally preserved.
     for token in re.findall(r"(?<![A-Za-z])[A-Z][A-Z0-9_-]{1,}(?![A-Za-z])", source):
         unprotected = re.sub(rf"(?<![A-Za-z]){re.escape(token)}(?![A-Za-z])", "", unprotected)
+    if re.search(r"(?:[A-Za-z][\u0600-\u06ff]|[\u0600-\u06ff][A-Za-z])", unprotected):
+        failures.append("malformed mixed-script token")
     foreign = len(_FOREIGN_RE.findall(unprotected))
     persian = len(_PERSIAN_RE.findall(unprotected))
     if foreign >= 4 and foreign > persian / 2:
@@ -118,6 +121,7 @@ def manual_review_body(body: str, reasons: list[str]) -> str:
         "degenerate repetitive output": "خروجی تکراری و نامعتبر",
         "low-information source needs editorial judgment": "منبع کم‌اطلاعات",
         "bookish or machine-like register for informal source": "لحن کتابی یا ماشینی",
+        "malformed mixed-script token": "واژهٔ مخلوط و نامعتبر",
     }
     reason = "، ".join(labels.get(item, item) for item in reasons)
     return f"⚠️ نیاز به بازبینی دستی ({reason})\n\n{body.strip()}".strip()
