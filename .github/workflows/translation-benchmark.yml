@@ -8,6 +8,7 @@ on:
       - "app/**"
       - "config/**"
       - "data/translation_benchmark_cases.json"
+      - "data/translation_benchmark_human_reviews.json"
       - "docs/**"
       - "tests/**"
       - "tools/**"

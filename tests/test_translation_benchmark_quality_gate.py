@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
+import json
+from pathlib import Path
 
 from tools.run_translation_benchmark import (
     MIN_STYLED_FRACTION,
     _group,
+    _bound_human_review,
+    _load_human_reviews,
+    _output_sha256,
     _output_mode,
     _quality_gate,
     _resume_case_order,
@@ -15,6 +21,27 @@ from tools.run_translation_benchmark import (
 
 
 class TranslationBenchmarkQualityGateTests(unittest.TestCase):
+    def test_human_review_is_bound_to_exact_output_digest(self):
+        output = "ترجمهٔ دقیق"
+        review = {
+            "output_sha256": _output_sha256(output),
+            "semantic_coherence": 5,
+            "natural_persian": 5,
+            "channel_voice_match": 4,
+            "publishable_with_minimal_edits": True,
+        }
+        self.assertEqual(
+            _bound_human_review("B01", output, {"B01": review})["natural_persian"],
+            5,
+        )
+        self.assertEqual(_bound_human_review("B01", output + "!", {"B01": review}), {})
+
+    def test_review_file_loader_rejects_malformed_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "reviews.json"
+            path.write_text(json.dumps({"reviews": {"B01": {"x": 1}, "B02": "bad"}}))
+            self.assertEqual(_load_human_reviews(path), {"B01": {"x": 1}})
+
     def test_real_case_builder_uses_detection_and_preserves_media_quote_context(self):
         group = _group({
             "id": "B37",

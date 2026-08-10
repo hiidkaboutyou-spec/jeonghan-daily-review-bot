@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -26,6 +27,7 @@ MIN_HUMAN_PUBLISHABLE_FRACTION = 0.80
 DEFAULT_BATCH_SIZE = 4
 DEFAULT_BATCH_COOLDOWN_SECONDS = 65.0
 DEFAULT_MAX_QUOTA_RETRIES = 4
+HUMAN_REVIEWS_PATH = ROOT / "data/translation_benchmark_human_reviews.json"
 _RETRY_RE = re.compile(r"(?:retry(?:ing)?(?: in| after)?|retryDelay[^0-9]*)(?:\s*[:=]?\s*)([0-9]+(?:\.[0-9]+)?)\s*(ms|s)\b", re.I)
 _QUOTA_MARKERS = ("429", "RESOURCE_EXHAUSTED", "quota exceeded")
 T = TypeVar("T")
@@ -260,7 +262,48 @@ def _quality_gate(summary: dict, *, case_count: int) -> tuple[bool, list[str]]:
     return not reasons, reasons
 
 
-def _quality_metrics(case: dict, group: EventGroup, analysis, output: str, mode: str) -> dict:
+def _output_sha256(output: str) -> str:
+    return hashlib.sha256(str(output or "").encode("utf-8")).hexdigest()
+
+
+def _load_human_reviews(path: Path = HUMAN_REVIEWS_PATH) -> dict[str, dict]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    reviews = payload.get("reviews", {}) if isinstance(payload, dict) else {}
+    return {str(key): value for key, value in reviews.items() if isinstance(value, dict)}
+
+
+def _bound_human_review(case_id: str, output: str, reviews: dict[str, dict]) -> dict:
+    review = reviews.get(str(case_id), {})
+    if review.get("output_sha256") != _output_sha256(output):
+        return {}
+    return {
+        key: review[key]
+        for key in (
+            "semantic_coherence",
+            "natural_persian",
+            "channel_voice_match",
+            "publishable_with_minimal_edits",
+            "review_notes",
+            "output_sha256",
+        )
+        if key in review
+    }
+
+
+def _quality_metrics(
+    case: dict,
+    group: EventGroup,
+    analysis,
+    output: str,
+    mode: str,
+    *,
+    human_review: dict | None = None,
+) -> dict:
     update = group.updates[0]
     source = update.translation_source()
     hard = verify_hard_facts(source, output, analysis)
@@ -275,7 +318,7 @@ def _quality_metrics(case: dict, group: EventGroup, analysis, output: str, mode:
         "category_accuracy": "PASS" if group.category == expected_category else "FAIL",
         "natural_persian_precheck": "PASS" if not natural else "FAIL",
     }
-    human = dict(case.get("human_review", {})) if isinstance(case.get("human_review"), dict) else {}
+    human = dict(human_review or {})
     required_scores = ("semantic_coherence", "natural_persian", "channel_voice_match")
     complete = (
         all(isinstance(human.get(key), int) and 1 <= human[key] <= 5 for key in required_scores)
@@ -393,6 +436,7 @@ def run(
         raise SystemExit("GEMINI_API_KEY is required for the real PART 4 benchmark")
     model = _production_model()
     cases = json.loads(cases_path.read_text(encoding="utf-8"))
+    human_reviews = _load_human_reviews()
     if not 30 <= len(cases) <= 40:
         raise SystemExit(f"expected 30-40 benchmark cases, got {len(cases)}")
     if batch_size < 1:
@@ -407,11 +451,24 @@ def run(
         if item.get("output_mode") == "styled" and item.get("verifier_result") == "PASS"
     }
     ordered_cases = _resume_case_order(cases, prior) if resume else list(cases)
-    results: list[dict] = [
-        completed_by_id[str(case["id"])]
-        for case in cases
-        if str(case["id"]) in completed_by_id
-    ]
+    results: list[dict] = []
+    for case in cases:
+        case_id = str(case["id"])
+        if case_id not in completed_by_id:
+            continue
+        cached = dict(completed_by_id[case_id])
+        group = _group(case)
+        output = str(cached.get("new_channel_style_output", ""))
+        analysis = analyze_source(group.updates[0].translation_source())
+        cached["quality_metrics"] = _quality_metrics(
+            case,
+            group,
+            analysis,
+            output,
+            str(cached.get("output_mode", "")),
+            human_review=_bound_human_review(case_id, output, human_reviews),
+        )
+        results.append(cached)
     memory = StyleMemory(ROOT)
     old_writer = CaptionWriter(api_key, model, memory)
     new_writer = ChannelStyleCaptionWriter(api_key, model, memory)
@@ -482,7 +539,14 @@ def run(
                 "recency_weighting": diagnostics.get("recency_weighting", "NONE"),
                 "date_score_contribution": 0,
             }
-            result["quality_metrics"] = _quality_metrics(case, group, analysis, new_body, mode)
+            result["quality_metrics"] = _quality_metrics(
+                case,
+                group,
+                analysis,
+                new_body,
+                mode,
+                human_review=_bound_human_review(case_id, new_body, human_reviews),
+            )
             results.append(result)
             processed_since_cooldown += 1
             _write_checkpoint(
