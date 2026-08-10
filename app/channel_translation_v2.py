@@ -110,7 +110,7 @@ class ChannelStyleCaptionWriter(_BaseWriter):
     """One-call normal production translation with retrieval-grounded channel style."""
 
     def write_group(self, group: EventGroup, *, mode: str = "default") -> GroupCopy:
-        source_text = "\n".join(item.text for item in group.updates)
+        source_text = "\n".join(item.translation_source() for item in group.updates)
         try:
             analysis = analyze_source(
                 source_text,
@@ -216,9 +216,13 @@ class ChannelStyleCaptionWriter(_BaseWriter):
             {
                 "id": item.id,
                 "author": item.author,
-                "text": item.text,
+                "text": item.translation_source(),
                 "language": item.lang,
                 "url": item.url,
+                "media": [{"kind": media.kind, "url": media.url} for media in item.media],
+                "quoted_media": [
+                    {"kind": media.kind, "url": media.url} for media in item.quoted_media
+                ],
             }
             for item in group.updates
         ]
@@ -228,7 +232,7 @@ class ChannelStyleCaptionWriter(_BaseWriter):
             if self.memory.profile.get(key) is not None
         }
         canonical_entities = []
-        if source_names_jeonghan("\n".join(item.text for item in group.updates)):
+        if source_names_jeonghan("\n".join(item.translation_source() for item in group.updates)):
             canonical_entities.append(
                 {
                     "source_forms": ["Jeonghan", "Yoon Jeonghan", "정한", "윤정한", "ジョンハン"],
@@ -273,6 +277,8 @@ TRANSLATION REQUIREMENTS:
 - ㅋㅋㅋ/ㅎㅎㅎ و emojiهای منبع را همان تعداد حفظ کن مگر خود source معنای دیگری بدهد.
 - توضیح مترجمی داخل پرانتز نساز مگر واقعاً برای انتقال nuance ضروری باشد.
 - هیچ header/symbol/source line عمومی اضافه نکن؛ آن‌ها بعداً توسط ThemeEngine اضافه می‌شوند.
+- نام برند رسمی و عنوان رسمی آهنگ/challenge را ترجمه نکن؛ URL، hashtag و username را عیناً نگه دار.
+- متن داخل [QUOTED POST] فقط با همان attribution، برای فهم زمینه و ترجمهٔ دقیق استفاده شود.
 """.strip()
         parsed = self._generate_json_v2(
             client,
@@ -291,7 +297,7 @@ TRANSLATION REQUIREMENTS:
         payload = [
             {
                 "id": item.id,
-                "source": item.text,
+                "source": item.translation_source(),
                 "candidate": direct.bodies.get(item.id, ""),
                 "canonical_jeonghan": "جونگهان" if source_names_jeonghan(item.text) else None,
             }

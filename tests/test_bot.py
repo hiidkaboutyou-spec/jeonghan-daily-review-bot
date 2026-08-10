@@ -157,6 +157,30 @@ class XConversionTests(unittest.TestCase):
         self.assertIn("name=orig", update.media[0].url)
         self.assertEqual(update.media[1].url, "https://video/high.mp4")
 
+    def test_quoted_text_author_and_media_are_retained(self):
+        quoted = SimpleNamespace(
+            id_str="122",
+            rawContent="Jeonghan called Seungcheol",
+            user=SimpleNamespace(username="svt", displayname="SVT"),
+            media=SimpleNamespace(
+                photos=[SimpleNamespace(url="https://pbs.twimg.com/quoted")],
+                videos=[],
+                animated=[],
+            ),
+        )
+        tweet = SimpleNamespace(
+            id_str="123", url="https://x.com/source/status/123",
+            date=datetime(2026, 8, 9, tzinfo=timezone.utc),
+            user=SimpleNamespace(username="source", displayname="Source"),
+            rawContent="his reply", conversationIdStr="123", inReplyToTweetIdStr="",
+            quotedTweet=quoted, lang="en", media=None,
+        )
+        item = XCollector({}, [], [])._convert_tweet(tweet, raw_query="test")
+        self.assertEqual(item.quoted_author, "svt")
+        self.assertEqual(item.quoted_text, "Jeonghan called Seungcheol")
+        self.assertEqual(len(item.quoted_media), 1)
+        self.assertTrue(is_relevant_jeonghan_update(item, trusted_source=False))
+
     def test_marketplace_photocard_post_is_filtered(self):
         update = Update(
             id="sale1",

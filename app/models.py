@@ -50,6 +50,9 @@ class Update:
     conversation_id: str = ""
     reply_to_id: str = ""
     quoted_id: str = ""
+    quoted_text: str = ""
+    quoted_author: str = ""
+    quoted_media: list[MediaItem] = field(default_factory=list)
     lang: str = ""
     media: list[MediaItem] = field(default_factory=list)
     category: str = "general"
@@ -72,11 +75,21 @@ class Update:
         result["created_at"] = self.created_at.isoformat()
         return result
 
+    def translation_source(self) -> str:
+        """Source text plus explicitly attributed quoted-post context."""
+        main = self.text.strip()
+        quoted = self.quoted_text.strip()
+        if not quoted:
+            return main
+        attribution = f"@{self.quoted_author}: " if self.quoted_author else ""
+        return f"{main}\n\n[QUOTED POST]\n{attribution}{quoted}".strip()
+
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "Update":
         data = dict(value)
         data["created_at"] = ensure_utc(data.get("created_at"))
         data["media"] = [MediaItem.from_dict(item) for item in data.get("media", [])]
+        data["quoted_media"] = [MediaItem.from_dict(item) for item in data.get("quoted_media", [])]
         return cls(**data)
 
 

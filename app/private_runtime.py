@@ -193,6 +193,9 @@ class PrivateReviewApplication(Application):
                 group.title = copy.title or group.title
                 if copy.category in self.settings.themes.get("themes", {}):
                     group.category = copy.category
+            manual_review = getattr(self.writer, "last_manual_review", {})
+            if not isinstance(manual_review, dict):
+                manual_review = {}
 
             prepared: list[tuple[Update, Draft, str | None]] = []
             for part, update in enumerate(group.updates, start=1):
@@ -215,7 +218,11 @@ class PrivateReviewApplication(Application):
                         update_id=update.id,
                         event_key=group.key,
                         caption=caption,
-                        mode="default",
+                        mode=(
+                            "manual_review"
+                            if update.id in manual_review
+                            else "default"
+                        ),
                         telegram_message_id=0,
                         created_at=datetime.now(timezone.utc).isoformat(),
                     )

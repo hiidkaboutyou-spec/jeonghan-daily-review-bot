@@ -1,0 +1,27 @@
+[
+  {
+    "id": "reported-name-variants",
+    "source": "Jeonghan and SEVENTEEN update",
+    "bad_outputs": ["جیونگان و هفده", "جئونگان و هفده", "جونگهانی و هفده"]
+  },
+  {
+    "id": "reported-raw-heading",
+    "source": "to seungcheol",
+    "bad_outputs": ["آپدیت جونگهان — to seungcheol", "جئونگان تو سئونگ چئول"]
+  },
+  {
+    "id": "reported-literal-output",
+    "source": "English fan commentary",
+    "bad_outputs": [
+      "نسخه بد خود را نشان می‌دهد",
+      "گوشی را راه‌اندازی کنید",
+      "مثل یک شراب خوب پیر شده است",
+      "جونگهان اول تو خانواده من هستی"
+    ]
+  },
+  {
+    "id": "reported-nonsense-output",
+    "source": "Mixed-language fan post",
+    "bad_outputs": ["نازی‌های سیوخان"]
+  }
+]

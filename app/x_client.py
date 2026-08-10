@@ -47,7 +47,7 @@ _OTHER_MEMBER_RE = re.compile(
 
 def is_relevant_jeonghan_update(update: Update, *, trusted_source: bool = False) -> bool:
     """Reject trading/sales noise while keeping genuine Jeonghan updates."""
-    text = (update.text or "").strip()
+    text = "\n".join(part for part in (update.text, update.quoted_text) if part).strip()
     has_jh = bool(_STRONG_JH_RE.search(text))
     if text:
         if _TRANSACTION_RE.search(text):
@@ -365,6 +365,10 @@ class XCollector:
         reply_to_id = str(getattr(tweet, "inReplyToTweetIdStr", "") or getattr(tweet, "inReplyToTweetId", "") or "")
         quoted = getattr(tweet, "quotedTweet", None)
         quoted_id = str(getattr(quoted, "id_str", "") or getattr(quoted, "id", "") or "")
+        quoted_text = str(getattr(quoted, "rawContent", "") or "").strip()
+        quoted_user = getattr(quoted, "user", None)
+        quoted_author = str(getattr(quoted_user, "username", "") or "").lstrip("@")
+        quoted_media = self._convert_media(getattr(quoted, "media", None))
         lang = str(getattr(tweet, "lang", "") or "")
         media = self._convert_media(getattr(tweet, "media", None))
         url = str(getattr(tweet, "url", "") or "") or (f"https://x.com/{author}/status/{tweet_id}" if author else f"https://x.com/i/status/{tweet_id}")
@@ -378,6 +382,9 @@ class XCollector:
             conversation_id=conversation_id,
             reply_to_id=reply_to_id,
             quoted_id=quoted_id,
+            quoted_text=quoted_text,
+            quoted_author=quoted_author,
+            quoted_media=quoted_media,
             lang=lang,
             media=media,
             source_priority=self.source_priority.get(author.lower(), 100),

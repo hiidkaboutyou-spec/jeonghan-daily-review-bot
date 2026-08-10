@@ -12,8 +12,14 @@ from types import MethodType
 
 from .ai import CaptionWriter, GroupCopy
 from . import channel_translation as v1
-from .channel_entities import canonicalize_group, canonicalize_jeonghan, entity_failures
+from .channel_entities import canonicalize_entities, canonicalize_group, entity_failures
 from .channel_quality import rerank_for_mode
+from .translation_safety import (
+    manual_review_body,
+    metadata_only,
+    safe_metadata_body,
+    semantic_quality_failures,
+)
 from .channel_style_runtime import (
     CHANNEL_STYLE_VERSION,
     PROMPT_TEMPLATE_VERSION,
@@ -32,8 +38,28 @@ logger = logging.getLogger(__name__)
 _ORIGINAL_V1_WRITE_GROUP = v1.ChannelStyleCaptionWriter.write_group
 
 
+def _finalize_output(self, group, copy: GroupCopy) -> GroupCopy:
+    if not isinstance(getattr(self, "last_diagnostics", None), dict):
+        self.last_diagnostics = {}
+    copy = canonicalize_group(group, copy)
+    bodies = dict(copy.bodies)
+    manual: dict[str, list[str]] = {}
+    for item in group.updates:
+        if metadata_only(item):
+            bodies[item.id] = safe_metadata_body(item)
+            continue
+        body = bodies.get(item.id, item.text)
+        failures = semantic_quality_failures(item, body)
+        if failures:
+            manual[item.id] = failures
+            bodies[item.id] = manual_review_body(body, failures)
+    self.last_manual_review = manual
+    self.last_diagnostics["manual_review_ids"] = sorted(manual)
+    return GroupCopy(copy.title, copy.category, bodies)
+
+
 def _installed_write_group(self, group, *, mode: str = "default") -> GroupCopy:
-    source_text = "\n".join(item.text for item in group.updates)
+    source_text = "\n".join(item.translation_source() for item in group.updates)
     try:
         analysis = analyze_source(
             source_text,
@@ -41,7 +67,7 @@ def _installed_write_group(self, group, *, mode: str = "default") -> GroupCopy:
         )
     except Exception as exc:
         logger.error("V2 source analysis failed; using hardened v1: %s", v1._safe_error(exc))
-        return canonicalize_group(group, _ORIGINAL_V1_WRITE_GROUP(self, group, mode=mode))
+        return _finalize_output(self, group, _ORIGINAL_V1_WRITE_GROUP(self, group, mode=mode))
 
     try:
         examples = self.memory.retrieve_examples(
@@ -53,7 +79,7 @@ def _installed_write_group(self, group, *, mode: str = "default") -> GroupCopy:
         glossary = self.memory.relevant_glossary(source_text, source_text)
     except Exception as exc:
         logger.error("V2 style retrieval failed; using hardened v1: %s", v1._safe_error(exc))
-        return canonicalize_group(group, _ORIGINAL_V1_WRITE_GROUP(self, group, mode=mode))
+        return _finalize_output(self, group, _ORIGINAL_V1_WRITE_GROUP(self, group, mode=mode))
 
     client = self._client_or_none()
     self.last_diagnostics = {
@@ -73,7 +99,7 @@ def _installed_write_group(self, group, *, mode: str = "default") -> GroupCopy:
 
     if client is None:
         self.last_diagnostics["fallback"] = "gemini_unavailable_hardened_v1"
-        return canonicalize_group(group, _ORIGINAL_V1_WRITE_GROUP(self, group, mode=mode))
+        return _finalize_output(self, group, _ORIGINAL_V1_WRITE_GROUP(self, group, mode=mode))
 
     direct = self._direct_group(group, analysis, examples, glossary, mode, client)
     if direct is None:
@@ -81,22 +107,27 @@ def _installed_write_group(self, group, *, mode: str = "default") -> GroupCopy:
         fallback = GroupCopy(
             title=group.title,
             category=group.category,
-            bodies={item.id: v1._translate_preserving_structure(item.text) for item in group.updates},
+            bodies={
+                item.id: v1._translate_preserving_structure(item.translation_source())
+                for item in group.updates
+            },
         )
-        return canonicalize_group(group, fallback)
+        return _finalize_output(self, group, fallback)
 
     direct = canonicalize_group(group, direct)
     failed_ids: list[str] = []
     for item in group.updates:
         candidate = direct.bodies.get(item.id, "")
-        failures = verify_hard_facts(item.text, candidate, analyze_source(item.text))
-        failures.extend(entity_failures(item.text, candidate))
+        source = item.translation_source()
+        failures = verify_hard_facts(source, candidate, analyze_source(source))
+        failures.extend(entity_failures(source, candidate))
+        failures.extend(semantic_quality_failures(item, candidate))
         if failures:
             failed_ids.append(item.id)
 
     if not failed_ids:
         self.last_diagnostics["output_mode"] = "styled_direct"
-        return direct
+        return _finalize_output(self, group, direct)
 
     self.last_diagnostics["direct_failed_ids"] = failed_ids
     repaired = self._repair_failed_items(group, direct, failed_ids, analysis, client)
@@ -105,23 +136,25 @@ def _installed_write_group(self, group, *, mode: str = "default") -> GroupCopy:
         still_bad: list[str] = []
         for item in group.updates:
             candidate = repaired.bodies.get(item.id, "")
-            failures = verify_hard_facts(item.text, candidate, analyze_source(item.text))
-            failures.extend(entity_failures(item.text, candidate))
+            source = item.translation_source()
+            failures = verify_hard_facts(source, candidate, analyze_source(source))
+            failures.extend(entity_failures(source, candidate))
+            failures.extend(semantic_quality_failures(item, candidate))
             if failures:
                 still_bad.append(item.id)
         if not still_bad:
             self.last_diagnostics["output_mode"] = "styled_direct_repaired"
-            return repaired
+            return _finalize_output(self, group, repaired)
         self.last_diagnostics["repair_failed_ids"] = still_bad
 
     bodies = dict(direct.bodies)
     for item in group.updates:
         if item.id in failed_ids:
-            bodies[item.id] = canonicalize_jeonghan(
-                item.text, v1._translate_preserving_structure(item.text)
+            bodies[item.id] = canonicalize_entities(
+                item.translation_source(), v1._translate_preserving_structure(item.translation_source())
             )
     self.last_diagnostics["output_mode"] = "styled_direct_partial_fallback"
-    return GroupCopy(direct.title or group.title, group.category, bodies)
+    return _finalize_output(self, group, GroupCopy(direct.title or group.title, group.category, bodies))
 
 
 def install_direct_v2(writer):

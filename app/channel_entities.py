@@ -43,13 +43,39 @@ _JEONGHAN_OUTPUT_RE = re.compile(
     r"یون[‌\s-]*(?:جونگهان|جونگ‌هان|جونگان|جئونگهان|جئونگان|جیونگهان|جیونگ‌هان|جنگهان|جنگ‌هان)|"
     r"یون\s+جونگهان|"
     r"هانی|"
-    r"جونگهان|جونگ‌هان|جونگان|جئونگهان|جئونگان|جیونگهان|جیونگ‌هان|جنگهان|جنگ‌هان|"
+    r"جونگهان|جونگ‌هان|جونگان|جونگهانی|جئونگهان|جئونگان|جیونگهان|جیونگ‌هان|جیونگان|جنگهان|جنگ‌هان|"
     r"정한|ジョンハン"
     r")(?![A-Za-z0-9_\u0600-\u06ff\u3040-\u30ff\uac00-\ud7af\u200c])"
 )
 
 _ACCEPTED_OUTPUT_RE = re.compile(
     r"(?<![#@\w\u200c])(?:یون\s+جونگهان|جونگهان|هانی)(?![\w\u200c])"
+)
+
+# Stable editorial spellings for other recurring group entities. Each rule runs
+# only when the current source names that entity, and protected tokens are never
+# rewritten. This avoids both hallucinated names and model-dependent transliteration.
+_ENTITY_RULES = (
+    (
+        "سونگچول",
+        re.compile(r"(?i)(?<![\w#@])(?:seungcheol|s\.?coups|승철|에스쿱스|エスクプス)"),
+        re.compile(r"(?i)(?<![#@\w\u200c])(?:seungcheol|s\.?coups|سئونگ[‌\s-]*چئول|سونگ[‌\s-]*چول|سونگچول)(?![\w\u200c])"),
+    ),
+    (
+        "دوکیوم",
+        re.compile(r"(?i)(?<![\w#@])(?:dokyeom|do\s*kyeom|dk|도겸|ドギョム)(?![A-Za-z])"),
+        re.compile(r"(?i)(?<![#@\w\u200c])(?:dokyeom|do\s*kyeom|dk|دو[‌\s-]*کیوم|دوکیوم)(?![\w\u200c])"),
+    ),
+    (
+        "مینگیو",
+        re.compile(r"(?i)(?<![\w#@])(?:mingyu|민규|ミンギュ)"),
+        re.compile(r"(?i)(?<![#@\w\u200c])(?:mingyu|مین[‌\s-]*گیو|مینگیو)(?![\w\u200c])"),
+    ),
+    (
+        "سونتین",
+        re.compile(r"(?i)(?<![\w#@])(?:seventeen|세븐틴|セブンティーン|セブチ)"),
+        re.compile(r"(?i)(?<![#@\w\u200c])(?:seventeen|هفده|سِوِنتین|سون[‌\s-]*تین|سونتین)(?![\w\u200c])"),
+    ),
 )
 
 
@@ -153,9 +179,42 @@ def canonicalize_jeonghan(source: str, output: str) -> str:
     return "".join(pieces)
 
 
+def _source_names(pattern: re.Pattern[str], source: str) -> bool:
+    protected = [(m.start(), m.end()) for m in _PROTECTED_RE.finditer(str(source or ""))]
+    return any(not _is_protected(m.start(), protected) for m in pattern.finditer(str(source or "")))
+
+
+def canonicalize_entities(source: str, output: str) -> str:
+    result = canonicalize_jeonghan(source, output)
+    active = [(canonical, out_re) for canonical, src_re, out_re in _ENTITY_RULES if _source_names(src_re, source)]
+    if not active:
+        return result
+    pieces: list[str] = []
+    cursor = 0
+    for match in _PROTECTED_RE.finditer(result):
+        prose = result[cursor:match.start()]
+        for canonical, pattern in active:
+            prose = pattern.sub(canonical, prose)
+        pieces.extend((prose, match.group(0)))
+        cursor = match.end()
+    prose = result[cursor:]
+    for canonical, pattern in active:
+        prose = pattern.sub(canonical, prose)
+    pieces.append(prose)
+    return "".join(pieces)
+
+
 def entity_failures(source: str, output: str) -> list[str]:
+    failures: list[str] = []
+    normalized_all = canonicalize_entities(source, output)
+    for canonical, source_re, _ in _ENTITY_RULES:
+        if _source_names(source_re, source) and not re.search(
+            rf"(?<![#@\w\u200c]){re.escape(canonical)}(?![\w\u200c])", normalized_all
+        ):
+            failures.append(f"missing canonical source entity: {canonical}")
+
     if not source_names_jeonghan(source):
-        return []
+        return failures
 
     normalized = canonicalize_jeonghan(source, output)
     required = preferred_jeonghan_form(source)
@@ -164,20 +223,20 @@ def entity_failures(source: str, output: str) -> list[str]:
             rf"(?<![#@\w\u200c]){re.escape(required)}(?![\w\u200c])"
         )
         if not required_re.search(normalized):
-            return [f"missing contextual source entity: {required}"]
-        return []
+            failures.append(f"missing contextual source entity: {required}")
+        return failures
 
     if not _ACCEPTED_OUTPUT_RE.search(normalized):
-        return ["missing contextual source entity: یون جونگهان|جونگهان|هانی"]
-    return []
+        failures.append("missing contextual source entity: یون جونگهان|جونگهان|هانی")
+    return failures
 
 
 def canonicalize_group(group: EventGroup, copy: GroupCopy) -> GroupCopy:
     return GroupCopy(
-        title=canonicalize_jeonghan("\n".join(item.text for item in group.updates), copy.title),
+        title=canonicalize_entities("\n".join(item.translation_source() for item in group.updates), copy.title),
         category=copy.category,
         bodies={
-            item.id: canonicalize_jeonghan(item.text, copy.bodies.get(item.id, item.text))
+            item.id: canonicalize_entities(item.translation_source(), copy.bodies.get(item.id, item.text))
             for item in group.updates
         },
     )

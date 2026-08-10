@@ -426,6 +426,9 @@ class Application:
         )
         for group in groups:
             copy = self.writer.write_group(group)
+            manual_review = getattr(self.writer, "last_manual_review", {})
+            if not isinstance(manual_review, dict):
+                manual_review = {}
             group.title = copy.title or group.title
             if copy.category in self.settings.themes.get("themes", {}):
                 group.category = copy.category
@@ -447,7 +450,11 @@ class Application:
                         update_id=update.id,
                         event_key=group.key,
                         caption=caption,
-                        mode="default",
+                        mode=(
+                            "manual_review"
+                            if update.id in manual_review
+                            else "default"
+                        ),
                         telegram_message_id=int(sent.get("message_id", 0) or 0),
                         created_at=datetime.now(timezone.utc).isoformat(),
                     )
