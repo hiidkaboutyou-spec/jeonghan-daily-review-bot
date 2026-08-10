@@ -12,6 +12,7 @@ from .models import EventGroup, Update
 from .style import StyleMemory
 
 logger = logging.getLogger(__name__)
+GEMINI_REQUEST_TIMEOUT_MS = 120_000
 
 
 @dataclass(slots=True)
@@ -34,10 +35,14 @@ class CaptionWriter:
         if self._client is None:
             try:
                 from google import genai
+                from google.genai import types
             except ImportError:
                 logger.warning("google-genai is unavailable; using translation fallback captions.")
                 return None
-            self._client = genai.Client(api_key=self.api_key)
+            self._client = genai.Client(
+                api_key=self.api_key,
+                http_options=types.HttpOptions(timeout=GEMINI_REQUEST_TIMEOUT_MS),
+            )
         return self._client
 
     def _model_candidates(self) -> list[str]:

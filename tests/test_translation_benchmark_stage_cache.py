@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,7 +14,7 @@ from tools.run_translation_benchmark_cached import (
     _install_stage_cache,
 )
 from app.channel_translation_v2_install import V2Methods
-from app.channel_translation_v2 import GEMINI_REQUEST_TIMEOUT_MS
+from app.ai import CaptionWriter, GEMINI_REQUEST_TIMEOUT_MS
 
 
 def _payload(*, quota: bool, successful: bool = False) -> dict:
@@ -37,27 +38,15 @@ def _payload(*, quota: bool, successful: bool = False) -> dict:
 
 class TranslationBenchmarkStageCacheTests(unittest.TestCase):
     def test_direct_v2_gemini_call_has_a_bounded_request_timeout(self):
-        captured = {}
+        with patch("google.genai.Client") as client_factory:
+            expected_client = object()
+            client_factory.return_value = expected_client
+            writer = CaptionWriter("key", "gemini-2.5-flash-lite", SimpleNamespace())
 
-        def generate_content(**kwargs):
-            captured.update(kwargs)
-            return SimpleNamespace(text='{"items": []}')
+            self.assertIs(writer._client_or_none(), expected_client)
 
-        client = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
-        writer = SimpleNamespace(_model_candidates=lambda: ["gemini-2.5-flash-lite"])
-
-        result = V2Methods._generate_json_v2(
-            writer,
-            client,
-            "prompt",
-            {"type": "object"},
-            temperature=0.1,
-            purpose="direct channel translation",
-            system_instruction="system",
-        )
-
-        self.assertEqual(result, {"items": []})
-        self.assertEqual(captured["config"].http_options.timeout, GEMINI_REQUEST_TIMEOUT_MS)
+        http_options = client_factory.call_args.kwargs["http_options"]
+        self.assertEqual(http_options.timeout, GEMINI_REQUEST_TIMEOUT_MS)
 
     def test_direct_v2_success_is_cached_and_reused_without_api_call(self):
         with tempfile.TemporaryDirectory() as tmp:
