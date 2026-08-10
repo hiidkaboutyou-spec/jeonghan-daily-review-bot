@@ -53,7 +53,7 @@ class ThemeEngine:
     def _variant(self, category: str, event_key: str) -> dict[str, Any]:
         family = self.themes.get(category) or self.themes.get("general") or {}
         variants = list(family.get("variants", [])) or [{"prefix": "،، 🪽⌕໋  ִ˒˒", "label": "آپدیت جونگهان"}]
-        digest = int(hashlib.sha1(event_key.encode("utf-8")).hexdigest()[:8], 16)
+        digest = int(hashlib.sha1(event_key.encode("utf-8"), usedforsecurity=False).hexdigest()[:8], 16)
         return variants[digest % len(variants)]
 
     def header(self, group: EventGroup) -> str:

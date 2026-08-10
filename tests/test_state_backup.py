@@ -58,6 +58,23 @@ class StateBackupTests(unittest.TestCase):
             self.assertNotEqual(self.envelope(first)["nonce"], self.envelope(second)["nonce"])
             self.assertNotEqual(self.envelope(first)["ciphertext"], self.envelope(second)["ciphertext"])
 
+    def test_validation_rejects_authenticated_but_incomplete_backup(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"STATE_BACKUP_KEY": self.key()}):
+            root = Path(temp)
+            state = root / ".state"
+            state.mkdir()
+            db = state / "private-review.sqlite3"
+            with sqlite3.connect(db) as conn:
+                conn.execute("CREATE TABLE sample(value TEXT)")
+            encrypted = root / "fic-only.enc"
+            encrypt(state, encrypted)
+            self.assertEqual(
+                validate(encrypted, required=("private-review.sqlite3",)),
+                ["private-review.sqlite3"],
+            )
+            with self.assertRaises(BackupError):
+                validate(encrypted, required=("state.json", "private-review.sqlite3"))
+
     def test_wrong_key_fails_authentication_without_mutating_destination(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

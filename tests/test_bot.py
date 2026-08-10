@@ -107,6 +107,7 @@ class StateTests(unittest.TestCase):
             self.assertTrue(store.is_seen("11"))
             self.assertEqual(store.get_update("11").id, "11")
 
+
     def test_pending_item_survives_until_it_is_marked_seen(self):
         with tempfile.TemporaryDirectory() as temp:
             store = StateStore(Path(temp) / "state.json")
@@ -119,6 +120,18 @@ class StateTests(unittest.TestCase):
             store.mark_seen(update)
             self.assertEqual(store.pop_pending(10), [])
             self.assertEqual(store.data["pending_delivery"], [])
+
+    def test_malformed_pending_item_cannot_starve_valid_update_behind_limit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = StateStore(Path(temp) / "state.json")
+            valid = self.make_update("13")
+            store.data["pending_delivery"] = [{"id": "poison"}, valid.to_dict()]
+            pending = store.pop_pending(1)
+            self.assertEqual([item.id for item, _ in pending], ["13"])
+            self.assertEqual(
+                [item.get("id") for item in store.data["pending_delivery"]],
+                ["13"],
+            )
 
 
 class XConversionTests(unittest.TestCase):

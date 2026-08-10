@@ -18,6 +18,7 @@ class RecoveryWorkflowTests(unittest.TestCase):
         self.assertIn("trying older backup", text)
         self.assertIn("refusing to run with potentially lost private state", text)
         self.assertNotIn("reverse | .[0].id", text)
+        self.assertIn("--require state.json private-review.sqlite3", text)
 
     def test_nightly_uses_same_private_db_cache_and_runtime_concurrency(self):
         main = self._text("main.yml")
@@ -28,6 +29,8 @@ class RecoveryWorkflowTests(unittest.TestCase):
         self.assertIn("path: .state/private-review.sqlite3", main)
         self.assertIn("path: .state/private-review.sqlite3", fic)
         self.assertIn("tools.state_backup validate", fic)
+        self.assertIn("--require private-review.sqlite3", fic)
+        self.assertNotIn("--require state.json private-review.sqlite3", fic)
         self.assertNotIn("reverse | .[0].id", fic)
 
     def test_missing_recovery_secret_is_explicit_but_not_fatal(self):

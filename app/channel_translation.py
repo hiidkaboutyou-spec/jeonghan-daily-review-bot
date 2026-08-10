@@ -5,9 +5,7 @@ import logging
 import re
 from typing import Any
 
-import requests
-
-from .ai import CaptionWriter as LegacyCaptionWriter, GroupCopy
+from .ai import CaptionWriter as LegacyCaptionWriter, GroupCopy, gemini_should_try_next_model
 from .channel_quality import commentary_policy, language_guidance, rerank_for_mode
 from .channel_style_runtime import (
     CHANNEL_STYLE_VERSION,
@@ -311,6 +309,8 @@ ITEMS: {json.dumps(payload, ensure_ascii=False)}
                     return parsed
             except Exception as exc:
                 logger.warning("Gemini %s model %s failed: %s", purpose, model, _safe_error(exc))
+                if not gemini_should_try_next_model(exc):
+                    break
         return None
 
     def _deterministic_fidelity_failure(self, group: EventGroup, copy: GroupCopy) -> bool:
@@ -453,32 +453,8 @@ def _translate_preserving_structure(text: str) -> str:
 def _translate_line(text: str) -> str:
     if not text.strip() or not _needs_translation(text):
         return text
-    urls = re.findall(r"https?://\S+", text)
-    protected = text
-    for index, url in enumerate(urls):
-        protected = protected.replace(url, f"__URL_{index}__")
-    try:
-        response = requests.get(
-            "https://translate.googleapis.com/translate_a/single",
-            params={"client": "gtx", "sl": "auto", "tl": "fa", "dt": "t", "q": protected},
-            timeout=20,
-        )
-        response.raise_for_status()
-        payload = response.json()
-        translated = "".join(
-            str(part[0])
-            for part in (payload[0] if isinstance(payload, list) and payload else [])
-            if isinstance(part, list) and part and part[0]
-        ).strip()
-        for index, url in enumerate(urls):
-            translated = translated.replace(f"__URL_{index}__", url)
-        if translated:
-            for laugh in re.findall(r"(?:ㅋ{2,}|ㅎ{2,})", text):
-                if laugh not in translated:
-                    translated += " " + laugh
-            return translated.strip()
-    except Exception as exc:
-        logger.warning("Neutral Persian fallback failed: %s", _safe_error(exc))
+    # Preserve the exact source. Production finalization marks it for manual review;
+    # an honest untranslated line is safer than the removed literal web fallback.
     return text
 
 

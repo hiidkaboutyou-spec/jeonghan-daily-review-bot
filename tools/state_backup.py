@@ -136,8 +136,15 @@ def _decrypt_blob(input_path: Path) -> dict[str, bytes]:
     return files
 
 
-def validate(input_path: Path) -> list[str]:
-    return sorted(_decrypt_blob(input_path))
+def validate(input_path: Path, *, required: tuple[str, ...] = ()) -> list[str]:
+    files = _decrypt_blob(input_path)
+    invalid = sorted(set(required) - set(STATE_FILES))
+    if invalid:
+        raise BackupError("Unknown required state entries: " + ", ".join(invalid))
+    missing = sorted(set(required) - set(files))
+    if missing:
+        raise BackupError("Encrypted backup is missing required entries: " + ", ".join(missing))
+    return sorted(files)
 
 
 def restore(input_path: Path, state_dir: Path, *, only_missing: bool = True) -> list[str]:
@@ -188,6 +195,7 @@ def main() -> int:
     enc.add_argument("--output", required=True)
     val = sub.add_parser("validate")
     val.add_argument("--input", required=True)
+    val.add_argument("--require", nargs="*", choices=STATE_FILES, default=[])
     dec = sub.add_parser("restore")
     dec.add_argument("--input", required=True)
     dec.add_argument("--state-dir", default=".state")
@@ -198,7 +206,7 @@ def main() -> int:
             encrypt(Path(args.state_dir), Path(args.output))
             return 0
         if args.command == "validate":
-            validate(Path(args.input))
+            validate(Path(args.input), required=tuple(args.require))
             print("Encrypted state backup validation: OK")
             return 0
         restored = restore(Path(args.input), Path(args.state_dir), only_missing=not args.overwrite)

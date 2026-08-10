@@ -18,7 +18,7 @@ import logging
 import re
 from typing import Any
 
-from .ai import CaptionWriter as LegacyCaptionWriter, GroupCopy
+from .ai import CaptionWriter as LegacyCaptionWriter, GroupCopy, gemini_should_try_next_model
 from .channel_quality import commentary_policy, language_guidance, rerank_for_mode
 from . import channel_translation as v1
 from .channel_style_runtime import (
@@ -388,4 +388,6 @@ TRANSLATION REQUIREMENTS:
                     return parsed
             except Exception as exc:
                 logger.warning("Gemini %s model %s failed: %s", purpose, model, v1._safe_error(exc))
+                if not gemini_should_try_next_model(exc):
+                    break
         return None

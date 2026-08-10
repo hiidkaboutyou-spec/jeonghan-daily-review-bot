@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,7 +14,7 @@ from tools.run_translation_benchmark_cached import (
     _install_stage_cache,
 )
 from app.channel_translation_v2_install import V2Methods
-from app.ai import CaptionWriter, GEMINI_REQUEST_TIMEOUT_MS
+from app.ai import CaptionWriter, GEMINI_REQUEST_TIMEOUT_MS, gemini_should_try_next_model
 
 
 def _payload(*, quota: bool, successful: bool = False) -> dict:
@@ -47,6 +47,31 @@ class TranslationBenchmarkStageCacheTests(unittest.TestCase):
 
         http_options = client_factory.call_args.kwargs["http_options"]
         self.assertEqual(http_options.timeout, GEMINI_REQUEST_TIMEOUT_MS)
+        self.assertLessEqual(GEMINI_REQUEST_TIMEOUT_MS, 45_000)
+
+    def test_shared_quota_and_network_failures_never_spray_model_candidates(self):
+        self.assertFalse(gemini_should_try_next_model(RuntimeError("429 RESOURCE_EXHAUSTED quota")))
+        self.assertFalse(gemini_should_try_next_model(TimeoutError("request timed out")))
+        self.assertFalse(gemini_should_try_next_model(ConnectionError("network reset")))
+        self.assertTrue(gemini_should_try_next_model(RuntimeError("404 model not found")))
+
+    def test_direct_v2_stops_after_first_quota_failure(self):
+        models = SimpleNamespace(generate_content=SimpleNamespace())
+        models.generate_content = Mock(
+            side_effect=RuntimeError("429 RESOURCE_EXHAUSTED quota exhausted")
+        )
+        writer = SimpleNamespace(_model_candidates=lambda: ["first", "second"])
+        result = V2Methods._generate_json_v2(
+            writer,
+            SimpleNamespace(models=models),
+            "prompt",
+            {"type": "object"},
+            temperature=0.1,
+            purpose="test",
+            system_instruction="system",
+        )
+        self.assertIsNone(result)
+        self.assertEqual(models.generate_content.call_count, 1)
 
     def test_direct_v2_success_is_cached_and_reused_without_api_call(self):
         with tempfile.TemporaryDirectory() as tmp:
