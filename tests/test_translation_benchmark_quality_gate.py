@@ -4,6 +4,7 @@ import unittest
 
 from tools.run_translation_benchmark import (
     MIN_STYLED_FRACTION,
+    _group,
     _output_mode,
     _quality_gate,
     _resume_case_order,
@@ -14,6 +15,19 @@ from tools.run_translation_benchmark import (
 
 
 class TranslationBenchmarkQualityGateTests(unittest.TestCase):
+    def test_real_case_builder_uses_detection_and_preserves_media_quote_context(self):
+        group = _group({
+            "id": "B37",
+            "content_type": "VIDEO_REACTION",
+            "source": "Jeonghan starts the BAD challenge",
+            "media": [{"kind": "video", "url": "https://example.invalid/video.mp4"}],
+            "quoted_text": "Seungcheol sent the challenge.",
+            "quoted_author": "source",
+        })
+        self.assertEqual(group.category, "general")
+        self.assertEqual(group.updates[0].media[0].kind, "video")
+        self.assertIn("[QUOTED POST]", group.updates[0].translation_source())
+
     def test_retry_after_parser_uses_server_seconds(self):
         messages = [
             "429 RESOURCE_EXHAUSTED: quota exceeded. Please retry in 20.677995706s.",
@@ -101,6 +115,30 @@ class TranslationBenchmarkQualityGateTests(unittest.TestCase):
         passed, reasons = _quality_gate(_summary(results), case_count=36)
         self.assertFalse(passed)
         self.assertIn("unresolved_verifier_failures:1", reasons)
+
+    def test_structural_pass_cannot_claim_human_voice_or_publishability(self):
+        results = [
+            {
+                "output_mode": "styled",
+                "verifier_result": "PASS",
+                "quality_metrics": {
+                    "deterministic": {
+                        "name_accuracy": "PASS",
+                        "factual_fidelity": "PASS",
+                        "semantic_coherence_precheck": "PASS",
+                        "category_accuracy": "PASS",
+                        "natural_persian_precheck": "PASS",
+                    },
+                    "human": {"review_status": "PENDING_HUMAN_REVIEW"},
+                },
+            }
+            for _ in range(36)
+        ]
+        summary = _summary(results)
+        passed, reasons = _quality_gate(summary, case_count=36)
+        self.assertFalse(passed)
+        self.assertIsNone(summary["human_publishable_fraction"])
+        self.assertIn("human_quality_review_incomplete:0/36", reasons)
 
 
 if __name__ == "__main__":

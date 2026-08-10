@@ -11,7 +11,12 @@ from app.channel_entities import canonicalize_entities
 from app.channel_translation_v2_install import _finalize_output
 from app.models import EventGroup, MediaItem, Update
 from app.organizer import detect_category, fallback_title
-from app.translation_safety import metadata_only, safe_metadata_body, semantic_quality_failures
+from app.translation_safety import (
+    metadata_only,
+    natural_persian_failures,
+    safe_metadata_body,
+    semantic_quality_failures,
+)
 
 
 def update(text: str, *, media=None, quoted_text="", quoted_author="") -> Update:
@@ -86,6 +91,15 @@ class TranslationPublishabilityTests(unittest.TestCase):
         for source, output in cases:
             with self.subTest(source=source):
                 self.assertIn("substantial untranslated source language", semantic_quality_failures(update(source), output))
+
+    def test_real_b13_bookish_reaction_is_not_publishable(self):
+        item = update("jeonghan fixing his hair and then immediately smiling at the camera 😭")
+        bad = "جونگهان موهایش را مرتب می کند و بلافاصله به دوربین لبخند می زند 😭"
+        self.assertEqual(
+            natural_persian_failures(item, bad),
+            ["bookish or machine-like register for informal source"],
+        )
+        self.assertIn("bookish or machine-like register for informal source", semantic_quality_failures(item, bad))
 
 
 if __name__ == "__main__":

@@ -13,12 +13,16 @@ from typing import Callable, TypeVar
 
 from app.ai import CaptionWriter
 from app.channel_style_runtime import analyze_source, verify_hard_facts
+from app.channel_entities import entity_failures
+from app.translation_safety import natural_persian_failures, semantic_quality_failures
 from app.channel_translation import ChannelStyleCaptionWriter
 from app.config import ROOT, Settings
-from app.models import EventGroup, Update
+from app.models import EventGroup, MediaItem, Update
+from app.organizer import detect_category
 from app.style import StyleMemory
 
 MIN_STYLED_FRACTION = 0.60
+MIN_HUMAN_PUBLISHABLE_FRACTION = 0.80
 DEFAULT_BATCH_SIZE = 4
 DEFAULT_BATCH_COOLDOWN_SECONDS = 65.0
 DEFAULT_MAX_QUOTA_RETRIES = 4
@@ -40,7 +44,11 @@ def _legacy_category(content_type: str) -> str:
 
 
 def _group(case: dict) -> EventGroup:
-    category = _legacy_category(str(case.get("content_type", "OTHER")))
+    media = [
+        MediaItem(kind=str(item.get("kind", "photo")), url=str(item.get("url", "https://example.invalid/media")))
+        for item in case.get("media", [])
+        if isinstance(item, dict)
+    ]
     update = Update(
         id=str(case["id"]),
         url=f"https://example.invalid/benchmark/{case['id']}",
@@ -49,8 +57,12 @@ def _group(case: dict) -> EventGroup:
         text=str(case["source"]),
         created_at=datetime(2026, 8, 8, 12, 0, tzinfo=timezone.utc),
         lang="",
-        category=category,
+        media=media,
+        quoted_text=str(case.get("quoted_text", "")),
+        quoted_author=str(case.get("quoted_author", "")),
     )
+    category = detect_category(update)
+    update.category = category
     return EventGroup(
         key=f"benchmark:{case['id']}",
         category=category,
@@ -193,6 +205,19 @@ def _summary(results: list[dict]) -> dict:
     source = sum(item.get("output_mode") == "source_fallback" for item in results)
     verifier_passes = sum(item.get("verifier_result") == "PASS" for item in results)
     verifier_failures = len(results) - verifier_passes
+    deterministic_passes = 0
+    for item in results:
+        metrics = item.get("quality_metrics", {}).get("deterministic", {})
+        if metrics and all(value == "PASS" for value in metrics.values()):
+            deterministic_passes += 1
+    human_reviewed = [
+        item for item in results
+        if item.get("quality_metrics", {}).get("human", {}).get("review_status") == "COMPLETE"
+    ]
+    human_publishable = sum(
+        item.get("quality_metrics", {}).get("human", {}).get("publishable_with_minimal_edits") is True
+        for item in human_reviewed
+    )
     return {
         "styled_successes": styled,
         "neutral_fallbacks": neutral,
@@ -201,6 +226,13 @@ def _summary(results: list[dict]) -> dict:
         "styled_fraction": round(styled / len(results), 4) if results else 0.0,
         "verifier_passes": verifier_passes,
         "verifier_failures": verifier_failures,
+        "deterministic_quality_passes": deterministic_passes,
+        "deterministic_quality_fraction": round(deterministic_passes / len(results), 4) if results else 0.0,
+        "human_reviewed_cases": len(human_reviewed),
+        "human_publishable_cases": human_publishable,
+        "human_publishable_fraction": (
+            round(human_publishable / len(human_reviewed), 4) if human_reviewed else None
+        ),
     }
 
 
@@ -216,7 +248,57 @@ def _quality_gate(summary: dict, *, case_count: int) -> tuple[bool, list[str]]:
         reasons.append(f"unresolved_verifier_failures:{summary['verifier_failures']}")
     if case_count < 30 or case_count > 40:
         reasons.append(f"invalid_case_count:{case_count}")
+    if int(summary.get("human_reviewed_cases", 0)) != case_count:
+        reasons.append(
+            f"human_quality_review_incomplete:{summary.get('human_reviewed_cases', 0)}/{case_count}"
+        )
+    fraction = summary.get("human_publishable_fraction")
+    if fraction is not None and float(fraction) < MIN_HUMAN_PUBLISHABLE_FRACTION:
+        reasons.append(
+            f"human_publishable_fraction_below_{MIN_HUMAN_PUBLISHABLE_FRACTION:.2f}:{float(fraction):.4f}"
+        )
     return not reasons, reasons
+
+
+def _quality_metrics(case: dict, group: EventGroup, analysis, output: str, mode: str) -> dict:
+    update = group.updates[0]
+    source = update.translation_source()
+    hard = verify_hard_facts(source, output, analysis)
+    names = entity_failures(source, output)
+    semantic = semantic_quality_failures(update, output)
+    natural = natural_persian_failures(update, output)
+    expected_category = _legacy_category(str(case.get("content_type", "OTHER")))
+    deterministic = {
+        "name_accuracy": "PASS" if not names else "FAIL",
+        "factual_fidelity": "PASS" if not hard else "FAIL",
+        "semantic_coherence_precheck": "PASS" if not semantic else "FAIL",
+        "category_accuracy": "PASS" if group.category == expected_category else "FAIL",
+        "natural_persian_precheck": "PASS" if not natural else "FAIL",
+    }
+    human = dict(case.get("human_review", {})) if isinstance(case.get("human_review"), dict) else {}
+    required_scores = ("semantic_coherence", "natural_persian", "channel_voice_match")
+    complete = (
+        all(isinstance(human.get(key), int) and 1 <= human[key] <= 5 for key in required_scores)
+        and isinstance(human.get("publishable_with_minimal_edits"), bool)
+    )
+    human["review_status"] = "COMPLETE" if complete else "PENDING_HUMAN_REVIEW"
+    for key in required_scores:
+        human.setdefault(key, None)
+    human.setdefault("publishable_with_minimal_edits", None)
+    if mode != "styled" or "FAIL" in deterministic.values():
+        human["publishable_precheck"] = "FAIL"
+    else:
+        human["publishable_precheck"] = "PENDING_HUMAN_REVIEW"
+    return {
+        "deterministic": deterministic,
+        "failure_reasons": {
+            "name_accuracy": names,
+            "factual_fidelity": hard,
+            "semantic_coherence_precheck": semantic,
+            "natural_persian_precheck": natural,
+        },
+        "human": human,
+    }
 
 
 def _write_checkpoint(
@@ -233,7 +315,7 @@ def _write_checkpoint(
     summary = _summary(results)
     passed, reasons = _quality_gate(summary, case_count=len(results)) if complete else (False, ["benchmark_incomplete"])
     payload = {
-        "benchmark_version": 3,
+        "benchmark_version": 4,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "production_model": model,
         "pace_seconds_between_cases": pace_seconds,
@@ -241,13 +323,25 @@ def _write_checkpoint(
         "batch_cooldown_seconds": batch_cooldown_seconds,
         "max_quota_retries": max_quota_retries,
         "pipeline_old": "app.ai.CaptionWriter.write_group (preserved legacy production path)",
-        "pipeline_new": "app.channel_translation.ChannelStyleCaptionWriter.write_group (current production path)",
+        "pipeline_new": (
+            "app.channel_translation.ChannelStyleCaptionWriter instance + "
+            "app.channel_translation_v2_install.install_direct_v2 (exact private-review production path)"
+        ),
         "authority_message_count": 16306,
         "recency_weighting": "NONE",
         "date_score_contribution": 0,
         "case_count": len(results),
         "quality_status": "PASS" if passed else ("REJECTED" if complete else "INCOMPLETE"),
         "quality_gate_reasons": reasons,
+        "quality_metric_definitions": {
+            "name_accuracy": "Deterministic canonical-name preservation against current source.",
+            "factual_fidelity": "Deterministic names/numbers/dates/URLs/hashtags/speakers fidelity.",
+            "semantic_coherence": "Human 1-5 judgment; deterministic checks catch only high-confidence failures.",
+            "category_accuracy": "Detected delivery category compared with the benchmark-declared category family.",
+            "natural_persian": "Human 1-5 judgment of fluent non-literal Persian.",
+            "channel_voice_match": "Human 1-5 judgment against the channel corpus; never inferred from structure alone.",
+            "publishable_with_minimal_edits": "Human boolean; PASS requires at least 80% true across all cases.",
+        },
         "summary": summary,
         "cases": results,
     }
@@ -336,7 +430,7 @@ def run(
                 time.sleep(pace_seconds)
 
             group = _group(case)
-            source = str(case["source"])
+            source = group.updates[0].translation_source()
             analysis = analyze_source(source)
 
             old_copy, old_api = _run_quota_aware(
@@ -388,6 +482,7 @@ def run(
                 "recency_weighting": diagnostics.get("recency_weighting", "NONE"),
                 "date_score_contribution": 0,
             }
+            result["quality_metrics"] = _quality_metrics(case, group, analysis, new_body, mode)
             results.append(result)
             processed_since_cooldown += 1
             _write_checkpoint(

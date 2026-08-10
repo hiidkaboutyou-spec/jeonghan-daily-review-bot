@@ -16,7 +16,7 @@ from app import channel_part4_humanfix as humanfix
 from app.channel_translation import ChannelStyleCaptionWriter as BaseChannelStyleCaptionWriter
 from app.channel_translation_v2_install import install_direct_v2
 
-V2_HUMAN_GATE_FINGERPRINT = "channel-direct-v2-human-gate-v1"
+V2_HUMAN_GATE_FINGERPRINT = "channel-direct-v2-human-gate-v2-honest-metrics"
 
 
 class BenchmarkProductionWriter(BaseChannelStyleCaptionWriter):

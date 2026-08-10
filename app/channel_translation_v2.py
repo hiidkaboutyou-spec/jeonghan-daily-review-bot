@@ -30,6 +30,7 @@ from .channel_style_runtime import (
     verify_hard_facts,
 )
 from .models import EventGroup
+from .translation_safety import semantic_quality_failures
 
 logger = logging.getLogger(__name__)
 
@@ -299,6 +300,9 @@ TRANSLATION REQUIREMENTS:
                 "id": item.id,
                 "source": item.translation_source(),
                 "candidate": direct.bodies.get(item.id, ""),
+                "quality_failures": semantic_quality_failures(
+                    item, direct.bodies.get(item.id, "")
+                ),
                 "canonical_jeonghan": "جونگهان" if source_names_jeonghan(item.text) else None,
             }
             for item in group.updates
@@ -308,6 +312,8 @@ TRANSLATION REQUIREMENTS:
             "تو فقط خطاهای fidelity ترجمه فارسی را تعمیر می‌کنی. SOURCE مرجع حقیقت است. "
             "معنی و لحن درست موجود را بی‌دلیل بازنویسی نکن. اسم Jeonghan/정한/ジョンハン در متن فارسی "
             "اگر در SOURCE آمده باید دقیقاً «جونگهان» باشد. URL/hashtag/emoji/laughter/عدد/speaker را حفظ کن."
+            " اگر quality_failures لحن کتابی یا ماشینی را نشان می‌دهد، جمله را به فارسی طبیعی و عامیانهٔ "
+            "فن‌پیج تبدیل کن؛ ساختار انگلیسی را با کلمات فارسی تکرار نکن."
         )
         prompt = "FAILED ITEMS:\n" + json.dumps(payload, ensure_ascii=False)
         parsed = self._generate_json_v2(

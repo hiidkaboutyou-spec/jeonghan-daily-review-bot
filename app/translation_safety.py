@@ -10,6 +10,7 @@ review instead of being presented as publishable copy.
 import re
 
 from .models import Update
+from .channel_quality import classify_content_type
 
 _PROTECTED_RE = re.compile(r"https?://\S+|[#@][\w\u0600-\u06ff\u3040-\u30ff\uac00-\ud7af]+")
 _FOREIGN_RE = re.compile(r"[A-Za-z\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]")
@@ -26,6 +27,16 @@ _NONSENSE_NAME_RE = re.compile(
     re.I,
 )
 _HASHTAG_ONLY_RE = re.compile(r"^(?:\s*#[\w\u0600-\u06ff\u3040-\u30ff\uac00-\ud7af]+[،,؛;.!؟?]*)+\s*$")
+_INFORMAL_TYPES = {
+    "LIVE_DIALOGUE", "WEVERSE_POST", "WEVERSE_LIVE", "FANSIGN",
+    "PHOTO_REACTION", "VIDEO_REACTION", "MEMBER_QUOTE", "MEMBER_INTERACTION",
+    "SHORT_REACTION", "FAN_ACCOUNT_OR_OP_STORY",
+}
+_BOOKISH_RE = re.compile(
+    r"(?:\bاو\b|\bایشان\b|می کند|می دهد|می شود|نمی کند|نمی کنم|"
+    r"من الان \d+ ساله هستم|به دوربین لبخند می زند|دارد چه کار می کند)",
+    re.I,
+)
 
 
 def metadata_only(update: Update) -> bool:
@@ -46,6 +57,16 @@ def safe_metadata_body(update: Update) -> str:
     return f"{label}\n{update.text.strip()}".strip()
 
 
+def natural_persian_failures(update: Update, output: str) -> list[str]:
+    """High-confidence register failures, not a claim of full voice evaluation."""
+    content_type = classify_content_type(update.translation_source())
+    if content_type not in _INFORMAL_TYPES:
+        return []
+    if _BOOKISH_RE.search(str(output or "")):
+        return ["bookish or machine-like register for informal source"]
+    return []
+
+
 def semantic_quality_failures(update: Update, output: str) -> list[str]:
     source = update.translation_source()
     candidate = str(output or "").strip()
@@ -58,6 +79,7 @@ def semantic_quality_failures(update: Update, output: str) -> list[str]:
         failures.append("high-confidence literal Persian")
     if _NONSENSE_NAME_RE.search(candidate):
         failures.append("malformed entity or nonsensical phrase")
+    failures.extend(natural_persian_failures(update, candidate))
 
     unprotected = _PROTECTED_RE.sub("", candidate)
     # Uppercase official titles such as BAD/SUPER are intentionally preserved.
@@ -93,6 +115,7 @@ def manual_review_body(body: str, reasons: list[str]) -> str:
         "implausibly incomplete translation": "ترجمهٔ احتمالاً ناقص",
         "degenerate repetitive output": "خروجی تکراری و نامعتبر",
         "low-information source needs editorial judgment": "منبع کم‌اطلاعات",
+        "bookish or machine-like register for informal source": "لحن کتابی یا ماشینی",
     }
     reason = "، ".join(labels.get(item, item) for item in reasons)
     return f"⚠️ نیاز به بازبینی دستی ({reason})\n\n{body.strip()}".strip()
