@@ -12,7 +12,7 @@ from types import MethodType
 
 from .ai import CaptionWriter, GroupCopy
 from . import channel_translation as v1
-from .channel_entities import canonicalize_entities, canonicalize_group, entity_failures
+from .channel_entities import canonicalize_group, entity_failures
 from .channel_quality import rerank_for_mode
 from .translation_safety import (
     manual_review_body,
@@ -32,6 +32,7 @@ from .channel_translation_v2 import (
     DIRECT_PIPELINE_VERSION,
     ChannelStyleCaptionWriter as V2Methods,
 )
+from .channel_translation_playbook import unavailable_translation
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,9 @@ def _finalize_output(self, group, copy: GroupCopy) -> GroupCopy:
             bodies[item.id] = safe_metadata_body(item)
             continue
         body = bodies.get(item.id, item.text)
+        if body.startswith("⚠️ ترجمهٔ خودکار در دسترس نبود"):
+            manual[item.id] = ["translation model unavailable"]
+            continue
         failures = semantic_quality_failures(item, body)
         if failures:
             manual[item.id] = failures
@@ -73,7 +77,7 @@ def _installed_write_group(self, group, *, mode: str = "default") -> GroupCopy:
         examples = self.memory.retrieve_examples(
             source_text,
             analysis,
-            limit=8 if is_trivial_source(source_text, analysis) else 10,
+            limit=2 if is_trivial_source(source_text, analysis) else 3,
         )
         examples = rerank_for_mode(examples, mode)
         glossary = self.memory.relevant_glossary(source_text, source_text)
@@ -95,11 +99,20 @@ def _installed_write_group(self, group, *, mode: str = "default") -> GroupCopy:
         "date_score_contribution": 0,
         "recency_weighting": "NONE",
         "normal_generation_calls_target": 1,
+        "historical_style_examples_sent": len(examples),
     }
 
     if client is None:
-        self.last_diagnostics["fallback"] = "gemini_unavailable_hardened_v1"
-        return _finalize_output(self, group, _ORIGINAL_V1_WRITE_GROUP(self, group, mode=mode))
+        self.last_diagnostics["fallback"] = "gemini_unavailable_source_preserved"
+        return _finalize_output(
+            self,
+            group,
+            GroupCopy(
+                title=group.title,
+                category=group.category,
+                bodies={item.id: unavailable_translation(item.translation_source()) for item in group.updates},
+            ),
+        )
 
     direct = self._direct_group(group, analysis, examples, glossary, mode, client)
     if direct is None:
@@ -107,10 +120,7 @@ def _installed_write_group(self, group, *, mode: str = "default") -> GroupCopy:
         fallback = GroupCopy(
             title=group.title,
             category=group.category,
-            bodies={
-                item.id: v1._translate_preserving_structure(item.translation_source())
-                for item in group.updates
-            },
+            bodies={item.id: unavailable_translation(item.translation_source()) for item in group.updates},
         )
         return _finalize_output(self, group, fallback)
 
@@ -147,13 +157,11 @@ def _installed_write_group(self, group, *, mode: str = "default") -> GroupCopy:
             return _finalize_output(self, group, repaired)
         self.last_diagnostics["repair_failed_ids"] = still_bad
 
+    # Keep the model candidate for private human review rather than replacing it
+    # with a knowingly weak dictionary fallback. _finalize_output marks each
+    # semantic failure and the bot never auto-publishes it.
     bodies = dict(direct.bodies)
-    for item in group.updates:
-        if item.id in failed_ids:
-            bodies[item.id] = canonicalize_entities(
-                item.translation_source(), v1._translate_preserving_structure(item.translation_source())
-            )
-    self.last_diagnostics["output_mode"] = "styled_direct_partial_fallback"
+    self.last_diagnostics["output_mode"] = "styled_direct_needs_review"
     return _finalize_output(self, group, GroupCopy(direct.title or group.title, group.category, bodies))
 
 

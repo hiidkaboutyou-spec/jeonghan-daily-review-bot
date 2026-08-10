@@ -12,7 +12,7 @@ from . import channel_translation as translation
 from .ai import GroupCopy
 from .translation_safety import semantic_quality_failures
 
-HUMAN_GATE_VERSION = 1
+HUMAN_GATE_VERSION = 2
 HUMAN_GATE_FINGERPRINT = f"channel-human-gate-v{HUMAN_GATE_VERSION}"
 
 _EMOJI_RE = re.compile(r"[\U0001F300-\U0001FAFF\u2600-\u27BF]")
@@ -137,8 +137,9 @@ def _needs_human_polish(source: str, output: str, analysis) -> bool:
         return True
     if verify_hard_facts(source, output, analysis):
         return True
-    if analysis.source_language in {"ja"}:
-        return True
+    # Japanese output is no longer polished unconditionally. The direct prompt has
+    # paired soft-Japanese demonstrations; a second API call is reserved for an
+    # observed quality/fidelity failure, not merely for the source language.
     source_cf = str(source or "").casefold()
     if any(marker in source_cf for marker in ("모르겠다", "nuance", "ニュアンス", "서운하다", "ありがとね")):
         return True

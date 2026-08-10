@@ -24,7 +24,7 @@ class TranslationBenchmarkHumanFreshnessTests(unittest.TestCase):
             second.write_text("writer = 2\n", encoding="utf-8")
             after = _production_fingerprint((first, second))
 
-        self.assertRegex(before, r"^channel-direct-v2-human-gate-[0-9a-f]{16}$")
+        self.assertRegex(before, r"^channel-direct-v3-human-gate-[0-9a-f]{16}$")
         self.assertNotEqual(before, after)
 
     def test_python_m_hook_rejects_pre_human_gate_completed_checkpoint(self):

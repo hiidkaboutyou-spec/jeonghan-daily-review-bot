@@ -31,10 +31,15 @@ from .channel_style_runtime import (
 )
 from .models import EventGroup
 from .translation_safety import semantic_quality_failures
+from .channel_translation_playbook import (
+    compact_style_examples,
+    translation_demonstrations,
+    unavailable_translation,
+)
 
 logger = logging.getLogger(__name__)
 
-DIRECT_PIPELINE_VERSION = "channel-direct-v2"
+DIRECT_PIPELINE_VERSION = "channel-direct-v3-paired"
 
 # This is an editorial spelling rule requested by the channel owner, not a fact
 # learned from historical posts. It is applied only when the CURRENT SOURCE names
@@ -125,7 +130,7 @@ class ChannelStyleCaptionWriter(_BaseWriter):
             examples = self.memory.retrieve_examples(
                 source_text,
                 analysis,
-                limit=8 if is_trivial_source(source_text, analysis) else 10,
+                limit=2 if is_trivial_source(source_text, analysis) else 3,
             )
             examples = rerank_for_mode(examples, mode)
             glossary = self.memory.relevant_glossary(source_text, source_text)
@@ -147,6 +152,7 @@ class ChannelStyleCaptionWriter(_BaseWriter):
             "date_score_contribution": 0,
             "recency_weighting": "NONE",
             "normal_generation_calls_target": 1,
+            "historical_style_examples_sent": len(examples),
         }
         if client is None:
             self.last_diagnostics["fallback"] = "gemini_unavailable_hardened_v1"
@@ -161,7 +167,7 @@ class ChannelStyleCaptionWriter(_BaseWriter):
             fallback = GroupCopy(
                 title=group.title,
                 category=group.category,
-                bodies={item.id: v1._translate_preserving_structure(item.text) for item in group.updates},
+                bodies={item.id: unavailable_translation(item.text) for item in group.updates},
             )
             return _canonicalize_group(group, fallback)
 
@@ -232,6 +238,10 @@ class ChannelStyleCaptionWriter(_BaseWriter):
             for key in ("register", "syntax", "lexicon", "emotion", "formatting", "code_switching", "dialogue", "explanation")
             if self.memory.profile.get(key) is not None
         }
+        paired_examples = translation_demonstrations(
+            analysis.content_type, analysis.source_language
+        )
+        historical_style = compact_style_examples(examples, limit=3)
         canonical_entities = []
         if source_names_jeonghan("\n".join(item.translation_source() for item in group.updates)):
             canonical_entities.append(
@@ -248,7 +258,9 @@ class ChannelStyleCaptionWriter(_BaseWriter):
             "نه فارسی کتابی، نه ساختار انگلیسی/کره‌ای/ژاپنی با کلمات فارسی. هیچ نکته، speaker، "
             "اسم، عدد، تاریخ، URL، hashtag، emoji، laughter یا nuance معناداری را حذف یا اختراع نکن. "
             "قواعد CANONICAL ENTITIES قطعی‌اند و از ترجمه آوایی مدل مهم‌ترند. فقط دادهٔ خواسته‌شده "
-            "در schema را برگردان و هیچ مقدمه‌ای ننویس."
+            "در schema را برگردان و هیچ مقدمه‌ای ننویس. در همان یک پاسخ، اول معنی دقیق را "
+            "در ذهنت استخراج کن، بعد آن را به فارسی طبیعی کانال تبدیل کن و در پایان با SOURCE "
+            "تطبیق بده؛ پیش‌نویس یا مراحل بررسی را در خروجی ننویس."
         )
         prompt = f"""
 SOURCE ITEMS:
@@ -266,8 +278,11 @@ RELEVANT CHANNEL GLOSSARY (terminology/spelling only, never factual evidence):
 CHANNEL STYLE DNA:
 {json.dumps(compact_profile, ensure_ascii=False)}
 
-RETRIEVED STYLE EXAMPLES (imitate Persian register/rhythm only; never copy their facts):
-{json.dumps([item.prompt_payload() for item in examples], ensure_ascii=False)}
+PAIRED TRANSLATION DEMONSTRATIONS (learn the source→natural-Persian transformation; facts are fictional):
+{json.dumps(paired_examples, ensure_ascii=False)}
+
+HISTORICAL CHANNEL EXCERPTS (monolingual Persian style evidence only; never copy facts):
+{json.dumps(historical_style, ensure_ascii=False)}
 
 TRANSLATION REQUIREMENTS:
 - {mode_rule}
@@ -281,6 +296,8 @@ TRANSLATION REQUIREMENTS:
 - labelهای metadata مثل `fan trans:` و `source:` را دقیقاً با همان حروف انگلیسی و هرکدام در خط جدا نگه دار؛ فقط متن بعد از label را ترجمه کن.
 - توضیح مترجمی داخل پرانتز نساز مگر واقعاً برای انتقال nuance ضروری باشد.
 - هیچ header/symbol/source line عمومی اضافه نکن؛ آن‌ها بعداً توسط ThemeEngine اضافه می‌شوند.
+- فعل و ضمیر را متناسب با نوع متن انتخاب کن: reaction/dialogue خودمانی است («موهاشو»، «چیزی خوردی؟»، «چیکار می‌کنه»)، اما اطلاعیه رسمی روشن و بی‌اغراق می‌ماند.
+- ترجمهٔ تحت‌اللفظی ممنوع: `including two with X` یعنی «که توی دوتاشون X هم هست»، `did you eat yet?` یعنی «چیزی خوردی؟»، و `already?` با توجه به بافت «به همین زودی؟/الان؟» است، نه «قبلاً؟».
 - نام برند رسمی و عنوان رسمی آهنگ/challenge را ترجمه نکن؛ URL، hashtag و username را عیناً نگه دار.
 - متن داخل [QUOTED POST] فقط با همان attribution، برای فهم زمینه و ترجمهٔ دقیق استفاده شود.
 """.strip()

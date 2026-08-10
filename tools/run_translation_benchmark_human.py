@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 _PRODUCTION_FINGERPRINT_PATHS = (
     ROOT / "app/channel_translation_v2_install.py",
     ROOT / "app/channel_translation_v2.py",
+    ROOT / "app/channel_translation_playbook.py",
     ROOT / "app/channel_part4_humanfix.py",
     ROOT / "app/translation_safety.py",
     ROOT / "app/channel_entities.py",
@@ -39,7 +40,7 @@ def _production_fingerprint(paths: tuple[Path, ...] = _PRODUCTION_FINGERPRINT_PA
         digest.update(b"\0")
         digest.update(path.read_bytes())
         digest.update(b"\0")
-    return f"channel-direct-v2-human-gate-{digest.hexdigest()[:16]}"
+    return f"channel-direct-v3-human-gate-{digest.hexdigest()[:16]}"
 
 
 class BenchmarkProductionWriter(BaseChannelStyleCaptionWriter):

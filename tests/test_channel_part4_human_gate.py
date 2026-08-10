@@ -61,9 +61,15 @@ class Part4HumanGateHardeningTests(unittest.TestCase):
         fixed = _canonicalize_speaker_labels(source, output)
         self.assertEqual(fixed, "جونگهان: سلام #JEONGHAN")
 
-    def test_japanese_and_known_nuance_cases_request_human_polish(self):
-        ja = "ジョンハン: ありがとね"
-        self.assertTrue(_needs_human_polish(ja, "جونگهان: ممنون‌ها", analyze_source(ja)))
+    def test_known_nuance_case_requests_human_polish_but_plain_japanese_does_not(self):
+        plain_ja = "ジョンハン: 久しぶりですね。待っていてくれてありがとう。"
+        self.assertFalse(
+            _needs_human_polish(plain_ja, "جونگهان: خیلی وقته ندیدمتون. ممنون که منتظر موندین.", analyze_source(plain_ja))
+        )
+        nuanced_ja = "ジョンハン: ありがとね"
+        self.assertTrue(
+            _needs_human_polish(nuanced_ja, "جونگهان: ممنون‌ها", analyze_source(nuanced_ja))
+        )
         ko = "정한: 나도 모르겠다 ㅋㅋㅋ"
         self.assertTrue(_needs_human_polish(ko, "جونگهان: منم بلد نیستم ㅋㅋㅋ", analyze_source(ko)))
 
