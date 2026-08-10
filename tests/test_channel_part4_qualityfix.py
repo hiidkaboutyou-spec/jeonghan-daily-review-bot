@@ -69,7 +69,7 @@ class Part4QualityFixTests(unittest.TestCase):
         self.assertEqual(fixed, "جونگهان: سلام 😂 🤣")
 
     def test_writer_fingerprint_is_bumped_for_fresh_evidence(self):
-        self.assertEqual(humanfix.HUMAN_GATE_FINGERPRINT, "channel-human-gate-v4")
+        self.assertEqual(humanfix.HUMAN_GATE_FINGERPRINT, "channel-human-gate-v5")
 
 
 if __name__ == "__main__":

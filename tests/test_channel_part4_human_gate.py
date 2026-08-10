@@ -72,6 +72,11 @@ class Part4HumanGateHardeningTests(unittest.TestCase):
         output = "چرا جونگهان این‌قدر زیبا به نظر می‌رسد 😭"
         self.assertTrue(_needs_human_polish(source, output, analyze_source(source)))
 
+    def test_manual_review_and_machine_persian_request_polish(self):
+        source = "Did you eat yet?"
+        self.assertTrue(_needs_human_polish(source, "⚠️ نیاز به بازبینی دستی\n\nتا حالا خوردی؟", analyze_source(source)))
+        self.assertTrue(_needs_human_polish(source, "چرا جاشوا ناگهان اینجاست؟", analyze_source(source)))
+
 
 if __name__ == "__main__":
     unittest.main()

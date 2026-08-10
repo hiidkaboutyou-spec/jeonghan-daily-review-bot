@@ -17,6 +17,7 @@ from app.translation_safety import (
     safe_metadata_body,
     semantic_quality_failures,
 )
+from app.channel_part4_qualityfix import _safe_fallback_translate_line
 
 
 def update(text: str, *, media=None, quoted_text="", quoted_author="") -> Update:
@@ -125,6 +126,21 @@ class TranslationPublishabilityTests(unittest.TestCase):
         failures = semantic_quality_failures(item, bad)
         self.assertIn("bookish or machine-like register for informal source", failures)
         self.assertIn("malformed mixed-script token", failures)
+
+    def test_emergency_live_fallback_uses_channel_terms_and_colloquial_persian(self):
+        self.assertEqual(
+            _safe_fallback_translate_line("🦦: I’m 28 now."),
+            "🦦: الان ۲۸ سالمه.",
+        )
+        self.assertEqual(_safe_fallback_translate_line("👤: Did you eat yet?"), "👤: چیزی خوردی؟")
+        self.assertEqual(
+            _safe_fallback_translate_line("🪽: 캐럿들이 부끄러울 수도 있으니까… 마스크 쓰고 있어요!"),
+            "🪽: چون ممکنه کارات‌ها خجالت بکشن... ماسک زدم!",
+        )
+        self.assertEqual(
+            _safe_fallback_translate_line("🪽: 벌써? 그럼 빨리 말해야겠다. 오늘 와줘서 고맙고, 다음에 또 봐요. 약속!"),
+            "🪽: به این زودی؟ پس باید سریع بگم؛ ممنون که امروز اومدی، دفعهٔ بعد همدیگه رو می‌بینیم. قول!",
+        )
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ from . import channel_part4_hardening as hardening
 from . import channel_style_runtime as runtime
 from . import channel_translation as translation
 from .ai import GroupCopy
+from .translation_safety import semantic_quality_failures
 
 HUMAN_GATE_VERSION = 1
 HUMAN_GATE_FINGERPRINT = f"channel-human-gate-v{HUMAN_GATE_VERSION}"
@@ -17,6 +18,12 @@ HUMAN_GATE_FINGERPRINT = f"channel-human-gate-v{HUMAN_GATE_VERSION}"
 _EMOJI_RE = re.compile(r"[\U0001F300-\U0001FAFF\u2600-\u27BF]")
 _METADATA_LABEL_RE = re.compile(r"(?mi)^(fan trans|source)\s*:")
 _FORMAL_REACTION_MARKERS = ("به نظر می‌رسد", "به نظر میرسد", "مورد اشاره قرار گرفت", "می‌تواند", "می تواند")
+_MANUAL_REVIEW_PREFIX = "⚠️ نیاز به بازبینی دستی"
+_MACHINE_PERSIAN_MARKERS = (
+    "می کند", "می دهد", "می شود", "نمی کند", "او دیگر", "خود را", "با استفاده از",
+    "به وضوح", "متعلق به", "بلافاصله", "ناگهان اینجاست", "تا حالا خوردی",
+    "به روز رسانی", "از جمله", "من الان", "آیا ما می توانیم", "قول بده",
+)
 _LABEL_CANONICAL = {
     "jeonghan": "جونگهان",
     "yoon jeonghan": "جونگهان",
@@ -123,6 +130,11 @@ def _restore_speaker_labels(source: str, output: str) -> str:
 
 
 def _needs_human_polish(source: str, output: str, analysis) -> bool:
+    candidate = str(output or "")
+    if candidate.startswith(_MANUAL_REVIEW_PREFIX):
+        return True
+    if any(marker in candidate for marker in _MACHINE_PERSIAN_MARKERS):
+        return True
     if verify_hard_facts(source, output, analysis):
         return True
     if analysis.source_language in {"ja"}:
@@ -131,7 +143,7 @@ def _needs_human_polish(source: str, output: str, analysis) -> bool:
     if any(marker in source_cf for marker in ("모르겠다", "nuance", "ニュアンス", "서운하다", "ありがとね")):
         return True
     if analysis.content_type in {"SHORT_REACTION", "PHOTO_REACTION", "VIDEO_REACTION"} and any(
-        marker in str(output or "") for marker in _FORMAL_REACTION_MARKERS
+        marker in candidate for marker in _FORMAL_REACTION_MARKERS
     ):
         return True
     for alias, canonical in _LABEL_CANONICAL.items():
@@ -167,6 +179,9 @@ SOURCE مرجع حقیقت است. فقط کیفیت ترجمه و لحن را �
 - اگر SOURCE خط‌های metadata مثل `fan trans:` یا `source:` دارد، هرکدام در خط جدا بمانند.
 - speaker turnها را prose نکن. برای label عضوهای شناخته‌شده از spelling کانال استفاده کن: Jeonghan/정한/ジョンハン → جونگهان، Joshua/조슈아/ジョシュア → جاشوآ، Seungcheol/S.Coups/승철 → سونگچول. داخل hashtag و @mention چیزی را transliterate نکن.
 - reaction/social غیررسمی باید فارسی طبیعی و خودمانی باشد؛ عبارت‌های کتابی مثل «به نظر می‌رسد» یا «مورد اشاره قرار گرفت» را وقتی source خودمانی است به شکل channel-native بازنویسی کن.
+- اگر CURRENT با `⚠️ نیاز به بازبینی دستی` شروع می‌شود، هشدار را در خروجی تکرار نکن؛ فقط ترجمهٔ اصلاح‌شده را برگردان.
+- فارسی را با ضمیر و فعل طبیعی محاوره بنویس: «موهاشو مرتب کرد»، «هنوز چیزی خوردی؟»، «چرا یهو جاشوآ اومد وسط؟». از «او دیگر»، «خود را»، «بلافاصله»، «ناگهان اینجاست»، «از جمله» و «با استفاده از» در پست خودمانی دوری کن.
+- اصطلاحات فن‌پیج را درست نگه دار: CARAT/캐럿 → کارات، Weverse → ویورس، live → لایو، mask/마스크 → ماسک، fancall → فن‌کال.
 - nuance کره‌ای/ژاپنی را pragmatic ترجمه کن، نه تحت‌اللفظی عجیب. `모르겠다` یعنی «نمی‌دونم/نمی‌دونم دیگه»، نه «بلد نیستم». `ありがとね` یک «ممنون/مرسی» نرم‌تر و صمیمی‌تر است، نه «ممنون‌ها».
 - توضیح داخل پرانتز یا gloss اضافه فقط وقتی SOURCE خودش چنین توضیحی دارد مجاز است.
 - هیچ اطلاعاتی از حافظه/نمونه‌های تاریخی به متن اضافه نکن.
@@ -200,11 +215,18 @@ ITEMS: {json.dumps(needs, ensure_ascii=False)}
         repaired = dict(current.bodies)
         for item in group.updates:
             candidate = bodies.get(item.id, repaired.get(item.id, item.text))
+            candidate = re.sub(r"^⚠️ نیاز به بازبینی دستی[^\n]*\n+", "", candidate).strip()
             candidate = _canonicalize_speaker_labels(item.text, candidate)
             candidate = _restore_speaker_labels(item.text, candidate)
             candidate = _restore_metadata_labels(item.text, candidate)
             candidate = _restore_metadata_linebreaks(item.text, candidate)
             if verify_hard_facts(item.text, candidate, runtime.analyze_source(item.text)):
+                continue
+            remaining = [
+                reason for reason in semantic_quality_failures(item, candidate)
+                if reason != "low-information source needs editorial judgment"
+            ]
+            if remaining:
                 continue
             repaired[item.id] = candidate
         self.last_diagnostics["human_quality_polish"] = "applied"
