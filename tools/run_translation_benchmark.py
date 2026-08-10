@@ -23,7 +23,7 @@ from app.style import StyleMemory
 
 MIN_STYLED_FRACTION = 0.60
 MIN_HUMAN_PUBLISHABLE_FRACTION = 0.80
-DEFAULT_BATCH_SIZE = 4
+DEFAULT_BATCH_SIZE = 3
 DEFAULT_BATCH_COOLDOWN_SECONDS = 65.0
 DEFAULT_MAX_QUOTA_RETRIES = 4
 _RETRY_RE = re.compile(r"(?:retry(?:ing)?(?: in| after)?|retryDelay[^0-9]*)(?:\s*[:=]?\s*)([0-9]+(?:\.[0-9]+)?)\s*(ms|s)\b", re.I)

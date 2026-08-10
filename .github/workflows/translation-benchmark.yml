@@ -70,11 +70,13 @@ jobs:
           GEMINI_MODEL: gemini-2.5-flash-lite
         shell: bash
         run: |
+          # The observed project limit accepts three direct-v2 cases in the
+          # rolling window, so cool down before attempting the fourth.
           set +e
           python -m tools.run_translation_benchmark_human \
             --output .state/part4-real-benchmark.json \
             --pace-seconds 8 \
-            --batch-size 4 \
+            --batch-size 3 \
             --batch-cooldown-seconds 65 \
             --max-quota-retries 0 \
             --resume

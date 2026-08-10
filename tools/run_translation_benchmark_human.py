@@ -49,7 +49,7 @@ class BenchmarkProductionWriter(BaseChannelStyleCaptionWriter):
         install_direct_v2(self)
 
 
-def _ensure_refresh_pacing(argv: list[str], *, minimum_batch_size: int = 4) -> None:
+def _ensure_refresh_pacing(argv: list[str], *, minimum_batch_size: int = 3) -> None:
     for index, value in enumerate(argv):
         if value == "--batch-size" and index + 1 < len(argv):
             try:

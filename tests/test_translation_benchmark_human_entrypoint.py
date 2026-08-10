@@ -24,6 +24,7 @@ class HumanBenchmarkEntrypointTests(unittest.TestCase):
         self.assertIn("GEMINI_MODEL: gemini-2.5-flash-lite", benchmark_workflow)
         self.assertIn("part4-benchmark-v4-", benchmark_workflow)
         self.assertIn("--max-quota-retries 0", benchmark_workflow)
+        self.assertIn("--batch-size 3", benchmark_workflow)
 
     def test_human_entrypoint_explicitly_installs_resume_fingerprint_patch(self):
         source = (ROOT / "tools" / "run_translation_benchmark_human.py").read_text(encoding="utf-8")
@@ -33,7 +34,7 @@ class HumanBenchmarkEntrypointTests(unittest.TestCase):
     def test_refresh_pacing_raises_only_too_small_batch(self):
         argv = ["runner", "--batch-size", "1", "--batch-cooldown-seconds", "65"]
         _ensure_refresh_pacing(argv)
-        self.assertEqual(argv[2], "4")
+        self.assertEqual(argv[2], "3")
 
         already_safe = ["runner", "--batch-size=8"]
         _ensure_refresh_pacing(already_safe)
