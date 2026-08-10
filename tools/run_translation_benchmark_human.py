@@ -8,7 +8,9 @@ the private-review application. A distinct fingerprint prevents any pre-v2 case
 from satisfying the human quality gate.
 """
 
+import hashlib
 import sys
+from pathlib import Path
 
 from tools import run_translation_benchmark_cached as cached
 from tools import run_translation_benchmark as benchmark
@@ -16,7 +18,27 @@ from app import channel_part4_humanfix as humanfix
 from app.channel_translation import ChannelStyleCaptionWriter as BaseChannelStyleCaptionWriter
 from app.channel_translation_v2_install import install_direct_v2
 
-V2_HUMAN_GATE_FINGERPRINT = "channel-direct-v2-human-gate-v2-honest-metrics"
+ROOT = Path(__file__).resolve().parents[1]
+_PRODUCTION_FINGERPRINT_PATHS = (
+    ROOT / "app/channel_translation_v2_install.py",
+    ROOT / "app/channel_translation_v2.py",
+    ROOT / "app/translation_safety.py",
+    ROOT / "app/channel_entities.py",
+    ROOT / "app/channel_quality.py",
+    ROOT / "app/organizer.py",
+    ROOT / "tools/run_translation_benchmark.py",
+)
+
+
+def _production_fingerprint(paths: tuple[Path, ...] = _PRODUCTION_FINGERPRINT_PATHS) -> str:
+    """Bind completed benchmark cases to the code that produced and judged them."""
+    digest = hashlib.sha256()
+    for path in paths:
+        digest.update(path.name.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return f"channel-direct-v2-human-gate-{digest.hexdigest()[:16]}"
 
 
 class BenchmarkProductionWriter(BaseChannelStyleCaptionWriter):
@@ -76,7 +98,7 @@ def _install_v2_benchmark_behavior() -> None:
 def main() -> int:
     # This is evidence for a different production pipeline; old completed cases must
     # be invalidated even if their old hard verifier happened to pass.
-    humanfix.HUMAN_GATE_FINGERPRINT = V2_HUMAN_GATE_FINGERPRINT
+    humanfix.HUMAN_GATE_FINGERPRINT = _production_fingerprint()
     _install_v2_benchmark_behavior()
     humanfix._patch_cached_benchmark_resume()
     _ensure_refresh_pacing(sys.argv)

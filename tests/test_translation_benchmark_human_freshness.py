@@ -10,9 +10,23 @@ from types import SimpleNamespace
 from app import channel_part4_benchmark_hook as hook
 from app.channel_part4_humanfix import HUMAN_GATE_FINGERPRINT
 from tools import run_translation_benchmark as benchmark
+from tools.run_translation_benchmark_human import _production_fingerprint
 
 
 class TranslationBenchmarkHumanFreshnessTests(unittest.TestCase):
+    def test_production_fingerprint_changes_with_quality_code(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = Path(tmp) / "first.py"
+            second = Path(tmp) / "second.py"
+            first.write_text("quality = 1\n", encoding="utf-8")
+            second.write_text("writer = 1\n", encoding="utf-8")
+            before = _production_fingerprint((first, second))
+            second.write_text("writer = 2\n", encoding="utf-8")
+            after = _production_fingerprint((first, second))
+
+        self.assertRegex(before, r"^channel-direct-v2-human-gate-[0-9a-f]{16}$")
+        self.assertNotEqual(before, after)
+
     def test_python_m_hook_rejects_pre_human_gate_completed_checkpoint(self):
         main = sys.modules["__main__"]
         old_spec = getattr(main, "__spec__", None)
