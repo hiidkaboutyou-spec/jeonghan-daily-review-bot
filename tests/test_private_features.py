@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from app.archive_store import ArchiveStore
 from app.models import Update
@@ -73,6 +74,33 @@ class ArchiveStoreTests(unittest.TestCase):
             self.assertEqual(store.rebuild({"5": update.to_dict()}), 1)
             self.assertEqual([item.id for item in store.search("campaign")], ["5"])
             store.close()
+
+    def test_non_ok_quick_check_result_triggers_recovery(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "archive.sqlite3"
+            with sqlite3.connect(path) as connection:
+                connection.execute("CREATE TABLE old_data(value TEXT)")
+
+            fake = Mock()
+            fake.execute.side_effect = [Mock(), Mock(), Mock(fetchone=Mock(return_value=("malformed",)))]
+            original_connect = sqlite3.connect
+            calls = 0
+
+            def connect(*args, **kwargs):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    return fake
+                return original_connect(*args, **kwargs)
+
+            with patch("app.archive_store.sqlite3.connect", side_effect=connect):
+                store = ArchiveStore(path)
+                store.index_update(self.make_update("recovered", "healthy archive"))
+                self.assertEqual([item.id for item in store.search("healthy")], ["recovered"])
+                store.close()
+
+            self.assertTrue(list(Path(temp).glob("archive.broken-*.sqlite3")))
+            fake.close.assert_called_once()
 
     def test_date_only_search_works_without_fts_terms(self):
         with tempfile.TemporaryDirectory() as temp:

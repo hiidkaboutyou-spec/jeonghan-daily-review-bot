@@ -169,10 +169,20 @@ jobs:
           python -m tools.state_backup restore --input "$selected" --state-dir .state
 
       - name: Validate project
+        if: >-
+          github.event_name == 'push' ||
+          github.event_name == 'pull_request' ||
+          (github.event_name == 'workflow_dispatch' && inputs.mode == 'check')
         run: |
           python -m compileall -q app tests tools
           python -m app --check
           python -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Runtime smoke check
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')
+        run: |
+          python -m compileall -q app tools
+          python -m app --check
 
       - name: Run private review bot
         if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')
@@ -186,7 +196,10 @@ jobs:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: |
           echo "Starting responsive Telegram review window."
-          end=$((SECONDS + 780))
+          # The workflow starts every 15 minutes. Keep the live window below that
+          # cadence with enough room for checkout/install/state backup so runtime
+          # jobs do not build a permanent concurrency queue.
+          end=$((SECONDS + 540))
           successful_passes=0
           while [ "$SECONDS" -lt "$end" ]; do
             set +e
