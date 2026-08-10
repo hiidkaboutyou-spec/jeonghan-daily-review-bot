@@ -6,13 +6,28 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-import requests
-
 from .models import EventGroup, Update
 from .style import StyleMemory
 
 logger = logging.getLogger(__name__)
-GEMINI_REQUEST_TIMEOUT_MS = 120_000
+GEMINI_REQUEST_TIMEOUT_MS = 45_000
+
+
+def gemini_should_try_next_model(exc: Exception) -> bool:
+    """Retry another model only when the failure is actually model-specific."""
+    value = f"{type(exc).__name__}: {exc}".casefold()
+    shared_failure = (
+        "resource_exhausted", "quota", "rate limit", "too many requests", "429",
+        "unauthenticated", "permission_denied", "forbidden", "api key", "401", "403",
+        "timeout", "timed out", "connection", "network",
+    )
+    if any(marker in value for marker in shared_failure):
+        return False
+    model_specific = (
+        "model not found", "unknown model", "unsupported model",
+        "model is not supported", "not found for api version", "404",
+    )
+    return any(marker in value for marker in model_specific)
 
 
 @dataclass(slots=True)
@@ -49,7 +64,6 @@ class CaptionWriter:
         return _unique(
             [
                 self.model,
-                "gemini-3.1-flash-lite",
                 "gemini-2.5-flash-lite",
                 "gemini-2.5-flash",
             ]
@@ -159,6 +173,8 @@ class CaptionWriter:
             except Exception as exc:  # external service must never lose an update
                 last_error = exc
                 logger.warning("Gemini model %s failed: %s", model, _safe_error(exc))
+                if not gemini_should_try_next_model(exc):
+                    break
 
         logger.warning(
             "All Gemini caption models failed; using Persian translation fallback: %s",
@@ -208,6 +224,8 @@ class CaptionWriter:
                 return _unique(values + fallback)[:8]
             except Exception as exc:
                 logger.warning("Gemini search expansion model %s failed: %s", model, _safe_error(exc))
+                if not gemini_should_try_next_model(exc):
+                    break
         return fallback
 
     def candidate_titles(self, query: str, candidates: list[EventGroup]) -> dict[str, str]:
@@ -268,6 +286,8 @@ class CaptionWriter:
                 return {key: result.get(key) or title for key, title in fallback.items()}
             except Exception as exc:
                 logger.warning("Gemini candidate-title model %s failed: %s", model, _safe_error(exc))
+                if not gemini_should_try_next_model(exc):
+                    break
         return fallback
 
     def _fallback_group(self, group: EventGroup) -> GroupCopy:
@@ -297,31 +317,9 @@ def _translate_to_persian(text: str) -> str:
     text = text.strip()
     if not text or not _needs_translation(text):
         return text
-    try:
-        response = requests.get(
-            "https://translate.googleapis.com/translate_a/single",
-            params={
-                "client": "gtx",
-                "sl": "auto",
-                "tl": "fa",
-                "dt": "t",
-                "q": text,
-            },
-            timeout=20,
-        )
-        response.raise_for_status()
-        payload = response.json()
-        translated = "".join(
-            str(part[0])
-            for part in (payload[0] if isinstance(payload, list) and payload else [])
-            if isinstance(part, list) and part and part[0]
-        ).strip()
-        if translated and (_has_persian(translated) or not _needs_translation(translated)):
-            logger.info("Fallback translation to Persian succeeded.")
-            return translated
-    except Exception as exc:
-        logger.warning("Persian translation fallback failed: %s", _safe_error(exc))
-    return "⚠️ ترجمهٔ خودکار این پیام ناموفق بود.\n\n" + text
+    # Never present an unofficial dictionary translation as channel-ready Persian.
+    # The old endpoint produced the literal/malformed output reported in production.
+    return "⚠️ ترجمهٔ خودکار در دسترس نبود؛ متن اصلی برای بررسی:\n\n" + text
 
 
 def _has_persian(text: str) -> bool:

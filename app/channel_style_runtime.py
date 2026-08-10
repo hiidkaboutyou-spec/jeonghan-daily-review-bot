@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from .channel_quality import (
     classify_content_type as _quality_classify_content_type,
@@ -196,8 +199,8 @@ class ChannelStyleMemory(_BaseChannelStyleMemory):
     def rebuild_from_derived_corpus(self) -> int:
         try:
             self._init_schema()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Style index schema initialization failed before rebuild: %s", type(exc).__name__)
         files = self._corpus_files()
         if not files:
             return 0

@@ -52,6 +52,12 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertFalse((workflows / "release-finalization-smoke.yml").exists())
         self.assertFalse((workflows / "release-cache-cleanup.yml").exists())
 
+    def test_every_python_workflow_upgrades_pip_past_audited_vulnerabilities(self):
+        workflows = ROOT / ".github" / "workflows"
+        for name in ("main.yml", "fic-digest.yml", "translation-benchmark.yml"):
+            text = (workflows / name).read_text(encoding="utf-8")
+            self.assertIn('python -m pip install --upgrade "pip>=26.1.2"', text, name)
+
 
 if __name__ == "__main__":
     unittest.main()

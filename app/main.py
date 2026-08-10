@@ -551,7 +551,8 @@ def rank_groups(query: str, groups: list[EventGroup]) -> list[EventGroup]:
 
 
 def short_id(value: str) -> str:
-    return hashlib.sha1(value.encode("utf-8")).hexdigest()[:12]
+    # Stable non-security identifier; SHA-1 is retained for persisted draft IDs.
+    return hashlib.sha1(value.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
 
 
 def check_project() -> int:

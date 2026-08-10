@@ -43,8 +43,8 @@ class ArchiveStore:
             if conn is not None:
                 try:
                     conn.close()
-                except Exception:
-                    pass
+                except Exception as close_error:
+                    logger.debug("Could not close corrupt archive connection: %s", type(close_error).__name__)
             if self.path.exists():
                 stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
                 broken = self.path.with_name(f"{self.path.stem}.broken-{stamp}{self.path.suffix}")

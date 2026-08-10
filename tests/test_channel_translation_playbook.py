@@ -7,6 +7,8 @@ from app.channel_translation_playbook import (
     translation_demonstrations,
     unavailable_translation,
 )
+from app.ai import _translate_to_persian
+from app.channel_translation import _translate_line
 
 
 class _Example:
@@ -17,6 +19,12 @@ class _Example:
 
 
 class ChannelTranslationPlaybookTests(unittest.TestCase):
+    def test_legacy_fallbacks_never_use_literal_web_translation(self):
+        source = "Jeonghan met Phil Foden AAAAA"
+        self.assertEqual(_translate_line(source), source)
+        fallback = _translate_to_persian(source)
+        self.assertIn("متن اصلی برای بررسی", fallback)
+        self.assertIn(source, fallback)
     def test_reaction_pairs_teach_colloquial_channel_persian(self):
         pairs = translation_demonstrations("VIDEO_REACTION", "en")
         target = "\n".join(item["target"] for item in pairs)

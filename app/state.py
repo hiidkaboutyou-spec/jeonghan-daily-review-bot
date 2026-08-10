@@ -192,23 +192,26 @@ class StateStore:
         """Peek pending items; remove only entries already marked seen."""
         queue = list(self.data.get("pending_delivery", []))
         remaining: list[dict[str, Any]] = []
+        result: list[tuple[Update, bool]] = []
+        limit = max(0, int(limit))
         for item in queue:
             if not isinstance(item, dict):
                 continue
             update_id = str(item.get("id", ""))
             if update_id and self.is_seen(update_id):
                 continue
-            remaining.append(item)
-        self.data["pending_delivery"] = remaining
-
-        result: list[tuple[Update, bool]] = []
-        for item in remaining[: max(0, limit)]:
             payload = dict(item)
             force = bool(payload.pop("force", False))
             try:
-                result.append((Update.from_dict(payload), force))
+                update = Update.from_dict(payload)
             except (TypeError, ValueError):
+                # Drop poison entries before applying the delivery limit. Otherwise
+                # one malformed first row can starve every valid update behind it.
                 continue
+            remaining.append(item)
+            if len(result) < limit:
+                result.append((update, force))
+        self.data["pending_delivery"] = remaining
         return result
 
     def prune(self) -> None:

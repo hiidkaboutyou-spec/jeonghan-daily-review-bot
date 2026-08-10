@@ -204,7 +204,8 @@ class PrivateReviewApplication(Application):
                     draft = existing
                     delivery_key = f"draft:{draft.id}"
                 else:
-                    assert copy is not None
+                    if copy is None:
+                        raise RuntimeError("draft generation plan is missing for an undelivered update")
                     body = copy.bodies.get(update.id) or update.text
                     caption = self.themes.caption(group, update, body, part, len(group.updates))
                     if force:
@@ -329,7 +330,7 @@ class PrivateReviewApplication(Application):
         for index, group in enumerate(groups):
             local_date = group.started_at.astimezone(self.settings.timezone).strftime("%Y-%m-%d %H:%M")
             title = titles.get(group.key) or group.title
-            origin = "آرشیو/‏X" if any(item.id in local_ids for item in group.updates) else "X"
+            origin = "آرشیو/\u200fX" if any(item.id in local_ids for item in group.updates) else "X"
             lines.append(f"{index + 1}. {title} — {local_date} — {len(group.updates)} مورد — {origin}")
             rows.append([(f"{index + 1}. {title[:40]}", f"pick:{session_id}:{index}")])
         self.telegram.send_message(ensure_rtl_line("\n".join(lines)), reply_markup=inline_keyboard(rows))

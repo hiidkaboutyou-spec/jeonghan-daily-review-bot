@@ -19,6 +19,7 @@ from bs4 import BeautifulSoup
 from .config import Settings
 from .fic_state import FicObservation, FicStateStore
 from .message_delivery import MessageDeliveryStore
+from .ai import GEMINI_REQUEST_TIMEOUT_MS, gemini_should_try_next_model
 from .telegram import TelegramBot
 from .x_client import XCollector
 
@@ -359,7 +360,10 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
         from google import genai
         from google.genai import types
 
-        client = genai.Client(api_key=settings.gemini_api_key)
+        client = genai.Client(
+            api_key=settings.gemini_api_key,
+            http_options=types.HttpOptions(timeout=GEMINI_REQUEST_TIMEOUT_MS),
+        )
         payload = [{"url": f.url, "title": f.title, "summary": f.summary} for f in fics]
         prompt = (
             "برای هر فن‌فیک فقط بر اساس summary رسمی AO3 یک ترجمه/خلاصهٔ فارسی روان و طبیعی 1 تا 3 جمله‌ای بنویس. "
@@ -409,7 +413,15 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
                         result.update(_fallback_summaries(missing))
                     return {fic.url: result.get(fic.url, fic.summary) for fic in fics}
             except Exception as exc:
-                logger.warning("Fic Gemini model %s failed; trying fallback: %s", model, type(exc).__name__)
+                retry_model = gemini_should_try_next_model(exc)
+                logger.warning(
+                    "Fic Gemini model %s failed%s: %s",
+                    model,
+                    "; trying model fallback" if retry_model else "",
+                    type(exc).__name__,
+                )
+                if not retry_model:
+                    break
     except Exception as exc:
         logger.warning("Gemini summary layer unavailable: %s", type(exc).__name__)
     return _fallback_summaries(fics)

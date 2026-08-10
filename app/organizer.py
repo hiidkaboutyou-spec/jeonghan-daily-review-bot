@@ -116,7 +116,7 @@ def initial_event_key(update: Update) -> str:
         return f"instagram:{update.author.lower()}:{local_day}:{update.conversation_id or update.id}"
     if category in {"brand", "fansign", "airport"}:
         token_key = normalized_event_tokens(update.text)[:40] or update.id
-        digest = hashlib.sha1(token_key.encode("utf-8")).hexdigest()[:8]
+        digest = hashlib.sha1(token_key.encode("utf-8"), usedforsecurity=False).hexdigest()[:8]
         return f"{category}:{local_day}:{digest}"
     return f"single:{update.id}"
 
