@@ -14,6 +14,22 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('if [ "$successful_passes" -eq 0 ]; then', workflow)
         self.assertIn("No bot pass completed successfully during the live window.", workflow)
 
+    def test_scheduled_runtime_does_not_repeat_the_full_test_suite(self):
+        workflow = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")
+        validate = workflow.split("- name: Validate project", 1)[1].split("- name: Runtime smoke check", 1)[0]
+        smoke = workflow.split("- name: Runtime smoke check", 1)[1].split("- name: Run private review bot", 1)[0]
+        self.assertIn("github.event_name == 'push'", validate)
+        self.assertIn("inputs.mode == 'check'", validate)
+        self.assertNotIn("github.event_name == 'schedule'", validate)
+        self.assertIn("github.event_name == 'schedule'", smoke)
+        self.assertIn("python -m app --check", smoke)
+        self.assertNotIn("unittest discover", smoke)
+
+    def test_live_window_fits_inside_the_fifteen_minute_schedule(self):
+        workflow = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")
+        self.assertIn('end=$((SECONDS + 540))', workflow)
+        self.assertNotIn('end=$((SECONDS + 780))', workflow)
+
     def test_runtime_runs_are_serialized_and_only_safe_state_is_cached(self):
         workflow = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")
         self.assertIn("jeonghan-daily-review-bot-", workflow)
