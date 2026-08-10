@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 _PRODUCTION_FINGERPRINT_PATHS = (
     ROOT / "app/channel_translation_v2_install.py",
     ROOT / "app/channel_translation_v2.py",
+    ROOT / "app/channel_part4_humanfix.py",
     ROOT / "app/translation_safety.py",
     ROOT / "app/channel_entities.py",
     ROOT / "app/channel_quality.py",

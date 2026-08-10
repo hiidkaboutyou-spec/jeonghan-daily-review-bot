@@ -275,7 +275,10 @@ TRANSLATION REQUIREMENTS:
 - {commentary_policy(analysis.content_type)}
 - content type = {analysis.content_type}
 - اگر SOURCE چند speaker دارد، هر turn را جدا و به همان ترتیب نگه دار.
+- label هر speaker، مخصوصاً emojiهایی مثل 🍒/🪽/🐶، باید عیناً و در ابتدای همان turn بماند؛ آن را عوض یا جابه‌جا نکن.
 - ㅋㅋㅋ/ㅎㅎㅎ و emojiهای منبع را همان تعداد حفظ کن مگر خود source معنای دیگری بدهد.
+- تاریخ را به تقویم دیگری تبدیل نکن؛ مثلاً 8월 20일 باید «۲۰ آگوست» بماند، نه تاریخ شمسی معادل آن.
+- labelهای metadata مثل `fan trans:` و `source:` را دقیقاً با همان حروف انگلیسی و هرکدام در خط جدا نگه دار؛ فقط متن بعد از label را ترجمه کن.
 - توضیح مترجمی داخل پرانتز نساز مگر واقعاً برای انتقال nuance ضروری باشد.
 - هیچ header/symbol/source line عمومی اضافه نکن؛ آن‌ها بعداً توسط ThemeEngine اضافه می‌شوند.
 - نام برند رسمی و عنوان رسمی آهنگ/challenge را ترجمه نکن؛ URL، hashtag و username را عیناً نگه دار.
@@ -312,7 +315,9 @@ TRANSLATION REQUIREMENTS:
             "تو فقط خطاهای fidelity ترجمه فارسی را تعمیر می‌کنی. SOURCE مرجع حقیقت است. "
             "معنی و لحن درست موجود را بی‌دلیل بازنویسی نکن. اسم Jeonghan/정한/ジョンハン در متن فارسی "
             "اگر در SOURCE آمده باید دقیقاً «جونگهان» باشد. URL/hashtag/emoji/laughter/عدد/speaker را حفظ کن."
-            " اگر quality_failures لحن کتابی یا ماشینی را نشان می‌دهد، جمله را به فارسی طبیعی و عامیانهٔ "
+            " label هر speaker/emoji و labelهای انگلیسی fan trans:/source: را عیناً و در همان خط حفظ کن. "
+            "تاریخ را بین تقویم‌ها تبدیل نکن؛ 8월 20일 یعنی ۲۰ آگوست، نه ۳۰ مرداد. "
+            "اگر quality_failures لحن کتابی یا ماشینی را نشان می‌دهد، جمله را به فارسی طبیعی و عامیانهٔ "
             "فن‌پیج تبدیل کن؛ ساختار انگلیسی را با کلمات فارسی تکرار نکن."
         )
         prompt = "FAILED ITEMS:\n" + json.dumps(payload, ensure_ascii=False)

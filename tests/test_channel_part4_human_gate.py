@@ -7,6 +7,8 @@ from app.channel_part4_humanfix import (
     _metadata_line_failures,
     _needs_human_polish,
     _restore_metadata_linebreaks,
+    _restore_metadata_labels,
+    _restore_speaker_labels,
     _source_emoji_failures,
 )
 from app.channel_style_runtime import analyze_source, verify_hard_facts
@@ -28,6 +30,24 @@ class Part4HumanGateHardeningTests(unittest.TestCase):
         self.assertIn("metadata line boundary lost: fan trans", _metadata_line_failures(source, glued))
         repaired = _restore_metadata_linebreaks(source, glued)
         self.assertIn("\nfan trans:", repaired)
+
+    def test_translated_metadata_labels_are_restored_exactly(self):
+        source = 'fan trans: "try"\nsource: https://example.com'
+        output = 'فن ترنس: «سعی کن»\nمنبع: https://example.com'
+        self.assertEqual(
+            _restore_metadata_labels(source, output),
+            'fan trans: «سعی کن»\nsource: https://example.com',
+        )
+
+    def test_speaker_emoji_labels_are_restored_by_turn_order(self):
+        source = "🍒: one\n🪽: two\n🐶: three"
+        output = "🍒: یک\n🗽: دو\n🐶: سه"
+        self.assertEqual(_restore_speaker_labels(source, output), "🍒: یک\n🪽: دو\n🐶: سه")
+
+    def test_changed_calendar_date_requests_human_polish(self):
+        source = "🐶: 오늘 8월 20일 스케줄도 있잖아요\n🪽: 맞아"
+        output = "🐶: امروز ۳۰ مرداد برنامه داری\n🪽: آره"
+        self.assertTrue(_needs_human_polish(source, output, analyze_source(source)))
 
     def test_known_speaker_labels_use_channel_canonical_spelling(self):
         source = "정한: today was fun\nJoshua: 맞아"

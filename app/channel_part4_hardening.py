@@ -120,8 +120,15 @@ def semantic_number_tokens(value: str) -> list[str]:
 
     text_cf = text.casefold()
     for word, number in _ORDINAL_WORDS.items():
-        if re.search(rf"(?<![\w\u200c]){re.escape(word)}(?![\w\u200c])", text_cf):
+        for match in re.finditer(rf"(?<![\w\u200c]){re.escape(word)}(?![\w\u200c])", text_cf):
+            # Sentence-initial "First," / "First:" is a discourse marker, not
+            # a rank or numeric fact. Persian may naturally render it as «ابتدا».
+            if word == "first" and not text_cf[: match.start()].strip():
+                suffix = text_cf[match.end() :]
+                if re.match(r"\s*[,؛،:]", suffix):
+                    continue
             tokens.append(f"num:{number}")
+            break
 
     # Keep deterministic order but remove duplicate semantic values.
     result: list[str] = []

@@ -14,6 +14,12 @@ class Part4FinalEdgeTests(unittest.TestCase):
         failures = verify_hard_facts(source, output, analyze_source(source))
         self.assertFalse(any("semantic numbers" in item for item in failures), failures)
 
+    def test_sentence_initial_first_comma_is_not_a_numeric_fact(self):
+        source = "First, Jeonghan practiced. Then he started the live."
+        output = "ابتدا جونگهان تمرین کرد. بعد لایو را شروع کرد."
+        failures = verify_hard_facts(source, output, analyze_source(source))
+        self.assertFalse(any("semantic numbers" in item for item in failures), failures)
+
     def test_source_hashtag_is_never_canonicalized(self):
         source = "source: https://example.com/live/820 #JEONGHAN #SCOUPS"
         output = "source: https://example.com/live/820 #JEONGHAN #SCOUPS"

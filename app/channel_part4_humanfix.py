@@ -89,8 +89,41 @@ def _restore_metadata_linebreaks(source: str, output: str) -> str:
     return result.strip()
 
 
+def _restore_metadata_labels(source: str, output: str) -> str:
+    """Restore source-authoritative English metadata labels after translation."""
+    result = str(output or "")
+    labels = [m.group(1) for m in _METADATA_LABEL_RE.finditer(str(source or ""))]
+    translated = {"fan trans": ("فن ترنس", "ترجمه فن", "ترجمهٔ فن"), "source": ("منبع",)}
+    for label in labels:
+        variants = translated.get(label.casefold(), ())
+        for variant in variants:
+            result = re.sub(
+                rf"(?mi)^(\s*){re.escape(variant)}\s*[:：]",
+                lambda m: f"{m.group(1)}{label}:",
+                result,
+            )
+    return result
+
+
+def _restore_speaker_labels(source: str, output: str) -> str:
+    """Align generated turn labels with the exact ordered labels from SOURCE."""
+    source_turns = list(runtime._SPEAKER_RE.finditer(str(source or "")))
+    output_turns = list(runtime._SPEAKER_RE.finditer(str(output or "")))
+    if len(source_turns) < 2 or len(source_turns) != len(output_turns):
+        return str(output or "")
+    result = str(output or "")
+    replacements = []
+    for source_match, output_match in zip(source_turns, output_turns):
+        source_label = source_match.group(1).strip()
+        start, end = output_match.span(1)
+        replacements.append((start, end, source_label))
+    for start, end, label in reversed(replacements):
+        result = result[:start] + label + result[end:]
+    return result
+
+
 def _needs_human_polish(source: str, output: str, analysis) -> bool:
-    if _source_emoji_failures(source, output) or _metadata_line_failures(source, output):
+    if verify_hard_facts(source, output, analysis):
         return True
     if analysis.source_language in {"ja"}:
         return True
@@ -140,13 +173,27 @@ SOURCE مرجع حقیقت است. فقط کیفیت ترجمه و لحن را �
 ITEMS: {json.dumps(needs, ensure_ascii=False)}
 فقط JSON: {{"title":"{translation._json_escape(current.title or group.title)}","items":[{{"id":"...","body":"..."}}]}}
 """.strip()
-        parsed = self._generate_json(
-            client,
-            prompt,
-            translation._group_schema(),
-            temperature=0.08,
-            purpose="human quality polish",
-        )
+        if hasattr(self, "_generate_json_v2"):
+            parsed = self._generate_json_v2(
+                client,
+                prompt,
+                translation._group_schema(),
+                temperature=0.08,
+                purpose="human quality polish",
+                system_instruction=(
+                    "SOURCE تنها مرجع حقیقت است. ترجمهٔ فارسی طبیعی و خودمانی تولید کن. "
+                    "speaker label/emoji، عدد، تاریخ، URL، hashtag، laughter و labelهای "
+                    "fan trans:/source: را دقیقاً حفظ کن و تاریخ را بین تقویم‌ها تبدیل نکن."
+                ),
+            )
+        else:
+            parsed = self._generate_json(
+                client,
+                prompt,
+                translation._group_schema(),
+                temperature=0.08,
+                purpose="human quality polish",
+            )
         bodies = translation._parse_bodies(parsed, [item.id for item in group.updates]) if parsed else None
         if bodies is None:
             return current
@@ -154,6 +201,8 @@ ITEMS: {json.dumps(needs, ensure_ascii=False)}
         for item in group.updates:
             candidate = bodies.get(item.id, repaired.get(item.id, item.text))
             candidate = _canonicalize_speaker_labels(item.text, candidate)
+            candidate = _restore_speaker_labels(item.text, candidate)
+            candidate = _restore_metadata_labels(item.text, candidate)
             candidate = _restore_metadata_linebreaks(item.text, candidate)
             if verify_hard_facts(item.text, candidate, runtime.analyze_source(item.text)):
                 continue
@@ -168,6 +217,8 @@ ITEMS: {json.dumps(needs, ensure_ascii=False)}
         for item in group.updates:
             body = result.bodies.get(item.id, item.text)
             body = _canonicalize_speaker_labels(item.text, body)
+            body = _restore_speaker_labels(item.text, body)
+            body = _restore_metadata_labels(item.text, body)
             body = _restore_metadata_linebreaks(item.text, body)
             repaired[item.id] = body
         return GroupCopy(result.title, result.category, repaired)
