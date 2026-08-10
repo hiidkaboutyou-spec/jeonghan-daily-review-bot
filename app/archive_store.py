@@ -4,7 +4,7 @@ import json
 import logging
 import re
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -29,20 +29,24 @@ class ArchiveStore:
         self._init_schema()
 
     def _open_or_recover(self) -> sqlite3.Connection:
+        conn: sqlite3.Connection | None = None
         try:
             conn = sqlite3.connect(self.path, timeout=15)
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA foreign_keys=ON")
-            conn.execute("PRAGMA quick_check").fetchone()
+            check = conn.execute("PRAGMA quick_check").fetchone()
+            if not check or str(check[0]).lower() != "ok":
+                raise sqlite3.DatabaseError("archive database failed quick_check")
             return conn
         except sqlite3.DatabaseError:
-            try:
-                conn.close()  # type: ignore[possibly-undefined]
-            except Exception:
-                pass
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
             if self.path.exists():
-                stamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+                stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
                 broken = self.path.with_name(f"{self.path.stem}.broken-{stamp}{self.path.suffix}")
                 try:
                     self.path.replace(broken)
