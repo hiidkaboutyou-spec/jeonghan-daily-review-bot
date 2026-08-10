@@ -192,6 +192,20 @@ class XConversionTests(unittest.TestCase):
         )
         self.assertFalse(is_relevant_jeonghan_update(update, trusted_source=False))
 
+    def test_korean_sexual_job_solicitation_spam_is_filtered_from_x(self):
+        update = Update(
+            id="spam1",
+            url="https://x.com/spammer/status/spam1",
+            author="spammer",
+            author_name="Spammer",
+            text=(
+                "Jeonghan Honey 스폰서 알바 아르바이트 스폰서 일일 일탈 알바 "
+                "고수익 배우자 섹스 투잡 고액 급여 단기 알바"
+            ),
+            created_at=datetime.now(timezone.utc),
+        )
+        self.assertFalse(is_relevant_jeonghan_update(update, trusted_source=False))
+
     def test_real_jeonghan_update_is_kept(self):
         update = Update(
             id="real1",

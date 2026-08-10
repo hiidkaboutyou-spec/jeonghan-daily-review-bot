@@ -324,19 +324,26 @@ def _translate_summary(summary: str) -> str:
         return "خلاصهٔ عمومی برای این فیک ثبت نشده."
     if re.search(r"[\u0600-\u06ff]", summary):
         return summary
-    try:
-        response = requests.get(
-            "https://translate.googleapis.com/translate_a/single",
-            params={"client": "gtx", "sl": "auto", "tl": "fa", "dt": "t", "q": summary},
-            timeout=15,
-        )
-        response.raise_for_status()
-        payload = response.json()
-        translated = "".join(str(part[0]) for part in payload[0] if isinstance(part, list) and part and part[0]).strip()
-        return translated or summary
-    except Exception as exc:
-        logger.warning("Summary translation fallback failed: %s", type(exc).__name__)
-        return summary
+    # The old unofficial Google Translate fallback produced misleading literal
+    # Persian in real digests. Preserve the AO3 source honestly instead. Adult
+    # fiction is allowed; this warning concerns model availability, not content.
+    return "⚠️ ترجمهٔ خلاصه در دسترس نبود؛ متن اصلی AO3:\n" + summary
+
+
+_FIC_NAME_REPLACEMENTS = (
+    (re.compile(r"یون\s+جئونگان|جئونگان|جیونگان|جئونگهان|جونگان", re.I), "جونگهان"),
+    (re.compile(r"سئونگ\s*چئول|سئونگ\s*چول", re.I), "سونگچول"),
+    (re.compile(r"\b(?:Yoon\s+)?Jeonghan\b", re.I), "جونگهان"),
+    (re.compile(r"\b(?:Choi\s+)?Seungcheol\b|\bS\.Coups\b", re.I), "سونگچول"),
+    (re.compile(r"\bJoshua\b|\bHong\s+Jisoo\b", re.I), "جاشوآ"),
+)
+
+
+def _normalize_fic_summary_names(value: str) -> str:
+    result = str(value or "").strip()
+    for pattern, replacement in _FIC_NAME_REPLACEMENTS:
+        result = pattern.sub(replacement, result)
+    return result
 
 
 def _fallback_summaries(fics: list[Fic]) -> dict[str, str]:
@@ -355,8 +362,11 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
         client = genai.Client(api_key=settings.gemini_api_key)
         payload = [{"url": f.url, "title": f.title, "summary": f.summary} for f in fics]
         prompt = (
-            "برای هر فن‌فیک فقط بر اساس summary رسمی AO3 یک خلاصه فارسی روان 1 تا 3 جمله‌ای بنویس. "
-            "هیچ جزئیات، پایان یا trope جدیدی اختراع نکن. خروجی JSON با items شامل url و summary_fa باشد. "
+            "برای هر فن‌فیک فقط بر اساس summary رسمی AO3 یک ترجمه/خلاصهٔ فارسی روان و طبیعی 1 تا 3 جمله‌ای بنویس. "
+            "محتوای بزرگسالانه و جنسی مجاز است: سانسور، حذف، ملایم‌سازی یا تغییرش نده. "
+            "هیچ جزئیات، پایان یا trope جدیدی اختراع نکن. فارسی تحت‌اللفظی و ساختار انگلیسی ممنوع است. "
+            "املای ثابت نام‌ها: Yoon Jeonghan/Jeonghan = جونگهان، Choi Seungcheol/S.Coups = سونگچول، "
+            "Joshua/Hong Jisoo = جاشوآ. خروجی JSON با items شامل url و summary_fa باشد. "
             + json.dumps(payload, ensure_ascii=False)
         )
         candidates = list(dict.fromkeys([settings.gemini_model, "gemini-2.5-flash-lite", "gemini-2.5-flash"]))
@@ -389,7 +399,7 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
                 )
                 parsed = json.loads(response.text or "{}")
                 result = {
-                    str(x.get("url")): str(x.get("summary_fa", "")).strip()
+                    str(x.get("url")): _normalize_fic_summary_names(str(x.get("summary_fa", "")))
                     for x in parsed.get("items", [])
                     if x.get("url") and str(x.get("summary_fa", "")).strip()
                 }
