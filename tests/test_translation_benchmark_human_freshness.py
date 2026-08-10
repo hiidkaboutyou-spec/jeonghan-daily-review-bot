@@ -55,7 +55,10 @@ class TranslationBenchmarkHumanFreshnessTests(unittest.TestCase):
                     ),
                     encoding="utf-8",
                 )
-                self.assertEqual(benchmark._load_resume(path), [])
+                invalidated = benchmark._load_resume(path)
+                self.assertEqual(invalidated[0]["case_id"], "B01")
+                self.assertEqual(invalidated[0]["output_mode"], "invalidated_resume_cursor")
+                self.assertNotEqual(invalidated[0]["verifier_result"], "PASS")
 
                 payload = json.loads(path.read_text(encoding="utf-8"))
                 payload["production_writer_fingerprint"] = HUMAN_GATE_FINGERPRINT

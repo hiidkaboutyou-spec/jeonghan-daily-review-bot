@@ -179,8 +179,26 @@ translation.verify_hard_facts = verify_hard_facts
 translation.ChannelStyleCaptionWriter = ChannelStyleCaptionWriter
 
 
+def invalidated_resume_cursor(payload: dict) -> list[dict]:
+    """Retain only the last attempted case id; never retain stale quality evidence."""
+    cases = payload.get("cases", [])
+    if not isinstance(cases, list) or not cases:
+        return []
+    latest = cases[-1]
+    if not isinstance(latest, dict) or not latest.get("case_id"):
+        return []
+    return [
+        {
+            "case_id": str(latest["case_id"]),
+            "output_mode": "invalidated_resume_cursor",
+            "verifier_result": "INVALIDATED",
+            "verifier_failures": ["production_writer_fingerprint_changed"],
+        }
+    ]
+
+
 def _patch_cached_benchmark_resume() -> None:
-    """Invalidate completed-case reuse after production writer changes, keep stage cache."""
+    """Invalidate completed cases after writer changes while retaining the resume cursor."""
     if "tools.run_translation_benchmark_cached" not in sys.modules:
         return
     try:
@@ -201,7 +219,9 @@ def _patch_cached_benchmark_resume() -> None:
             return []
         if payload.get("production_writer_fingerprint") != HUMAN_GATE_FINGERPRINT:
             print("PART4 resume invalidated: production writer fingerprint changed", flush=True)
-            return []
+            # Keep only ordering progress. Deliberately strip output/verifier data so
+            # a stale case can never satisfy completed_by_id or the quality gate.
+            return invalidated_resume_cursor(payload)
         return original_load(output_path)
 
     def write_checkpoint(output_path: Path, **kwargs):

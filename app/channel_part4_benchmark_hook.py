@@ -15,7 +15,7 @@ import json
 import sys
 from pathlib import Path
 
-from .channel_part4_humanfix import HUMAN_GATE_FINGERPRINT
+from .channel_part4_humanfix import HUMAN_GATE_FINGERPRINT, invalidated_resume_cursor
 
 
 def _is_cached_benchmark_main() -> bool:
@@ -45,7 +45,7 @@ def install_for_current_process() -> bool:
             return []
         if payload.get("production_writer_fingerprint") != HUMAN_GATE_FINGERPRINT:
             print("PART4 resume invalidated: production writer fingerprint changed", flush=True)
-            return []
+            return invalidated_resume_cursor(payload)
         return original_load(output_path)
 
     def write_checkpoint(output_path: Path, **kwargs):
