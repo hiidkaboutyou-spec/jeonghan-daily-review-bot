@@ -9,6 +9,7 @@ from typing import Any, Callable
 
 from app.ai import CaptionWriter, GroupCopy
 from app.channel_translation import ChannelStyleCaptionWriter
+from app.channel_translation_v2_install import V2Methods
 from app.config import Settings
 from tools import run_translation_benchmark as benchmark
 
@@ -150,6 +151,29 @@ class _StageCache:
             }
         )
 
+    def response_key_v2(
+        self,
+        *,
+        writer_model: str,
+        purpose: str,
+        prompt: str,
+        schema: dict[str, Any],
+        temperature: float,
+        system_instruction: str,
+    ) -> str:
+        """Key the exact direct-v2 request, including its system instruction."""
+        return _stable_hash(
+            {
+                "kind": "channel-stage-v2",
+                "writer_model": writer_model,
+                "purpose": purpose,
+                "prompt": prompt,
+                "schema": schema,
+                "temperature": temperature,
+                "system_instruction": system_instruction,
+            }
+        )
+
     def get_response(self, key: str) -> dict[str, Any] | None:
         value = self.responses.get(key)
         return json.loads(json.dumps(value, ensure_ascii=False)) if isinstance(value, dict) else None
@@ -207,6 +231,7 @@ def _install_stage_cache(
     quota_controller: _QuotaFailFastController | None = None,
 ) -> Callable[[], None]:
     original_generate = ChannelStyleCaptionWriter._generate_json
+    original_generate_v2 = V2Methods._generate_json_v2
     original_legacy_write = CaptionWriter.write_group
     original_checkpoint = benchmark._write_checkpoint
     legacy_code_fingerprint = hashlib.sha256(inspect.getsource(original_legacy_write).encode("utf-8")).hexdigest()
@@ -231,6 +256,42 @@ def _install_stage_cache(
             schema,
             temperature=temperature,
             purpose=purpose,
+        )
+        if isinstance(parsed, dict) and parsed:
+            cache.put_response(key, parsed)
+            print(f"PART4 stage cache saved: {purpose}", flush=True)
+        return parsed
+
+    def cached_generate_v2(
+        self,
+        client,
+        prompt,
+        schema,
+        *,
+        temperature,
+        purpose,
+        system_instruction,
+    ):
+        key = cache.response_key_v2(
+            writer_model=self.model,
+            purpose=purpose,
+            prompt=prompt,
+            schema=schema,
+            temperature=temperature,
+            system_instruction=system_instruction,
+        )
+        cached = cache.get_response(key)
+        if cached is not None:
+            print(f"PART4 stage cache hit: {purpose}", flush=True)
+            return cached
+        parsed = original_generate_v2(
+            self,
+            client,
+            prompt,
+            schema,
+            temperature=temperature,
+            purpose=purpose,
+            system_instruction=system_instruction,
         )
         if isinstance(parsed, dict) and parsed:
             cache.put_response(key, parsed)
@@ -264,11 +325,13 @@ def _install_stage_cache(
         return payload
 
     ChannelStyleCaptionWriter._generate_json = cached_generate
+    V2Methods._generate_json_v2 = cached_generate_v2
     CaptionWriter.write_group = cached_legacy_write
     benchmark._write_checkpoint = cached_checkpoint
 
     def restore() -> None:
         ChannelStyleCaptionWriter._generate_json = original_generate
+        V2Methods._generate_json_v2 = original_generate_v2
         CaptionWriter.write_group = original_legacy_write
         benchmark._write_checkpoint = original_checkpoint
 

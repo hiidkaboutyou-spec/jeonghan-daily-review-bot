@@ -4,12 +4,15 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from tools.run_translation_benchmark_cached import (
     DEFAULT_QUOTA_FAIL_FAST_CASES,
     _QuotaFailFastController,
     _StageCache,
+    _install_stage_cache,
 )
+from app.channel_translation_v2_install import V2Methods
 
 
 def _payload(*, quota: bool, successful: bool = False) -> dict:
@@ -32,6 +35,47 @@ def _payload(*, quota: bool, successful: bool = False) -> dict:
 
 
 class TranslationBenchmarkStageCacheTests(unittest.TestCase):
+    def test_direct_v2_success_is_cached_and_reused_without_api_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "benchmark.json"
+            cache = _StageCache(path, "gemini-2.5-flash-lite")
+            original = V2Methods._generate_json_v2
+            calls = []
+
+            def fake_generate(self, client, prompt, schema, *, temperature, purpose, system_instruction):
+                calls.append(prompt)
+                return {"items": [{"id": "B01", "body": "ترجمهٔ ذخیره‌شده"}]}
+
+            V2Methods._generate_json_v2 = fake_generate
+            restore = _install_stage_cache(cache)
+            try:
+                writer = SimpleNamespace(model="gemini-2.5-flash-lite")
+                first = V2Methods._generate_json_v2(
+                    writer,
+                    object(),
+                    "prompt",
+                    {"type": "object"},
+                    temperature=0.1,
+                    purpose="direct channel translation",
+                    system_instruction="system",
+                )
+                second = V2Methods._generate_json_v2(
+                    writer,
+                    object(),
+                    "prompt",
+                    {"type": "object"},
+                    temperature=0.1,
+                    purpose="direct channel translation",
+                    system_instruction="system",
+                )
+            finally:
+                restore()
+                V2Methods._generate_json_v2 = original
+
+            self.assertEqual(first, second)
+            self.assertEqual(calls, ["prompt"])
+            self.assertTrue(cache.responses)
+
     def test_successful_stage_response_survives_independent_runner(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "benchmark.json"
