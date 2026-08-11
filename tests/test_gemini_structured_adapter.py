@@ -69,11 +69,11 @@ def _call(writer, client):
 
 class GeminiStructuredAdapterTests(unittest.TestCase):
     def test_production_candidates_use_current_stable_lite_with_supported_ga_fallback(self):
-        writer = CaptionWriter("key", "gemini-3.5-flash-lite", SimpleNamespace())
+        writer = CaptionWriter("key", "gemini-3.1-flash-lite", SimpleNamespace())
 
         self.assertEqual(
             writer._model_candidates(),
-            ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"],
+            ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite"],
         )
         self.assertNotIn("gemini-3.1-flash-lite-preview", writer._model_candidates())
         self.assertNotIn("gemini-2.5-flash-lite", writer._model_candidates())

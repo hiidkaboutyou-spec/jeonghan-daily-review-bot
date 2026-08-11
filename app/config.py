@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ROOT = Path(__file__).resolve().parents[1]
 HANDLE_RE = re.compile(r"^[A-Za-z0-9_]{1,15}$")
-DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
+DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite"
 logger = logging.getLogger(__name__)
 # These model IDs can still be present in old GitHub Variables/config after the
 # provider stops serving them to an account. Normalize them before runtime so a

@@ -12,10 +12,39 @@ from .models import MediaItem, Update, ensure_utc
 logger = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[1]
 HANDLE_RE = re.compile(r"^[A-Za-z0-9_]{1,15}$")
+X_SOURCE_PACE_SECONDS = 0.35
+X_QUERY_PACE_SECONDS = 0.75
 
 
 class XCollectionError(RuntimeError):
     pass
+
+
+def _keyword_queries(keyword_groups: list[dict[str, Any]], date_suffix: str) -> list[str]:
+    """Build one OR query per language/topic group instead of one per synonym.
+
+    The old settings expand to thirteen nearly-identical searches after twenty-two
+    source timelines. That burst is both wasteful and much more likely to leave a
+    partially collected window. X supports OR expressions, so preserve discovery
+    coverage with three bounded searches instead.
+    """
+    queries: list[str] = []
+    for group in keyword_groups:
+        if not group.get("enabled", True):
+            continue
+        terms: list[str] = []
+        seen: set[str] = set()
+        for raw in group.get("terms", []):
+            term = str(raw).strip()
+            if not term or term.casefold() in seen:
+                continue
+            seen.add(term.casefold())
+            terms.append(f'"{term}"' if " " in term else term)
+        if not terms:
+            continue
+        expression = terms[0] if len(terms) == 1 else "(" + " OR ".join(terms) + ")"
+        queries.append(f"{expression} {date_suffix}".strip())
+    return _unique(queries)
 
 
 _TRANSACTION_PATTERNS = [
@@ -180,9 +209,8 @@ class XCollector:
         results: list[Update] = []
         errors: list[str] = []
         if include_sources:
-            for source in self.sources:
-                if not source.get("enabled", True):
-                    continue
+            enabled_sources = [source for source in self.sources if source.get("enabled", True)]
+            for source_index, source in enumerate(enabled_sources):
                 handle = normalize_handle(str(source.get("handle", "")))
                 if not handle:
                     continue
@@ -198,19 +226,12 @@ class XCollector:
                     )
                 except XCollectionError as exc:
                     errors.append(f"@{handle}: {_safe_error(exc)}")
+                if source_index + 1 < len(enabled_sources):
+                    await asyncio.sleep(X_SOURCE_PACE_SECONDS)
 
         if include_keywords:
             date_suffix = _date_suffix(start, end)
-            queries: list[str] = []
-            for group in self.keyword_groups:
-                if not group.get("enabled", True):
-                    continue
-                for term in group.get("terms", []):
-                    term = str(term).strip()
-                    if not term:
-                        continue
-                    query_term = f'"{term}"' if " " in term else term
-                    queries.append(f"{query_term} {date_suffix}")
+            queries = _keyword_queries(self.keyword_groups, date_suffix)
             try:
                 results.extend(await self._run_queries(queries, start, end, max_per_query=max_per_query))
             except XCollectionError as exc:
@@ -363,7 +384,7 @@ class XCollector:
                         all_updates.append(update)
             except Exception as exc:
                 errors.append(f"{query[:60]}: {_safe_error(exc)}")
-            await asyncio.sleep(0.15)
+            await asyncio.sleep(X_QUERY_PACE_SECONDS)
         if errors:
             self.last_errors = _unique(self.last_errors + errors)
         if not all_updates and errors:

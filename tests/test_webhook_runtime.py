@@ -7,7 +7,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from app.telegram import TelegramTransientError
 from app.telegram_cloud_state import backup_fingerprint, ensure_process_backup_key
@@ -64,6 +64,20 @@ class WebhookRuntimeTests(unittest.TestCase):
         asyncio.run(app.run_scheduled_scan())
 
         app.collector.collect_window.assert_not_awaited()
+
+    def test_x_warning_requires_three_consecutive_failed_scans(self):
+        now = datetime.now(timezone.utc)
+        app = object.__new__(WebhookAwarePersonalAssistant)
+        app.state = SimpleNamespace(data={})
+        app._notify_x_failure_if_due = Mock()
+
+        app._record_x_scan_failure(now)
+        app._record_x_scan_failure(now)
+        app._notify_x_failure_if_due.assert_not_called()
+
+        app._record_x_scan_failure(now)
+        app._notify_x_failure_if_due.assert_called_once_with(now)
+        self.assertEqual(app.state.data["x_scan_failure_streak"], 3)
 
     def test_runtime_secret_is_stable_and_telegram_compatible(self):
         first = derive_runtime_secret("123:abc")

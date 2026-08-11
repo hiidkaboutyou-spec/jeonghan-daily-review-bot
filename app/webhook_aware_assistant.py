@@ -111,7 +111,7 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
             updates = await self.collector.collect_window(start, now, max_per_query=200)
         except XCollectionError as exc:
             logger.warning("Scheduled X scan failed: %s", exc)
-            self._notify_x_failure_if_due(now)
+            self._record_x_scan_failure(now)
             return
 
         fresh = [item for item in updates if not self.state.is_seen(item.id)]
@@ -120,12 +120,26 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
         self.state.queue_updates(fresh[:ceiling], force=False)
 
         if getattr(self.collector, "last_errors", []):
-            logger.warning("Scheduled X scan returned partial results; cursor retained for retry.")
-            self._notify_x_failure_if_due(now)
+            logger.warning(
+                "Scheduled X scan returned partial results (%s paths); cursor retained for retry.",
+                len(self.collector.last_errors),
+            )
+            self._record_x_scan_failure(now)
             return
 
         self.state.data["last_auto_run"] = now.isoformat()
         self.state.data["last_x_error_notice"] = ""
+        self.state.data["x_scan_failure_streak"] = 0
+
+    def _record_x_scan_failure(self, now: datetime) -> None:
+        """Retry transient X gaps silently before alarming the private inbox."""
+        try:
+            streak = max(0, int(self.state.data.get("x_scan_failure_streak", 0))) + 1
+        except (TypeError, ValueError):
+            streak = 1
+        self.state.data["x_scan_failure_streak"] = streak
+        if streak >= 3:
+            self._notify_x_failure_if_due(now)
 
     def _state_datetime(self, key: str) -> datetime | None:
         raw = self.state.data.get(key)

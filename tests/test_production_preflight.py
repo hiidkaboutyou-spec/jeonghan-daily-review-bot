@@ -17,7 +17,7 @@ def settings(**overrides):
         "admin_user_id": 1,
         "review_chat_id": -1001,
         "gemini_api_key": "",
-        "gemini_model": "gemini-3.5-flash-lite",
+        "gemini_model": "gemini-3.1-flash-lite",
         "x_cookies": {},
         "sources": [],
         "keyword_groups": [],

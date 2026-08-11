@@ -18,7 +18,13 @@ from app.organizer import organize_updates
 from app.state import SCHEMA_VERSION, StateStore
 from app.style import ThemeEngine
 from app.telegram import TelegramBot, TelegramError
-from app.x_client import XCollectionError, XCollector, is_relevant_jeonghan_update, normalize_handle
+from app.x_client import (
+    XCollectionError,
+    XCollector,
+    _keyword_queries,
+    is_relevant_jeonghan_update,
+    normalize_handle,
+)
 
 
 class ConfigAuditTests(unittest.TestCase):
@@ -107,6 +113,20 @@ class OrganizerAuditTests(unittest.TestCase):
 
 
 class XAuditTests(unittest.TestCase):
+    def test_keyword_synonyms_are_combined_into_one_query_per_group(self):
+        queries = _keyword_queries(
+            [
+                {"name": "english", "terms": ["JEONGHAN", "Yoon Jeonghan", "#JEONGHAN"]},
+                {"name": "korean", "terms": ["윤정한", "정한"]},
+            ],
+            "since:2026-08-10 until:2026-08-12",
+        )
+
+        self.assertEqual(len(queries), 2)
+        self.assertIn('(JEONGHAN OR "Yoon Jeonghan" OR #JEONGHAN)', queries[0])
+        self.assertIn("(윤정한 OR 정한)", queries[1])
+        self.assertTrue(all("since:2026-08-10" in query for query in queries))
+
     def test_wts_jeonghan_without_price_is_still_marketplace_noise(self):
         update = Update(
             id="sale",

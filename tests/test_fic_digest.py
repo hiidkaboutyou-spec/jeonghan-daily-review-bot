@@ -161,6 +161,44 @@ class FanficDigestTests(unittest.TestCase):
         self.assertEqual(client.models.generate_content.call_count, 2)
         self.assertGreaterEqual(sleep.call_count, 1)
 
+    def test_quota_exhausted_model_is_not_retried_for_later_fic_batches(self):
+        fics = [
+            Fic(
+                title=f"Fic {index}",
+                url=f"https://archiveofourown.org/works/{index}",
+                author="writer",
+                summary=f"Jeonghan returns home {index}.",
+                relationships=["Choi Seungcheol/Yoon Jeonghan"],
+            )
+            for index in (1, 2)
+        ]
+        first = SimpleNamespace(
+            parsed={"items": [{"url": fics[0].url, "summary_fa": "جونگهان برگشت خونه."}]},
+            text="",
+        )
+        second = SimpleNamespace(
+            parsed={"items": [{"url": fics[1].url, "summary_fa": "جونگهان دوباره برگشت."}]},
+            text="",
+        )
+        generate = Mock(side_effect=[RuntimeError("429 RESOURCE_EXHAUSTED quota"), first, second])
+        client = SimpleNamespace(models=SimpleNamespace(generate_content=generate))
+        settings = SimpleNamespace(
+            gemini_api_key="key", gemini_model="gemini-3.1-flash-lite"
+        )
+
+        with patch("google.genai.Client", return_value=client), patch(
+            "app.fic_digest.FIC_SUMMARY_BATCH_SIZE", 1
+        ), patch("app.fic_digest.time.sleep"):
+            result = summarize_fics_persian(settings, fics)
+
+        self.assertEqual(result[fics[0].url], "جونگهان برگشت خونه.")
+        self.assertEqual(result[fics[1].url], "جونگهان دوباره برگشت.")
+        models = [call.kwargs["model"] for call in generate.call_args_list]
+        self.assertEqual(
+            models,
+            ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-3.5-flash-lite"],
+        )
+
     def test_chunks_never_truncate_long_block(self):
         text = "عنوان\n\n" + ("الف" * 9000) + "\n\nپایان"
         chunks = _chunks(text, max_len=3800)

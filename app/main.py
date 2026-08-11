@@ -372,7 +372,7 @@ class Application:
             updates = await self.collector.collect_window(start, now, max_per_query=200)
         except XCollectionError as exc:
             logger.warning("Scheduled X scan failed: %s", exc)
-            self._notify_x_failure_if_due(now)
+            self._record_x_scan_failure(now)
             # Do not advance last_auto_run on failure. The next successful run must
             # retry the missed time window (bounded by scheduled_lookback_hours).
             return
@@ -386,11 +386,24 @@ class Application:
         # Queue what we got, but don't advance the success cursor until every configured
         # retrieval path completed. Seen IDs prevent duplicates on the retry.
         if getattr(self.collector, "last_errors", []):
-            logger.warning("Scheduled X scan returned partial results; cursor retained for retry.")
-            self._notify_x_failure_if_due(now)
+            logger.warning(
+                "Scheduled X scan returned partial results (%s paths); cursor retained for retry.",
+                len(self.collector.last_errors),
+            )
+            self._record_x_scan_failure(now)
             return
         self.state.data["last_auto_run"] = now.isoformat()
         self.state.data["last_x_error_notice"] = ""
+        self.state.data["x_scan_failure_streak"] = 0
+
+    def _record_x_scan_failure(self, now: datetime) -> None:
+        try:
+            streak = max(0, int(self.state.data.get("x_scan_failure_streak", 0))) + 1
+        except (TypeError, ValueError):
+            streak = 1
+        self.state.data["x_scan_failure_streak"] = streak
+        if streak >= 3:
+            self._notify_x_failure_if_due(now)
 
     def _notify_x_failure_if_due(self, now: datetime) -> None:
         last_notice = _parse_state_datetime(self.state.data.get("last_x_error_notice"))

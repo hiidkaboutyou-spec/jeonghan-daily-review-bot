@@ -546,6 +546,7 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
             "max_calls": max(8, (len(fics) + FIC_SUMMARY_BATCH_SIZE - 1) // FIC_SUMMARY_BATCH_SIZE + 8),
             "next_at": 0.0,
         }
+        unavailable_models: set[str] = set()
 
         def pace_request() -> bool:
             if request_state["calls"] >= request_state["max_calls"]:
@@ -572,7 +573,8 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
             ]
             prompt = prompt_prefix + json.dumps(payload, ensure_ascii=False)
             quota_models = 0
-            for model in candidates:
+            active_candidates = [model for model in candidates if model not in unavailable_models]
+            for model in active_candidates:
                 response = None
                 final_error: Exception | None = None
                 for attempt in range(2):
@@ -604,6 +606,10 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
                     shared_failure = gemini_shared_failure_kind(final_error)
                     if shared_failure == "quota":
                         quota_models += 1
+                        # A model-level quota does not recover between adjacent
+                        # batches. Retire it for this digest instead of producing
+                        # the same 429 for every group before using the fallback.
+                        unavailable_models.add(model)
                     logger.warning(
                         "Fic Gemini model %s failed; trying bounded fallback when available: %s",
                         model,
@@ -643,7 +649,9 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
                 # A different supported model can handle a content-specific false
                 # positive without changing or censoring the AO3 source.
 
-            if candidates and quota_models == len(candidates):
+            if active_candidates and quota_models == len(active_candidates) and not [
+                model for model in candidates if model not in unavailable_models
+            ]:
                 return {}, True
             if len(subset) > 1 and request_state["calls"] < request_state["max_calls"]:
                 middle = len(subset) // 2
