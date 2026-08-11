@@ -39,20 +39,23 @@ on:
           - check
           - live
   schedule:
-    - cron: "7,22,37,52 * * * *"
+    # Offset from the top of the hour because GitHub documents heavier schedule
+    # congestion around minute 0. Five minutes is GitHub's minimum cron interval.
+    - cron: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
 
 permissions:
   contents: read
   actions: read
 
 concurrency:
+  # Never run two live monitors against the same Telegram/X state concurrently.
   group: jeonghan-daily-review-bot-${{ (github.event_name == 'push' || github.event_name == 'pull_request') && 'validation' || 'runtime' }}
   cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
 
 jobs:
   validate-and-run:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     env:
       PYTHONUNBUFFERED: "1"
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
@@ -102,7 +105,7 @@ jobs:
         if: >-
           (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')) &&
           env.STATE_BACKUP_KEY == ''
-        run: echo "::warning::Encrypted state recovery is disabled because STATE_BACKUP_KEY is not configured; Actions cache remains best-effort only."
+        run: echo "::warning::Encrypted recovery snapshots are disabled because STATE_BACKUP_KEY is not configured; the rolling Actions caches still preserve normal state."
 
       - name: Restore bot state cache
         if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')
@@ -185,7 +188,7 @@ jobs:
           python -m compileall -q app tools
           python -m app --check
 
-      - name: Run private review bot
+      - name: Run one complete automatic monitor pass
         if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -195,37 +198,26 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: gemini-3.5-flash-lite
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+        shell: bash
         run: |
-          echo "Starting responsive Telegram review window."
-          # Before webhook cutover this preserves the existing bounded polling
-          # window. Exit code 3 means the real webhook runtime accepted one
-          # authenticated maintenance wake, so do not hammer it every five seconds.
-          end=$((SECONDS + 540))
-          successful_passes=0
-          while [ "$SECONDS" -lt "$end" ]; do
-            set +e
-            python -m app
-            code=$?
-            set -e
-            if [ "$code" -eq 0 ]; then
-              successful_passes=$((successful_passes + 1))
-            elif [ "$code" -eq 3 ]; then
-              successful_passes=$((successful_passes + 1))
-              echo "Webhook runtime accepted maintenance; ending this scheduled polling window."
-              break
-            elif [ "$code" -eq 2 ]; then
-              echo "Fatal configuration error; stopping instead of retrying."
-              exit "$code"
-            else
-              echo "Bot pass failed with exit code $code; retrying."
-            fi
-            sleep 5
-          done
-          if [ "$successful_passes" -eq 0 ]; then
-            echo "No bot pass completed successfully during the live window."
-            exit 1
+          set +e
+          python -m app
+          code=$?
+          set -e
+          if [ "$code" -eq 0 ]; then
+            echo "Automatic monitor pass completed."
+            exit 0
           fi
-          echo "Live window completed with $successful_passes successful bot pass(es)."
+          if [ "$code" -eq 3 ]; then
+            echo "Healthy webhook runtime accepted the maintenance pass."
+            exit 0
+          fi
+          if [ "$code" -eq 2 ]; then
+            echo "::error::Fatal configuration error; automatic monitoring cannot run until configuration is fixed."
+          else
+            echo "::error::Automatic monitor pass failed with exit code $code; the next five-minute schedule will retry from durable state."
+          fi
+          exit "$code"
 
       - name: Checkpoint private review database
         if: >-
@@ -248,26 +240,44 @@ jobs:
                   conn.close()
           PY
 
-      - name: Create authenticated encrypted recovery backup
+      - name: Decide encrypted recovery snapshot cadence
+        id: recovery
         if: >-
           always() &&
           (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')) &&
-          env.STATE_BACKUP_KEY != '' &&
+          env.STATE_BACKUP_KEY != ''
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+          EVENT_NAME: ${{ github.event_name }}
+        shell: bash
+        run: |
+          snapshot=false
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            snapshot=true
+          elif [ $((RUN_NUMBER % 12)) -eq 0 ]; then
+            snapshot=true
+          fi
+          echo "snapshot=$snapshot" >> "$GITHUB_OUTPUT"
+          echo "Encrypted recovery snapshot this run: $snapshot"
+
+      - name: Create authenticated encrypted recovery backup
+        if: >-
+          always() &&
+          steps.recovery.outputs.snapshot == 'true' &&
           (hashFiles('.state/state.json') != '' || hashFiles('.state/private-review.sqlite3') != '')
         run: python -m tools.state_backup encrypt --state-dir .state --output .state/private-state-backup.enc
 
       - name: Upload encrypted recovery backup
         if: >-
           always() &&
-          (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')) &&
-          env.STATE_BACKUP_KEY != '' &&
+          steps.recovery.outputs.snapshot == 'true' &&
           hashFiles('.state/private-state-backup.enc') != ''
         uses: actions/upload-artifact@v4
         with:
           name: private-state-backup
           path: .state/private-state-backup.enc
           if-no-files-found: error
-          retention-days: 90
+          retention-days: 14
           compression-level: 0
 
       - name: Save bot state cache
