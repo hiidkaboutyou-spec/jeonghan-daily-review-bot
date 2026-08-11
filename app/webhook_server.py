@@ -5,10 +5,10 @@ import hmac
 import logging
 import os
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from fastapi import FastAPI, Header, HTTPException, Request
 
@@ -20,6 +20,7 @@ from .webhook_runtime_utils import derive_runtime_secret
 from .x_client import XCollectionError
 
 logger = logging.getLogger(__name__)
+_T = TypeVar("_T")
 
 
 class WebhookRuntime:
@@ -28,11 +29,22 @@ class WebhookRuntime:
         self.application: WebhookAwarePersonalAssistant | None = None
         self.queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=500)
         self.maintenance_queue: asyncio.Queue[None] = asyncio.Queue(maxsize=1)
+        # ArchiveStore, ReviewInboxStore, ReminderStore and related SQLite helpers
+        # keep persistent sqlite3.Connection objects. Python's sqlite3 connections
+        # are thread-affine by default, so construct and use the entire assistant on
+        # one dedicated worker for its full lifetime.
+        self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="assistant-state")
         self.lock = threading.RLock()
         self.secret = ""
         self.public_base_url = ""
         self.last_backup_hash = ""
         self.last_scan_at = datetime.min.replace(tzinfo=timezone.utc)
+
+    async def run_state(self, fn: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
+        loop = asyncio.get_running_loop()
+        if kwargs:
+            return await loop.run_in_executor(self.executor, lambda: fn(*args, **kwargs))
+        return await loop.run_in_executor(self.executor, fn, *args)
 
     def startup_sync(self) -> None:
         settings = Settings.load(require_secrets=True)
@@ -107,7 +119,7 @@ class WebhookRuntime:
                         app.state.telegram_offset = max(app.state.telegram_offset, update_id + 1)
                         break
                     continue
-                except Exception as exc:
+                except Exception:
                     logger.exception("Webhook update %s failed", update_id)
                     if attempt >= 3:
                         app.state.telegram_offset = max(app.state.telegram_offset, update_id + 1)
@@ -145,7 +157,9 @@ class WebhookRuntime:
         except Exception as exc:
             logger.warning("Telegram cloud-state backup failed (%s)", type(exc).__name__)
             return
-        self.last_backup_hash = fingerprint
+        # Re-fingerprint after WAL checkpoint so the next request does not upload a
+        # duplicate backup merely because checkpointing moved bytes into the DB.
+        self.last_backup_hash = backup_fingerprint(state_dir)
 
 
 runtime = WebhookRuntime()
@@ -155,7 +169,7 @@ async def _update_worker() -> None:
     while True:
         item = await runtime.queue.get()
         try:
-            await asyncio.to_thread(runtime.process_update_sync, item)
+            await runtime.run_state(runtime.process_update_sync, item)
         finally:
             runtime.queue.task_done()
 
@@ -164,14 +178,14 @@ async def _maintenance_worker() -> None:
     while True:
         await runtime.maintenance_queue.get()
         try:
-            await asyncio.to_thread(runtime.maintenance_sync)
+            await runtime.run_state(runtime.maintenance_sync)
         finally:
             runtime.maintenance_queue.task_done()
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    await asyncio.to_thread(runtime.startup_sync)
+    await runtime.run_state(runtime.startup_sync)
     update_task = asyncio.create_task(_update_worker())
     maintenance_task = asyncio.create_task(_maintenance_worker())
     try:
@@ -180,7 +194,8 @@ async def lifespan(_: FastAPI):
         update_task.cancel()
         maintenance_task.cancel()
         if runtime.application is not None:
-            await asyncio.to_thread(runtime._save_and_backup_if_changed, force=True)
+            await runtime.run_state(runtime._save_and_backup_if_changed, force=True)
+        runtime.executor.shutdown(wait=True, cancel_futures=True)
 
 
 api = FastAPI(title="Jeonghan Personal Assistant", lifespan=lifespan)
