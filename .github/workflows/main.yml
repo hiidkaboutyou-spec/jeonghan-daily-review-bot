@@ -45,7 +45,9 @@ on:
 
 permissions:
   contents: read
-  actions: read
+  # The live job dispatches its successor instead of depending entirely on
+  # GitHub's best-effort scheduled-event delivery.
+  actions: write
 
 concurrency:
   # Never run two live monitors against the same Telegram/X state concurrently.
@@ -308,3 +310,36 @@ jobs:
         with:
           path: .state/private-review.sqlite3
           key: jeonghan-private-review-v1-${{ runner.os }}-${{ github.run_id }}
+
+      - name: Queue next live assistant pass
+        if: >-
+          success() &&
+          env.LIVE_RUN == 'true' &&
+          github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # A scheduled run can arrive while this run is finishing. Reuse it
+          # rather than creating duplicate live chains; concurrency serializes
+          # every runtime run against the same persisted Telegram/X state.
+          other_active=0
+          for status in queued in_progress; do
+            count="$(
+              gh api -H 'Accept: application/vnd.github+json' \
+                "/repos/${GITHUB_REPOSITORY}/actions/workflows/main.yml/runs?status=${status}&per_page=100" |
+                jq --argjson current "$GITHUB_RUN_ID" \
+                  '[.workflow_runs[] | select(.id != $current)] | length'
+            )"
+            other_active=$((other_active + count))
+          done
+
+          if [ "$other_active" -gt 0 ]; then
+            echo "Another runtime pass is already queued or running; no duplicate was created."
+            exit 0
+          fi
+
+          gh workflow run main.yml --ref main -f mode=live
+          echo "Queued the next live assistant pass."

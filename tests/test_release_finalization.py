@@ -62,6 +62,18 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertNotIn('end=$((SECONDS + 540))', workflow)
         self.assertNotIn('end=$((SECONDS + 780))', workflow)
 
+    def test_live_runtime_self_dispatches_without_duplicate_chains(self):
+        workflow = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")
+        queue = workflow.split("- name: Queue next live assistant pass", 1)[1]
+        self.assertIn("actions: write", workflow)
+        self.assertIn("success()", queue)
+        self.assertIn("github.ref == 'refs/heads/main'", queue)
+        self.assertIn("for status in queued in_progress", queue)
+        self.assertIn('select(.id != $current)', queue)
+        self.assertIn("gh workflow run main.yml --ref main -f mode=live", queue)
+        self.assertIn("Another runtime pass is already queued or running", queue)
+        self.assertIn("Queued the next live assistant pass.", queue)
+
     def test_runtime_runs_are_serialized_and_only_safe_state_is_cached(self):
         workflow = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")
         self.assertIn("jeonghan-daily-review-bot-", workflow)
