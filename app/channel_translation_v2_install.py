@@ -94,6 +94,18 @@ def _finalize_output(self, group, copy: GroupCopy) -> GroupCopy:
 
 
 def _installed_write_group(self, group, *, mode: str = "default") -> GroupCopy:
+    if group.updates and all(metadata_only(item) for item in group.updates):
+        self.last_diagnostics = {"output_mode": "metadata_only_no_generation"}
+        return _finalize_output(
+            self,
+            group,
+            GroupCopy(
+                title=group.title,
+                category=group.category,
+                bodies={item.id: safe_metadata_body(item) for item in group.updates},
+            ),
+        )
+
     source_text = "\n".join(item.translation_source() for item in group.updates)
     try:
         analysis = analyze_source(
@@ -103,6 +115,20 @@ def _installed_write_group(self, group, *, mode: str = "default") -> GroupCopy:
     except Exception as exc:
         logger.error("V2 source analysis failed; using hardened v1: %s", v1._safe_error(exc))
         return _finalize_output(self, group, _ORIGINAL_V1_WRITE_GROUP(self, group, mode=mode))
+
+    if analysis.source_language == "fa":
+        # Already-Persian source needs no translation call. Preserve its voice and
+        # spend the limited model quota only on real EN/KO/JA/mixed translation.
+        self.last_diagnostics = {"output_mode": "persian_source_no_generation"}
+        return _finalize_output(
+            self,
+            group,
+            GroupCopy(
+                title=group.title,
+                category=group.category,
+                bodies={item.id: item.translation_source() for item in group.updates},
+            ),
+        )
 
     try:
         examples = self.memory.retrieve_examples(

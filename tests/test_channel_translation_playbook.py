@@ -9,6 +9,7 @@ from app.channel_translation_playbook import (
 )
 from app.ai import _translate_to_persian
 from app.channel_translation import _translate_line
+from app.channel_translation_v2 import EMOTIONAL_FIDELITY_RULES
 
 
 class _Example:
@@ -30,6 +31,8 @@ class ChannelTranslationPlaybookTests(unittest.TestCase):
         target = "\n".join(item["target"] for item in pairs)
         self.assertIn("موهاشو", target)
         self.assertIn("چیکار می‌کنه", target)
+        self.assertIn("این دیگه چه کراس‌اوریه؟", target)
+        self.assertIn("وایب چاینا بار جونگهان رو می‌ده", target)
 
     def test_japanese_gets_soft_paired_examples_without_extra_call(self):
         pairs = translation_demonstrations("MEMBER_QUOTE", "ja")
@@ -49,6 +52,11 @@ class ChannelTranslationPlaybookTests(unittest.TestCase):
         self.assertIn("ترجمهٔ خودکار در دسترس نبود", result)
         self.assertIn(source, result)
         self.assertNotIn("قیراط", result)
+
+    def test_translation_contract_preserves_authors_emotion_without_invention(self):
+        self.assertIn("همان حس و همان شدت", EMOTIONAL_FIDELITY_RULES)
+        self.assertIn("چیزی را که در SOURCE نیست نساز", EMOTIONAL_FIDELITY_RULES)
+        self.assertIn("it's giving X", EMOTIONAL_FIDELITY_RULES)
 
 
 if __name__ == "__main__":

@@ -13,7 +13,7 @@ import logging
 from typing import Any
 
 from . import channel_translation as v1
-from .ai import gemini_should_try_next_model
+from .ai import gemini_shared_failure_kind, gemini_should_try_next_model
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +99,13 @@ def generate_json_v2(
     back to parsing ``response.text``. No source/prompt text is copied into
     diagnostics.
     """
+    circuit = str(getattr(self, "_gemini_circuit_open", "") or "")
+    if circuit:
+        diagnostics = getattr(self, "last_diagnostics", None)
+        if isinstance(diagnostics, dict):
+            diagnostics["generation_circuit_open"] = circuit
+        return None
+
     try:
         from google.genai import types
     except Exception as exc:
@@ -171,6 +178,12 @@ def generate_json_v2(
                     _block_reason(response) or "none",
                 )
         except Exception as exc:
+            shared_failure = gemini_shared_failure_kind(exc)
+            if shared_failure in {"quota", "authentication"}:
+                # One workflow process may translate dozens of groups. Once the
+                # provider says quota/auth is unavailable, retrying the
+                # same request for every group only burns time and floods logs.
+                self._gemini_circuit_open = shared_failure
             _record_failure(
                 self,
                 model=model,

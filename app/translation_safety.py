@@ -22,6 +22,12 @@ _LITERAL_RE = re.compile(
     r"نسخه بد خود را نشان می[‌ ]?دهد|اول تو خانواده من هستی)",
     re.I,
 )
+_SOCIAL_LITERAL_RE = re.compile(
+    r"(?:این چه کراس[‌ -]?اوری است|این چه همکاری متقاطعی است|"
+    r"(?:این|آن) حس(?:ِ|ی)?[^.؟!]{0,45}را می[‌ ]?دهد|"
+    r"نه، زیرا چرا|چرا او فقط در آنجا ایستاده است)",
+    re.I,
+)
 _NONSENSE_NAME_RE = re.compile(
     r"(?:نازی[‌ ]های سیوخان|جئونگان|جیونگان|جونگهانی|جئونگهان|"
     r"سئونگ[‌ ]?چئول|جئونگان تو سئونگ)",
@@ -86,6 +92,8 @@ def semantic_quality_failures(update: Update, output: str) -> list[str]:
         failures.append("automatic translation failure")
     if _LITERAL_RE.search(candidate):
         failures.append("high-confidence literal Persian")
+    if _SOCIAL_LITERAL_RE.search(candidate):
+        failures.append("literal social-media slang")
     if _NONSENSE_NAME_RE.search(candidate):
         failures.append("malformed entity or nonsensical phrase")
     failures.extend(natural_persian_failures(update, candidate))
@@ -128,6 +136,7 @@ def manual_review_body(body: str, reasons: list[str]) -> str:
         "low-information source needs editorial judgment": "منبع کم‌اطلاعات",
         "bookish or machine-like register for informal source": "لحن کتابی یا ماشینی",
         "malformed mixed-script token": "واژهٔ مخلوط و نامعتبر",
+        "literal social-media slang": "اسلنگ تحت‌اللفظی و غیرطبیعی",
     }
     reason = "، ".join(labels.get(item, item) for item in reasons)
     return f"⚠️ نیاز به بازبینی دستی ({reason})\n\n{body.strip()}".strip()

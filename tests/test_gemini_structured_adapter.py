@@ -97,6 +97,22 @@ class GeminiStructuredAdapterTests(unittest.TestCase):
             "json_not_nonempty_object",
         )
 
+    def test_quota_failure_opens_process_circuit_and_prevents_request_storm(self):
+        writer = _Writer()
+        client = _Client(error=RuntimeError("429 RESOURCE_EXHAUSTED quota exceeded"))
+        self.assertIsNone(_call(writer, client))
+        self.assertEqual(writer._gemini_circuit_open, "quota")
+        self.assertEqual(client.models.calls, 1)
+        self.assertIsNone(_call(writer, client))
+        self.assertEqual(client.models.calls, 1)
+        self.assertEqual(writer.last_diagnostics["generation_circuit_open"], "quota")
+
+    def test_one_transport_failure_does_not_disable_later_translations(self):
+        writer = _Writer()
+        client = _Client(error=TimeoutError("temporary timeout"))
+        self.assertIsNone(_call(writer, client))
+        self.assertFalse(hasattr(writer, "_gemini_circuit_open"))
+
 
 if __name__ == "__main__":
     unittest.main()

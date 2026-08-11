@@ -39,7 +39,17 @@ from .channel_translation_playbook import (
 
 logger = logging.getLogger(__name__)
 
-DIRECT_PIPELINE_VERSION = "channel-direct-v3-paired"
+DIRECT_PIPELINE_VERSION = "channel-direct-v4-emotional-fidelity"
+
+EMOTIONAL_FIDELITY_RULES = (
+    "اول تشخیص بده نویسنده دقیقاً چه حسی دارد: هیجان، ناباوری، شوخی، طعنه، حرص، "
+    "ذوق، لطافت، نگرانی یا لحن خبری. همان حس و همان شدت را منتقل کن؛ نه ضعیفش کن، "
+    "نه از طرف کانال هیجان/قضاوت تازه اضافه کن. اصطلاحات اینترنتی را کارکردی ترجمه کن: "
+    "`it's giving X` معمولاً «وایب X رو می‌ده»، `what is this crossover` معمولاً "
+    "«این دیگه چه کراس‌اوریه؟»، و `no because` در reaction معمولاً «نه آخه...» است. "
+    "CAPS، تکرار، مکث، کشیدگی، سؤال بلاغی و جملهٔ نصفه بخشی از حس‌اند؛ در فارسی "
+    "طبیعی معادلشان را نگه دار، اما چیزی را که در SOURCE نیست نساز."
+)
 
 # This is an editorial spelling rule requested by the channel owner, not a fact
 # learned from historical posts. It is applied only when the CURRENT SOURCE names
@@ -260,7 +270,8 @@ class ChannelStyleCaptionWriter(_BaseWriter):
             "قواعد CANONICAL ENTITIES قطعی‌اند و از ترجمه آوایی مدل مهم‌ترند. فقط دادهٔ خواسته‌شده "
             "در schema را برگردان و هیچ مقدمه‌ای ننویس. در همان یک پاسخ، اول معنی دقیق را "
             "در ذهنت استخراج کن، بعد آن را به فارسی طبیعی کانال تبدیل کن و در پایان با SOURCE "
-            "تطبیق بده؛ پیش‌نویس یا مراحل بررسی را در خروجی ننویس."
+            "تطبیق بده؛ پیش‌نویس یا مراحل بررسی را در خروجی ننویس. "
+            + EMOTIONAL_FIDELITY_RULES
         )
         prompt = f"""
 SOURCE ITEMS:
@@ -286,6 +297,13 @@ HISTORICAL CHANNEL EXCERPTS (monolingual Persian style evidence only; never copy
 
 TRANSLATION REQUIREMENTS:
 - {mode_rule}
+- لحن کانال فقط روش بیان فارسی است؛ احساس و موضع باید متعلق به نویسندهٔ SOURCE بماند.
+- متن را خلاصه نکن. همهٔ نسبت‌ها، علت‌ها، کنایه‌ها، شوخی‌ها و شدت احساس را منتقل کن.
+- برای reactionهای کوتاه، کوتاهی و ضرباهنگ را نگه دار؛ آن‌ها را به جملهٔ رسمی و توضیحی تبدیل نکن.
+- `I/you/he/she/they` را فقط به اندازه‌ای مشخص کن که خود SOURCE یا quoted context مشخص کرده؛ حدس نزن.
+- اگر متن با حروف بزرگ نوشته شده، انرژی آن را با فارسی طبیعی منتقل کن، نه با فارسی کتابی یا علامت تعجب اضافهٔ بی‌دلیل.
+- اگر [QUOTED POST] وجود دارد، متن اصلی و quoted post را جدا نگه دار و هر دو را با توجه به رابطه‌شان ترجمه کن.
+- {EMOTIONAL_FIDELITY_RULES}
 - {language_guidance(analysis.source_language, analysis.content_type)}
 - {commentary_policy(analysis.content_type)}
 - content type = {analysis.content_type}

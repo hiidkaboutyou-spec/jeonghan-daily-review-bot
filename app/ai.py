@@ -30,6 +30,18 @@ def gemini_should_try_next_model(exc: Exception) -> bool:
     return any(marker in value for marker in model_specific)
 
 
+def gemini_shared_failure_kind(exc: Exception) -> str:
+    """Classify failures that affect every request/model for this process."""
+    value = f"{type(exc).__name__}: {exc}".casefold()
+    if any(marker in value for marker in ("resource_exhausted", "quota", "429", "too many requests", "rate limit")):
+        return "quota"
+    if any(marker in value for marker in ("unauthenticated", "permission_denied", "forbidden", "api key", "401", "403")):
+        return "authentication"
+    if any(marker in value for marker in ("timeout", "timed out", "connection", "network")):
+        return "transport"
+    return ""
+
+
 @dataclass(slots=True)
 class GroupCopy:
     title: str
@@ -45,6 +57,8 @@ class CaptionWriter:
         self._client = None
 
     def _client_or_none(self):
+        if getattr(self, "_gemini_circuit_open", ""):
+            return None
         if not self.api_key:
             return None
         if self._client is None:

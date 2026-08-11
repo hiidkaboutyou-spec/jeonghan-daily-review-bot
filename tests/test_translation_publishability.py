@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 from app.ai import GroupCopy
 from app.channel_entities import canonicalize_entities
-from app.channel_translation_v2_install import _finalize_output
+from app.channel_translation_v2_install import _finalize_output, _installed_write_group
 from app.models import EventGroup, MediaItem, Update
 from app.organizer import detect_category, fallback_title
 from app.translation_safety import (
@@ -60,6 +60,18 @@ class TranslationPublishabilityTests(unittest.TestCase):
             self.assertEqual(semantic_quality_failures(item, ""), [])
             self.assertIn("پست تصویری بدون متن", safe_metadata_body(item))
 
+    def test_metadata_and_persian_sources_do_not_spend_generation_quota(self):
+        photo = MediaItem(kind="photo", url="https://pbs.twimg.com/a.jpg")
+        for item, expected_mode in (
+            (update("#JEONGHAN", media=[photo]), "metadata_only_no_generation"),
+            (update("جونگهان امروز خیلی خوشحال بود"), "persian_source_no_generation"),
+        ):
+            group = EventGroup("x", "general", "آپدیت جونگهان", [item])
+            writer = SimpleNamespace(last_diagnostics={})
+            result = _installed_write_group(writer, group)
+            self.assertEqual(writer.last_diagnostics["output_mode"], expected_mode)
+            self.assertIn(item.id, result.bodies)
+
     def test_reported_2345_failures_are_closed_to_manual_review(self):
         fixture = Path(__file__).parent / "fixtures" / "translation_quality_2345.json"
         cases = json.loads(fixture.read_text(encoding="utf-8"))
@@ -101,6 +113,15 @@ class TranslationPublishabilityTests(unittest.TestCase):
             ["bookish or machine-like register for informal source"],
         )
         self.assertIn("bookish or machine-like register for informal source", semantic_quality_failures(item, bad))
+
+    def test_literal_fandom_slang_is_not_publishable(self):
+        cases = (
+            ("Jeonghan with Foden what is this crossover", "جونگهان با فودن؛ این چه کراس‌اوری است"),
+            ("it's giving Jeonghan China bar", "این حس چاینا بار جونگهان را می‌دهد"),
+        )
+        for source, bad in cases:
+            with self.subTest(source=source):
+                self.assertIn("literal social-media slang", semantic_quality_failures(update(source), bad))
 
     def test_real_live_artifact_formal_fallback_and_broken_clitic_are_rejected(self):
         interview = update(
