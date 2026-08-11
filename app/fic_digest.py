@@ -4,6 +4,7 @@ import asyncio
 import html
 import json
 import logging
+import os
 import re
 import time
 from dataclasses import dataclass, replace
@@ -821,6 +822,20 @@ def observe_fics(store: FicStateStore, fics: list[Fic]) -> None:
         )
 
 
+def _delivery_run_scope(day: str, *, manual_request: bool) -> str:
+    """Return an idempotency scope that is stable per deployed revision.
+
+    A new main revision deliberately triggers a fresh validation digest. Reusing
+    only the calendar day made Telegram's durable receipt store silently accept
+    the previous revision's message as the new delivery. Include GitHub's immutable
+    revision so retries of one deployment deduplicate while a real fix is sent once.
+    """
+    if manual_request:
+        return datetime.now(timezone.utc).strftime("manual:%Y%m%dT%H%M%S%fZ")
+    revision = re.sub(r"[^0-9a-f]", "", os.getenv("GITHUB_SHA", "").casefold())[:12]
+    return f"{day}:{revision}" if revision else day
+
+
 async def build_digests(settings: Settings, *, fic_store: FicStateStore | None = None) -> tuple[str, str]:
     # Build the authoritative AO3 pool once, then reuse its parsed work metadata
     # for X recommendations. The old order reopened every recommended work page
@@ -869,10 +884,7 @@ async def send_digests(settings: Settings, bot: TelegramBot | None = None) -> No
     try:
         x_text, ao3_text = await build_digests(settings, fic_store=fic_store)
         day = datetime.now(settings.timezone).strftime("%Y-%m-%d")
-        if manual_request:
-            run_scope = datetime.now(timezone.utc).strftime("manual:%Y%m%dT%H%M%S%fZ")
-        else:
-            run_scope = day
+        run_scope = _delivery_run_scope(day, manual_request=manual_request)
         bot.send_message(x_text, delivery_key=f"fic:{run_scope}:x")
         bot.send_message(ao3_text, delivery_key=f"fic:{run_scope}:ao3")
         logger.info("Fanfic digest delivery confirmed for both X and AO3 lists")
@@ -890,6 +902,10 @@ async def main_async() -> int:
 
 
 def main() -> int:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     return asyncio.run(main_async())
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -8,7 +9,16 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
-from app.fic_digest import Fic, _get, build_digests, search_ao3, search_ao3_balanced, search_x_recommendations, send_digests
+from app.fic_digest import (
+    Fic,
+    _delivery_run_scope,
+    _get,
+    build_digests,
+    search_ao3,
+    search_ao3_balanced,
+    search_x_recommendations,
+    send_digests,
+)
 from app.fic_state import FicObservation, FicStateStore
 
 
@@ -191,6 +201,17 @@ class FicStateTests(unittest.TestCase):
 
 
 class FicDeliveryTests(unittest.TestCase):
+    def test_automatic_delivery_scope_is_stable_per_deployed_revision(self):
+        with patch.dict(os.environ, {"GITHUB_SHA": "abcdef1234567890"}, clear=False):
+            first = _delivery_run_scope("2026-08-11", manual_request=False)
+            retry = _delivery_run_scope("2026-08-11", manual_request=False)
+        with patch.dict(os.environ, {"GITHUB_SHA": "9999991234567890"}, clear=False):
+            next_deploy = _delivery_run_scope("2026-08-11", manual_request=False)
+
+        self.assertEqual(first, retry)
+        self.assertEqual(first, "2026-08-11:abcdef123456")
+        self.assertNotEqual(first, next_deploy)
+
     def test_send_uses_stable_delivery_keys_for_resume(self):
         with tempfile.TemporaryDirectory() as temp:
             settings = SimpleNamespace(state_path=Path(temp) / "state.json", telegram_token="x", admin_user_id=1, review_chat_id=2, timezone=timezone.utc)
