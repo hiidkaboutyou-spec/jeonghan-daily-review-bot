@@ -16,8 +16,7 @@ async def async_main() -> int:
         errors = settings.validate_files()
         if errors:
             raise ConfigError("; ".join(errors))
-        await WebhookAwarePersonalAssistant(settings).run()
-        return 0
+        return int(await WebhookAwarePersonalAssistant(settings).run())
     except ConfigError as exc:
         capture_technical_exception(exc, component="config")
         return 2
