@@ -68,7 +68,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("actions: write", workflow)
         self.assertIn("success()", queue)
         self.assertIn("github.ref == 'refs/heads/main'", queue)
-        self.assertIn("for status in queued in_progress", queue)
+        self.assertIn("for status in pending queued in_progress", queue)
         self.assertIn('select(.id != $current)', queue)
         self.assertIn("gh workflow run main.yml --ref main -f mode=live", queue)
         self.assertIn("Another runtime pass is already queued or running", queue)

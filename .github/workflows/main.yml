@@ -326,7 +326,7 @@ jobs:
           # rather than creating duplicate live chains; concurrency serializes
           # every runtime run against the same persisted Telegram/X state.
           other_active=0
-          for status in queued in_progress; do
+          for status in pending queued in_progress; do
             count="$(
               gh api -H 'Accept: application/vnd.github+json' \
                 "/repos/${GITHUB_REPOSITORY}/actions/workflows/main.yml/runs?status=${status}&per_page=100" |
