@@ -235,7 +235,7 @@ def search_ao3(
             break
         params = dict(base_params)
         params["page"] = str(page)
-        response = _get(AO3 + "/works/search?" + urlencode(params), timeout=25, attempts=3)
+        response = _get(AO3 + "/works/search?" + urlencode(params), timeout=25, attempts=2)
         if response is None:
             # A failed page means completeness is unknown; do not skip ahead and
             # present later pages as though the gap were complete.

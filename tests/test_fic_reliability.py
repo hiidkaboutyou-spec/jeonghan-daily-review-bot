@@ -121,6 +121,7 @@ class Ao3ReliabilityTests(unittest.TestCase):
         url = get.call_args.args[0]
         self.assertIn("work_search%5Bcharacter_names%5D=Yoon+Jeonghan", url)
         self.assertNotIn("work_search%5Bquery%5D", url)
+        self.assertEqual(get.call_args.kwargs["attempts"], 2)
 
     def test_x_detail_lookups_are_serial_and_paced(self):
         settings = SimpleNamespace(x_cookies={}, sources=[], keyword_groups=[])

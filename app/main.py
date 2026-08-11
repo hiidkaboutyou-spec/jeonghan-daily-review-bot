@@ -78,7 +78,7 @@ class Application:
 
         if text == "📚 فن‌فیک":
             self.telegram.send_message(
-                "📚 دارم هر دو لیست X و AO3 را آماده می‌کنم؛ ممکن است یکی دو دقیقه طول بکشد…",
+                "📚 دارم هر دو لیست X و AO3 را آماده می‌کنم؛ چون خود AO3 گاهی کند می‌شود، ممکن است چند دقیقه طول بکشد…",
                 reply_markup=main_keyboard(),
             )
             from .fic_digest import send_digests
@@ -128,7 +128,7 @@ class Application:
             self.send_help()
         elif command == "/fic":
             self.telegram.send_message(
-                "📚 دارم تازه‌ها، آپدیت‌ها و انتخاب‌های محبوب AO3 و X را آماده می‌کنم؛ ممکن است یکی دو دقیقه طول بکشد…",
+                "📚 دارم تازه‌ها، آپدیت‌ها و انتخاب‌های محبوب AO3 و X را آماده می‌کنم؛ چون خود AO3 گاهی کند می‌شود، ممکن است چند دقیقه طول بکشد…",
                 reply_markup=main_keyboard(),
             )
             from .fic_digest import send_digests
