@@ -104,6 +104,30 @@ jobs:
             echo "::warning::Optional gallery-dl install failed; existing direct/yt-dlp/FFmpeg fallbacks remain available."
           fi
 
+      - name: Derive stable encrypted recovery key
+        if: >-
+          env.LIVE_RUN == 'true' &&
+          env.STATE_BACKUP_KEY == ''
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          key="$(python - <<'PY'
+          import os
+
+          from app.telegram_cloud_state import ensure_process_backup_key
+
+          token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+          if not token:
+              raise SystemExit("TELEGRAM_BOT_TOKEN is required to derive the encrypted recovery key")
+          ensure_process_backup_key(token)
+          print(os.environ["STATE_BACKUP_KEY"])
+          PY
+          )"
+          echo "::add-mask::$key"
+          echo "STATE_BACKUP_KEY=$key" >> "$GITHUB_ENV"
+
       - name: Report encrypted recovery disabled
         if: >-
           env.LIVE_RUN == 'true' &&
@@ -261,12 +285,15 @@ jobs:
         env:
           RUN_NUMBER: ${{ github.run_number }}
           EVENT_NAME: ${{ github.event_name }}
+          ACTOR: ${{ github.actor }}
         shell: bash
         run: |
           snapshot=false
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+          if [ "$EVENT_NAME" = "push" ]; then
             snapshot=true
-          elif [ $((RUN_NUMBER % 12)) -eq 0 ]; then
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$ACTOR" != "github-actions[bot]" ]; then
+            snapshot=true
+          elif [ $((RUN_NUMBER % 24)) -eq 0 ]; then
             snapshot=true
           fi
           echo "snapshot=$snapshot" >> "$GITHUB_OUTPUT"
@@ -289,7 +316,7 @@ jobs:
           name: private-state-backup
           path: .state/private-state-backup.enc
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
           compression-level: 0
 
       - name: Save bot state cache

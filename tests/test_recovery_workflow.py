@@ -34,11 +34,30 @@ class RecoveryWorkflowTests(unittest.TestCase):
         self.assertNotIn("reverse | .[0].id", fic)
 
     def test_missing_recovery_secret_is_explicit_but_not_fatal(self):
-        for name in ("main.yml", "fic-digest.yml"):
-            text = self._text(name)
-            self.assertIn("Report encrypted recovery disabled", text)
-            self.assertIn("STATE_BACKUP_KEY is not configured", text)
-            self.assertIn("env.STATE_BACKUP_KEY == ''", text)
+        text = self._text("fic-digest.yml")
+        self.assertIn("Report encrypted recovery disabled", text)
+        self.assertIn("STATE_BACKUP_KEY is not configured", text)
+        self.assertIn("env.STATE_BACKUP_KEY == ''", text)
+
+    def test_main_derives_a_masked_recovery_key_and_limits_artifact_churn(self):
+        text = self._text("main.yml")
+        derive = text.split("- name: Derive stable encrypted recovery key", 1)[1].split(
+            "- name: Report encrypted recovery disabled", 1
+        )[0]
+        cadence = text.split("- name: Decide encrypted recovery snapshot cadence", 1)[1].split(
+            "- name: Create authenticated encrypted recovery backup", 1
+        )[0]
+        upload = text.split("- name: Upload encrypted recovery backup", 1)[1].split(
+            "- name: Save bot state cache", 1
+        )[0]
+        self.assertIn("ensure_process_backup_key", derive)
+        self.assertIn("TELEGRAM_BOT_TOKEN", derive)
+        self.assertIn("::add-mask::$key", derive)
+        self.assertIn('>> "$GITHUB_ENV"', derive)
+        self.assertIn('EVENT_NAME" = "push', cadence)
+        self.assertIn('ACTOR" != "github-actions[bot]"', cadence)
+        self.assertIn("RUN_NUMBER % 24", cadence)
+        self.assertIn("retention-days: 3", upload)
 
     def test_only_ciphertext_artifact_is_uploaded(self):
         for name in ("main.yml", "fic-digest.yml"):
