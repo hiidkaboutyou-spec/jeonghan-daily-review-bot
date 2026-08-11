@@ -46,7 +46,12 @@ _TRANSACTION_RE = re.compile("|".join(f"(?:{p})" for p in _TRANSACTION_PATTERNS)
 _COLLECTIBLE_RE = re.compile("|".join(f"(?:{p})" for p in _COLLECTIBLE_PATTERNS), re.I)
 _SOLICITATION_SPAM_RE = re.compile("|".join(f"(?:{p})" for p in _SOLICITATION_SPAM_PATTERNS), re.I)
 _STRONG_JH_RE = re.compile(
-    r"\bjeonghan\b|\byoon\s+jeonghan\b|#jeonghan\b|#yoonjeonghan\b|윤정한|(?<![가-힣])정한(?![가-힣])|ジョンハン|ユンジョンハン",
+    r"\bjeonghan\b|\byoon\s+jeonghan\b|#jeonghan\b|#yoonjeonghan\b|윤정한|ジョンハン|ユンジョンハン",
+    re.I,
+)
+_AMBIGUOUS_KOREAN_JH_RE = re.compile(r"(?<![가-힣])정한(?![가-힣])")
+_FANDOM_CONTEXT_RE = re.compile(
+    r"세븐틴|캐럿|정하니|윤정한|jeonghan|seventeen|carat|ジョンハン|ユンジョンハン",
     re.I,
 )
 _OTHER_MEMBER_RE = re.compile(
@@ -59,6 +64,11 @@ def is_relevant_jeonghan_update(update: Update, *, trusted_source: bool = False)
     """Reject trading/sales noise while keeping genuine Jeonghan updates."""
     text = "\n".join(part for part in (update.text, update.quoted_text) if part).strip()
     has_jh = bool(_STRONG_JH_RE.search(text))
+    # 정한 is also an ordinary Korean modifier meaning roughly "chosen/set".
+    # Treat it as the member name only when a short fan post, media, or explicit
+    # fandom context supports that reading. This blocks long unrelated keyword hits.
+    if not has_jh and _AMBIGUOUS_KOREAN_JH_RE.search(text):
+        has_jh = bool(update.media or update.quoted_media or len(text) <= 280 or _FANDOM_CONTEXT_RE.search(text))
     if text:
         if _SOLICITATION_SPAM_RE.search(text):
             return False

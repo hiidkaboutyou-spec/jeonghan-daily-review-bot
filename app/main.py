@@ -16,6 +16,7 @@ from .organizer import organize_updates
 from .state import StateStore
 from .style import StyleMemory, ThemeEngine, ensure_rtl_line
 from .telegram import TelegramBot, TelegramError, draft_keyboard, inline_keyboard, main_keyboard
+from .translation_safety import translation_unavailable
 from .x_client import XCollectionError, XCollector, normalize_handle
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -395,6 +396,12 @@ class Application:
         self.state.data["last_x_error_notice"] = now.isoformat()
 
     async def deliver_pending(self) -> None:
+        outage_notice = _parse_state_datetime(self.state.data.get("translation_outage_notice"))
+        if outage_notice and datetime.now(timezone.utc) - outage_notice < timedelta(minutes=12):
+            # A workflow process is restarted every few seconds during its live
+            # window. Do not hammer a provider that just reported an outage; the
+            # next scheduled workflow will retry the untouched queue.
+            return
         limit = max(1, int(self.settings.runtime.get("max_auto_items_per_run", 1000)))
         pending = self.state.pop_pending(limit)
         if not pending:
@@ -424,6 +431,7 @@ class Application:
             ensure_rtl_line(f"{total_updates} آپدیت در {len(groups)} گروه پیدا شد؛ ارسال از قدیمی به جدید شروع شد."),
             reply_markup=main_keyboard(),
         )
+        deferred = 0
         for group in groups:
             copy = self.writer.write_group(group)
             manual_review = getattr(self.writer, "last_manual_review", {})
@@ -434,6 +442,11 @@ class Application:
                 group.category = copy.category
             for part, update in enumerate(group.updates, start=1):
                 body = copy.bodies.get(update.id) or update.text
+                if translation_unavailable(body):
+                    deferred += 1
+                    # Do not mark it seen: the pending queue will retry it when the
+                    # translation provider is healthy again.
+                    continue
                 caption = self.themes.caption(group, update, body, part, len(group.updates))
                 temp, prepared = self.media.prepare(update)
                 try:
@@ -460,6 +473,18 @@ class Application:
                     )
                 )
                 self.state.mark_seen(update)
+        if deferred:
+            self._notify_translation_outage_if_due(deferred)
+
+    def _notify_translation_outage_if_due(self, count: int) -> None:
+        now = datetime.now(timezone.utc)
+        previous = _parse_state_datetime(self.state.data.get("translation_outage_notice"))
+        if previous and now - previous < timedelta(hours=2):
+            return
+        self._safe_send(
+            f"⚠️ سرویس ترجمه در دسترس نبود؛ {count} آپدیت خام ارسال نشد و برای تلاش بعدی در صف ماند."
+        )
+        self.state.data["translation_outage_notice"] = now.isoformat()
 
     async def handle_draft_action(self, action: str, draft_id: str, message_id: int) -> None:
         draft = self.state.get_draft(draft_id)

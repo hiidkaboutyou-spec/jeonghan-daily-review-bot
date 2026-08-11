@@ -230,6 +230,29 @@ class XConversionTests(unittest.TestCase):
         )
         self.assertTrue(is_relevant_jeonghan_update(update, trusted_source=False))
 
+    def test_ordinary_korean_jeonghan_homograph_in_long_unrelated_post_is_filtered(self):
+        update = Update(
+            id="noise-korean",
+            url="https://x.com/noise/status/noise-korean",
+            author="noise",
+            author_name="Noise",
+            text=("Claude 워터마크와 개발자 코드에 관한 긴 설명입니다. " * 30) +
+                 "비밀키가 정한 후보를 조금 더 자주 선택합니다.",
+            created_at=datetime.now(timezone.utc),
+        )
+        self.assertFalse(is_relevant_jeonghan_update(update, trusted_source=False))
+
+    def test_short_korean_fan_reaction_using_jeonghan_short_name_is_kept(self):
+        update = Update(
+            id="real-korean",
+            url="https://x.com/fan/status/real-korean",
+            author="fan",
+            author_name="Fan",
+            text="정한 너무 예뻐 😭",
+            created_at=datetime.now(timezone.utc),
+        )
+        self.assertTrue(is_relevant_jeonghan_update(update, trusted_source=False))
+
     def test_dedicated_source_thread_part_without_name_is_kept(self):
         collector = XCollector(
             {},

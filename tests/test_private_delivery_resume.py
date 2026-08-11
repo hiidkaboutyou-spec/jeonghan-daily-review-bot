@@ -83,6 +83,46 @@ class PrivateDeliveryResumeTests(unittest.TestCase):
                 [f"draft:{first_id}", f"draft:{second_id}"],
             )
 
+    def test_translation_outage_is_not_sent_or_marked_seen(self):
+        with tempfile.TemporaryDirectory() as temp:
+            update = self.update("outage", 1)
+            group = EventGroup(key="single:outage", category="general", title="old", updates=[update])
+            app = PrivateReviewApplication.__new__(PrivateReviewApplication)
+            app.state = StateStore(Path(temp) / "state.json")
+            app.settings = SimpleNamespace(themes={"themes": {"general": {}}})
+            app.archive_db = Mock()
+            app.inbox = Mock()
+            app._deliver_private_media = AsyncMock()
+            app.writer = Mock()
+            app.writer.write_group.return_value = GroupCopy(
+                title="عنوان",
+                category="general",
+                bodies={"outage": "⚠️ ترجمهٔ خودکار در دسترس نبود؛ متن اصلی برای بررسی:\n\nsource"},
+            )
+            app.themes = Mock()
+            app.telegram = Mock()
+            app._notify_translation_outage_if_due = Mock()
+
+            with patch("app.private_runtime.organize_updates", return_value=[group]):
+                asyncio.run(app.deliver_updates([update], force=False))
+
+            app.telegram.send_message.assert_called_once()  # batch-status message only
+            app._notify_translation_outage_if_due.assert_called_once_with(1)
+            self.assertFalse(app.state.is_seen(update.id))
+            self.assertEqual(app.state.data["drafts"], {})
+
+    def test_recent_translation_outage_pauses_pending_retry_loop(self):
+        app = PrivateReviewApplication.__new__(PrivateReviewApplication)
+        app.state = Mock()
+        app.state.data = {"translation_outage_notice": datetime.now(timezone.utc).isoformat()}
+        app.settings = SimpleNamespace(runtime={"max_auto_items_per_run": 1000})
+        app.deliver_updates = AsyncMock()
+
+        asyncio.run(app.deliver_pending())
+
+        app.state.pop_pending.assert_not_called()
+        app.deliver_updates.assert_not_awaited()
+
 
 if __name__ == "__main__":
     unittest.main()
