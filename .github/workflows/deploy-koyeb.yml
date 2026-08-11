@@ -1,0 +1,153 @@
+name: Deploy Personal Assistant to Koyeb Free
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jeonghan-koyeb-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      KOYEB_API_TOKEN: ${{ secrets.KOYEB_API_TOKEN }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_ADMIN_USER_ID: ${{ secrets.TELEGRAM_ADMIN_USER_ID }}
+      TELEGRAM_REVIEW_CHAT_ID: ${{ secrets.TELEGRAM_REVIEW_CHAT_ID }}
+      X_COOKIE: ${{ secrets.X_COOKIE }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      STATE_BACKUP_KEY: ${{ secrets.STATE_BACKUP_KEY }}
+      SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+    steps:
+      - name: Checkout production
+        uses: actions/checkout@v6
+
+      - name: Validate required deployment authorization
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$KOYEB_API_TOKEN" ]; then
+            echo "::error::Add a repository secret named KOYEB_API_TOKEN before dispatching this workflow."
+            exit 2
+          fi
+          for name in TELEGRAM_BOT_TOKEN TELEGRAM_ADMIN_USER_ID TELEGRAM_REVIEW_CHAT_ID X_COOKIE GEMINI_API_KEY; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Required existing GitHub secret $name is empty or unavailable."
+              exit 2
+            fi
+          done
+
+      - name: Install Koyeb CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://raw.githubusercontent.com/koyeb/koyeb-cli/master/install.sh | sh
+          echo "$HOME/.koyeb/bin" >> "$GITHUB_PATH"
+
+      - name: Authenticate Koyeb
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$HOME/.koyeb/bin/koyeb" login --token "$KOYEB_API_TOKEN"
+          "$HOME/.koyeb/bin/koyeb" whoami
+
+      - name: Synchronize runtime secrets to Koyeb
+        shell: bash
+        run: |
+          set -euo pipefail
+          KOYEB="$HOME/.koyeb/bin/koyeb"
+
+          sync_secret() {
+            local name="$1"
+            local value="$2"
+            if [ -z "$value" ]; then
+              return 0
+            fi
+            if "$KOYEB" secrets get "$name" >/dev/null 2>&1; then
+              printf '%s' "$value" | "$KOYEB" secrets update "$name" --value-from-stdin >/dev/null
+            else
+              printf '%s' "$value" | "$KOYEB" secrets create "$name" --value-from-stdin >/dev/null
+            fi
+          }
+
+          sync_secret jeonghan_telegram_bot_token "$TELEGRAM_BOT_TOKEN"
+          sync_secret jeonghan_telegram_admin_user_id "$TELEGRAM_ADMIN_USER_ID"
+          sync_secret jeonghan_telegram_review_chat_id "$TELEGRAM_REVIEW_CHAT_ID"
+          sync_secret jeonghan_x_cookie "$X_COOKIE"
+          sync_secret jeonghan_gemini_api_key "$GEMINI_API_KEY"
+          sync_secret jeonghan_state_backup_key "$STATE_BACKUP_KEY"
+          sync_secret jeonghan_sentry_dsn "$SENTRY_DSN"
+
+      - name: Create or update free webhook service
+        shell: bash
+        run: |
+          set -euo pipefail
+          KOYEB="$HOME/.koyeb/bin/koyeb"
+          APP=jeonghan-assistant
+          SERVICE=telegram
+          REPO=github.com/hiidkaboutyou-spec/jeonghan-daily-review-bot
+
+          if ! "$KOYEB" apps get "$APP" >/dev/null 2>&1; then
+            "$KOYEB" apps create "$APP"
+          fi
+
+          common_env=(
+            --env 'TELEGRAM_BOT_TOKEN={{secret.jeonghan_telegram_bot_token}}'
+            --env 'TELEGRAM_ADMIN_USER_ID={{secret.jeonghan_telegram_admin_user_id}}'
+            --env 'TELEGRAM_REVIEW_CHAT_ID={{secret.jeonghan_telegram_review_chat_id}}'
+            --env 'X_COOKIE={{secret.jeonghan_x_cookie}}'
+            --env 'GEMINI_API_KEY={{secret.jeonghan_gemini_api_key}}'
+            --env 'GEMINI_MODEL=gemini-3.5-flash-lite'
+          )
+          if [ -n "$STATE_BACKUP_KEY" ]; then
+            common_env+=(--env 'STATE_BACKUP_KEY={{secret.jeonghan_state_backup_key}}')
+          fi
+          if [ -n "$SENTRY_DSN" ]; then
+            common_env+=(--env 'SENTRY_DSN={{secret.jeonghan_sentry_dsn}}')
+          fi
+
+          if "$KOYEB" services get "$APP/$SERVICE" >/dev/null 2>&1; then
+            "$KOYEB" services update "$APP/$SERVICE" \
+              --git "$REPO" \
+              --git-branch main \
+              --git-sha "$GITHUB_SHA" \
+              --git-builder docker \
+              --git-docker-dockerfile Dockerfile \
+              --instance-type free \
+              --regions fra \
+              --ports 8000:http \
+              --routes /:8000 \
+              --checks 8000:http:/healthz \
+              "${common_env[@]}" \
+              --wait \
+              --wait-timeout 10m
+          else
+            "$KOYEB" services create "$SERVICE" \
+              --app "$APP" \
+              --git "$REPO" \
+              --git-branch main \
+              --git-sha "$GITHUB_SHA" \
+              --git-builder docker \
+              --git-docker-dockerfile Dockerfile \
+              --instance-type free \
+              --regions fra \
+              --ports 8000:http \
+              --routes /:8000 \
+              --checks 8000:http:/healthz \
+              "${common_env[@]}" \
+              --wait \
+              --wait-timeout 10m
+          fi
+
+      - name: Verify deployed service
+        shell: bash
+        run: |
+          set -euo pipefail
+          KOYEB="$HOME/.koyeb/bin/koyeb"
+          "$KOYEB" services get jeonghan-assistant/telegram --full
+          echo "Koyeb deployment completed. The service registers Telegram webhook ownership during startup."
