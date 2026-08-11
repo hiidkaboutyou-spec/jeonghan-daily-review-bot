@@ -93,9 +93,16 @@ def _checkpoint_sqlite(state_dir: Path) -> None:
 
 
 def backup_fingerprint(state_dir: Path) -> str:
+    """Fingerprint every file that can contain durable SQLite changes.
+
+    The encrypted backup itself checkpoints WAL into the main database before it is
+    created. The pre-backup change detector must nevertheless include the WAL file,
+    otherwise a connection that has not checkpointed yet could change durable state
+    without changing private-review.sqlite3 and a necessary backup would be skipped.
+    """
     digest = hashlib.sha256()
     found = False
-    for name in ("state.json", "private-review.sqlite3"):
+    for name in ("state.json", "private-review.sqlite3", "private-review.sqlite3-wal"):
         path = state_dir / name
         if path.exists():
             found = True
