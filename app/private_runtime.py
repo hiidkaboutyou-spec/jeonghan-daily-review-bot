@@ -16,6 +16,7 @@ from .private_ui import date_picker_keyboard, source_page_keyboard
 from .review_inbox import ReviewInboxStore
 from .style import ensure_rtl_line
 from .telegram import TelegramError, draft_keyboard, inline_keyboard, main_keyboard
+from .translation_safety import translation_unavailable
 from .x_client import XCollectionError
 
 
@@ -174,6 +175,7 @@ class PrivateReviewApplication(Application):
         groups = organize_updates(updates)
         total_updates = sum(len(group.updates) for group in groups)
         self.telegram.send_message(ensure_rtl_line(f"{total_updates} آپدیت در {len(groups)} گروه پیدا شد؛ ارسال از قدیمی به جدید شروع شد."), reply_markup=main_keyboard())
+        deferred = 0
         for group in groups:
             existing_drafts: dict[str, Draft] = {}
             if not force:
@@ -181,7 +183,13 @@ class PrivateReviewApplication(Application):
                     draft_id = short_id(f"scheduled:{group.key}:{update.id}")
                     existing = self.state.get_draft(draft_id)
                     if existing is not None:
-                        existing_drafts[update.id] = existing
+                        if translation_unavailable(existing.caption):
+                            # Old releases persisted outage placeholders. Remove
+                            # them before deciding whether this group needs a fresh
+                            # model call.
+                            self.state.data.get("drafts", {}).pop(existing.id, None)
+                        else:
+                            existing_drafts[update.id] = existing
 
             # A failed send leaves the complete group's drafts behind. On retry we
             # must resume those exact captions without invoking Gemini again. If a
@@ -207,6 +215,9 @@ class PrivateReviewApplication(Application):
                     if copy is None:
                         raise RuntimeError("draft generation plan is missing for an undelivered update")
                     body = copy.bodies.get(update.id) or update.text
+                    if translation_unavailable(body):
+                        deferred += 1
+                        continue
                     caption = self.themes.caption(group, update, body, part, len(group.updates))
                     if force:
                         draft_id = short_id(f"force:{update.id}:{datetime.now(timezone.utc).timestamp()}")
@@ -253,6 +264,9 @@ class PrivateReviewApplication(Application):
                 # A later hard timeout must resume at the first unconfirmed update,
                 # not replay work already acknowledged by Telegram.
                 self.state.save()
+
+        if deferred:
+            self._notify_translation_outage_if_due(deferred)
 
     async def _deliver_private_media(self, update: Update) -> None:
         media = list(update.media[:20])
