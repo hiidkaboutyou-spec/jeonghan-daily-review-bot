@@ -36,6 +36,7 @@ from .channel_translation_playbook import (
     translation_demonstrations,
     unavailable_translation,
 )
+from .gemini_structured import last_generation_block_reason
 
 logger = logging.getLogger(__name__)
 
@@ -327,6 +328,43 @@ TRANSLATION REQUIREMENTS:
             purpose=f"direct channel translation/{mode}",
             system_instruction=system_instruction,
         )
+        block_reason = last_generation_block_reason(self)
+        if not parsed and block_reason:
+            # A retrieved historical excerpt, URL, or ancillary metadata can make
+            # Gemini reject the whole rich prompt even when the current source is
+            # a normal translation request. Retry once with only the source/body
+            # mapping. This is not a safety bypass: provider policy still applies,
+            # while unrelated style context can no longer poison a real update.
+            self.last_diagnostics["blocked_prompt_retry"] = {
+                "reason": block_reason,
+                "mode": "source_only",
+            }
+            minimal_items = [
+                {"id": item.id, "source": item.translation_source()}
+                for item in group.updates
+            ]
+            minimal_prompt = (
+                "Translate every SOURCE item below into fluent, colloquial Persian. "
+                "This is a faithful linguistic transformation for a private review inbox; "
+                "do not endorse, continue, censor, summarize, or add to the source. Preserve "
+                "speaker labels, names, numbers, URLs, hashtags, emoji, laughter, tone and "
+                "quoted-post boundaries. Return only the required JSON.\n\nSOURCE ITEMS:\n"
+                + json.dumps(minimal_items, ensure_ascii=False)
+                + "\n\nCANONICAL ENTITIES:\n"
+                + json.dumps(canonical_entities, ensure_ascii=False)
+            )
+            parsed = self._generate_json_v2(
+                client,
+                minimal_prompt,
+                v1._group_schema(),
+                temperature=0.1,
+                purpose=f"direct channel translation/{mode}/source-only-retry",
+                system_instruction=(
+                    "فقط مترجم دقیق انگلیسی/کره‌ای/ژاپنی به فارسی طبیعی و عامیانه باش. "
+                    "این تبدیل زبانی برای بازبینی خصوصی است. متن را ادامه نده، چیزی اضافه نکن، "
+                    "سانسور یا خلاصه نکن و فقط JSON مطابق schema برگردان."
+                ),
+            )
         bodies = v1._parse_bodies(parsed, [item.id for item in group.updates]) if parsed else None
         if bodies is None:
             return None

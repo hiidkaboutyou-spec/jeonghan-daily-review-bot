@@ -10,7 +10,8 @@ from app.channel_entities import (
     preferred_jeonghan_form,
     source_names_jeonghan,
 )
-from app.channel_translation_v2 import DIRECT_PIPELINE_VERSION
+from app.channel_translation_v2 import DIRECT_PIPELINE_VERSION, ChannelStyleCaptionWriter
+from app.channel_style_runtime import analyze_source
 from app.channel_translation_v2_install import harden_legacy_instance
 from app.models import EventGroup, Update
 
@@ -144,6 +145,54 @@ class ContextualJeonghanTests(unittest.TestCase):
 
 
 class HardenedLegacyTests(unittest.TestCase):
+    def test_provider_block_retries_once_with_source_only_prompt(self):
+        class Memory(_Memory):
+            profile = {"register": "عامیانه"}
+
+        class Probe(ChannelStyleCaptionWriter):
+            def __init__(self):
+                super().__init__("key", "model", Memory())
+                self.prompts = []
+                self.last_diagnostics = {}
+
+            def _generate_json_v2(self, client, prompt, schema, **kwargs):
+                self.prompts.append(prompt)
+                if len(self.prompts) == 1:
+                    self.last_diagnostics["generation_failures"] = [
+                        {"block_reason": "PROHIBITED_CONTENT"}
+                    ]
+                    return None
+                return {
+                    "title": "آپدیت جونگهان",
+                    "category": "general",
+                    "items": [{"id": "1", "body": "جونگهان برگشت خونه."}],
+                }
+
+        update = Update(
+            id="1",
+            url="https://x.com/source/status/1",
+            author="source",
+            author_name="Source",
+            text="Jeonghan came home.",
+            created_at=datetime(2026, 8, 11, tzinfo=timezone.utc),
+            lang="en",
+        )
+        group = EventGroup(key="x", category="general", title="title", updates=[update])
+        writer = Probe()
+
+        result = writer._direct_group(
+            group, analyze_source(update.text), [], [], "default", object()
+        )
+
+        self.assertEqual(result.bodies["1"], "جونگهان برگشت خونه.")
+        self.assertEqual(len(writer.prompts), 2)
+        self.assertIn("SOURCE ITEMS", writer.prompts[1])
+        self.assertNotIn("HISTORICAL CHANNEL EXCERPTS", writer.prompts[1])
+        self.assertEqual(
+            writer.last_diagnostics["blocked_prompt_retry"]["reason"],
+            "PROHIBITED_CONTENT",
+        )
+
     def test_legacy_instance_is_canonicalized_before_delivery(self):
         class Probe(CaptionWriter):
             def _client_or_none(self):

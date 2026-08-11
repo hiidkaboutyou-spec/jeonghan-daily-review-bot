@@ -18,8 +18,8 @@ class HumanBenchmarkEntrypointTests(unittest.TestCase):
         self.assertIn("production-smoke:", benchmark_workflow)
         self.assertIn("python -m tools.run_translation_production_smoke", benchmark_workflow)
         self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", benchmark_workflow)
-        self.assertIn("GEMINI_MODEL: gemini-3.1-flash-lite", benchmark_workflow)
-        self.assertNotIn("GEMINI_MODEL: gemini-3.5-flash-lite", benchmark_workflow)
+        self.assertIn("GEMINI_MODEL: gemini-3.5-flash-lite", benchmark_workflow)
+        self.assertNotIn("GEMINI_MODEL: gemini-3.1-flash-lite-preview", benchmark_workflow)
         self.assertNotIn("GEMINI_MODEL: gemini-2.5-flash-lite", benchmark_workflow)
 
         self.assertIn("human-benchmark:", benchmark_workflow)

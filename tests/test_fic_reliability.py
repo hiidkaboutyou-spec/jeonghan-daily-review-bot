@@ -143,6 +143,34 @@ class Ao3ReliabilityTests(unittest.TestCase):
         self.assertEqual(len(loaded), 2)
         self.assertGreaterEqual(sleep.await_count, 1)
 
+    def test_x_recommendation_reuses_ao3_search_metadata_without_refetching_work(self):
+        settings = SimpleNamespace(x_cookies={}, sources=[], keyword_groups=[])
+        tweet = SimpleNamespace(
+            rawContent="https://archiveofourown.org/works/7",
+            links=[], likeCount=25, retweetCount=3,
+        )
+
+        class API:
+            async def search(self, *args, **kwargs):
+                yield tweet
+
+        collector = SimpleNamespace(_get_api=AsyncMock(return_value=API()))
+        known = Fic(
+            "known", "https://archiveofourown.org/works/7", "a", "summary",
+            ["Yoon Jeonghan/Choi Seungcheol"], kudos=99,
+        )
+        with patch("app.fic_digest.XCollector", return_value=collector), patch(
+            "app.fic_digest.fetch_ao3_work"
+        ) as fetch, patch("app.fic_digest.asyncio.sleep", new=AsyncMock()):
+            result = asyncio.run(
+                search_x_recommendations(settings, limit=1, known_fics=[known])
+            )
+
+        fetch.assert_not_called()
+        self.assertEqual(result[0].work_id, "7")
+        self.assertEqual(result[0].x_score, 31)
+        self.assertEqual(result[0].kudos, 99)
+
 
 class FicStateTests(unittest.TestCase):
     def test_new_updated_and_unchanged_are_distinguished_durably(self):

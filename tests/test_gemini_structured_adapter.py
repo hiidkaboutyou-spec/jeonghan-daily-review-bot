@@ -68,16 +68,31 @@ def _call(writer, client):
 
 
 class GeminiStructuredAdapterTests(unittest.TestCase):
-    def test_production_candidates_use_current_stable_lite_without_duplicate_fallback(self):
-        writer = CaptionWriter("key", "gemini-3.1-flash-lite", SimpleNamespace())
+    def test_production_candidates_use_current_stable_lite_with_supported_ga_fallback(self):
+        writer = CaptionWriter("key", "gemini-3.5-flash-lite", SimpleNamespace())
 
         self.assertEqual(
             writer._model_candidates(),
-            ["gemini-3.1-flash-lite"],
+            ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"],
         )
         self.assertNotIn("gemini-3.1-flash-lite-preview", writer._model_candidates())
         self.assertNotIn("gemini-2.5-flash-lite", writer._model_candidates())
         self.assertNotIn("gemini-2.5-flash", writer._model_candidates())
+
+    def test_translation_requests_disable_adjustable_content_filters(self):
+        writer = _Writer()
+        client = _Client(_Response(parsed={"items": [{"id": "A", "body": "ترجمه"}]}))
+
+        self.assertIsNotNone(_call(writer, client))
+
+        # _Models does not retain kwargs, so verify the SDK config through a mock.
+        generate = Mock(return_value=_Response(parsed={"items": [{"id": "A", "body": "ترجمه"}]}))
+        self.assertIsNotNone(
+            _call(_Writer(), SimpleNamespace(models=SimpleNamespace(generate_content=generate)))
+        )
+        config = generate.call_args.kwargs["config"]
+        self.assertEqual(len(config.safety_settings), 4)
+        self.assertTrue(all(setting.threshold.name == "BLOCK_NONE" for setting in config.safety_settings))
 
     def test_prefers_sdk_parsed_structured_response(self):
         writer = _Writer()

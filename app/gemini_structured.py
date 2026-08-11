@@ -23,6 +23,42 @@ from .ai import (
 logger = logging.getLogger(__name__)
 
 
+def translation_safety_settings(types) -> list[Any]:
+    """Allow faithful private translation across configurable harm categories.
+
+    The bot transforms already-public source text for a private review inbox; it
+    does not ask the model to endorse or extend that material. Gemini's separate
+    non-configurable prohibited-content policy still applies, but explicitly
+    disabling the adjustable classifiers prevents ordinary sexual language,
+    profanity, harassment, or quoted hate speech from turning an otherwise valid
+    translation into an outage placeholder.
+    """
+    categories = (
+        types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+        types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+        types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+        types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+    )
+    return [
+        types.SafetySetting(category=category, threshold=types.HarmBlockThreshold.BLOCK_NONE)
+        for category in categories
+    ]
+
+
+def last_generation_block_reason(writer: object) -> str:
+    """Return the latest provider block reason without exposing prompt text."""
+    diagnostics = getattr(writer, "last_diagnostics", None)
+    if not isinstance(diagnostics, dict):
+        return ""
+    failures = diagnostics.get("generation_failures", [])
+    if not isinstance(failures, list):
+        return ""
+    for entry in reversed(failures):
+        if isinstance(entry, dict) and entry.get("block_reason"):
+            return str(entry["block_reason"])[:80]
+    return ""
+
+
 def _pace_generation(writer: object) -> None:
     """Keep production request starts below Gemini's project-wide RPM limit.
 
@@ -99,6 +135,7 @@ def _generation_config(types, model: str, *, system_instruction: str, temperatur
         "system_instruction": system_instruction,
         "response_mime_type": "application/json",
         "response_json_schema": schema,
+        "safety_settings": translation_safety_settings(types),
     }
     if str(model).startswith("gemini-3"):
         # Translation is instruction-following, not deep reasoning. Minimal thinking
