@@ -1,5 +1,7 @@
 # Full Forensic Audit
 
+> **Production launch update — 2026-08-11:** The historical audit baseline below has been superseded by the production `main` deployment. Live default-branch runs verified Telegram, X, `gemini-3.1-flash-lite`, the primary ChannelStyle writer, encrypted artifact creation/upload, and the full nightly fanfic delivery. Current evidence is maintained in [`../LAUNCH_STATUS.md`](../LAUNCH_STATUS.md) and the feature matrix.
+
 ## Scope and evidence boundary
 
 Repository: `hiidkaboutyou-spec/jeonghan-daily-review-bot`
@@ -42,10 +44,10 @@ Core runtime flow:
 ### `.github/workflows/main.yml`
 
 - Push/PR: compile, project check and complete unit suite only; live runtime steps are skipped.
-- Schedule: `7,22,37,52 * * * *`.
+- Schedule: approximately every five minutes, with a short quiet window around the nightly fic runtime.
 - Manual dispatch: explicit `check` or `live` mode.
 - Runtime concurrency resolves to `jeonghan-daily-review-bot-runtime` and does not intentionally overlap the Nightly fic runtime.
-- Production Gemini model remains `gemini-2.5-flash-lite` unless code/config explicitly changes it.
+- Production Gemini model defaults to `gemini-3.1-flash-lite`; configured fallbacks remain bounded.
 
 ### `.github/workflows/fic-digest.yml`
 
@@ -233,8 +235,8 @@ The final secret-pattern and dependency-advisory scan is a closure gate and must
 | `TELEGRAM_REVIEW_CHAT_ID` | Live yes | treat private | `Settings`, Telegram target | non-zero integer | configuration error; `-1001234567890` |
 | `X_COOKIE` | Live yes | yes | `Settings`, X collector | parser accepts supported formats and requires `auth_token` + `ct0` | configuration error; placeholder only |
 | `GEMINI_API_KEY` | no | yes | ChannelStyle/fic summary model | empty allowed | neutral/legacy/fallback behavior |
-| `GEMINI_MODEL` | no | no | Settings/benchmark/fic workflow | empty uses configured default | default `gemini-2.5-flash-lite` |
-| `STATE_BACKUP_KEY` | no | yes | `tools.state_backup`, main/fic workflows | strict base64, decoded length 32 | encrypted recovery disabled with warning if absent; malformed configured key fails backup/restore |
+| `GEMINI_MODEL` | no | no | Settings/benchmark/fic workflow | empty uses configured default | default `gemini-3.1-flash-lite` |
+| `STATE_BACKUP_KEY` | no | yes | `tools.state_backup`, main/fic workflows | strict base64, decoded length 32 | absent value is replaced by a masked stable key derived from the bot token; malformed configured key fails backup/restore |
 | `SENTRY_DSN` | no | yes-ish endpoint credential | `app.observability` / main workflow | empty disables | no observability; safe placeholder empty |
 | `Settings.state_path` | repository-derived | private path | `StateStore` and derived stores | canonical `.state/state.json` | runtime state path; private DB sibling |
 | private DB path | derived | private file | archive/callback/delivery/fic stores | `.state/private-review.sqlite3` | cache/recovery/first-run behavior |
@@ -263,8 +265,8 @@ No actual secret values are required or inspected by this inventory.
 
 Repository code cannot itself complete these gates:
 
-1. Owner must configure a valid `STATE_BACKUP_KEY` if encrypted recovery is desired.
-2. A future scheduled/default-branch production run after merge must prove backup creation and a controlled recovery path with the configured secret.
+1. A dedicated valid `STATE_BACKUP_KEY` is recommended before rotating the Telegram bot token; production can otherwise use its masked derived key.
+2. A disposable controlled recovery drill is still needed to promote F40 from partial; live default-branch backup creation/upload is already proven.
 3. Gemini project/account quota must become available for completion of the fresh live benchmark.
 4. A human must inspect the required real SOURCE → OLD → NEW outputs and approve Persian quality.
 

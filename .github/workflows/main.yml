@@ -385,9 +385,9 @@ jobs:
           covered="$(
             gh_api_retry -H 'Accept: application/vnd.github+json' \
               "/repos/${GITHUB_REPOSITORY}/actions/workflows/fic-digest.yml/runs?per_page=100" |
-              jq --arg today "$today_start" --arg sha "$GITHUB_SHA" '
+              jq --arg today "$today_start" '
                 [.workflow_runs[] |
-                  select(.head_branch == "main" and .head_sha == $sha and .created_at >= $today) |
+                  select(.head_branch == "main" and .created_at >= $today) |
                   select(.event == "schedule" or
                     (.event == "workflow_dispatch" and .actor.login == "github-actions[bot]")) |
                   select(.status != "completed" or .conclusion == "success")

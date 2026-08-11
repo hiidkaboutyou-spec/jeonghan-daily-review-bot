@@ -2,6 +2,10 @@
 
 بات خصوصی برای جمع‌آوری، مرتب‌سازی، ترجمه و آماده‌سازی آپدیت‌های یون جونگهان از X و ارسال آن‌ها به چت خصوصی بررسی در تلگرام. این پروژه مسیر انتشار خودکار در کانال عمومی ندارد.
 
+## وضعیت لانچ
+
+نسخهٔ production روی شاخهٔ `main` و فقط با GitHub Actions اجرا می‌شود؛ Render یا کارت بانکی لازم نیست. زنجیرهٔ live تقریباً هر پنج دقیقه اجرا/تمدید می‌شود و Nightly Fanfic Digest هر روز ساعت ۲۲:۰۰ تهران (`18:30 UTC`) اجرا می‌شود. آخرین وضعیت و لینک‌های اثبات production در [`docs/LAUNCH_STATUS.md`](docs/LAUNCH_STATUS.md) ثبت شده‌اند.
+
 ## قابلیت‌های اصلی
 
 - اسکن ۲۲ منبع تنظیم‌شده در `config/sources.json` و جست‌وجوی چندزبانهٔ EN/KR/JP
@@ -41,7 +45,9 @@
 
 GitHub Actions Cache فقط برای سرعت و continuity best-effort استفاده می‌شود و database یا durable backup محسوب نمی‌شود. Runtime علاوه بر cache می‌تواند یک artifact رمزگذاری‌شدهٔ recovery بسازد.
 
-وقتی `STATE_BACKUP_KEY` تنظیم شده باشد:
+Workflowها از `STATE_BACKUP_KEY` استفاده می‌کنند و اگر این secret وجود نداشته باشد، یک کلید پایدار و mask‌شده از توکن بات برای همان process مشتق می‌کنند. کلید اختصاصی همچنان برای استقلال از چرخش توکن توصیه می‌شود.
+
+وقتی کلید recovery در runtime موجود باشد:
 
 1. cacheهای JSON و SQLite ابتدا restore می‌شوند؛
 2. اگر state لازم از cache موجود نباشد، workflow artifactهای غیرمنقضی `private-state-backup` را از جدیدترین به قدیمی‌تر بررسی می‌کند؛
@@ -49,7 +55,7 @@ GitHub Actions Cache فقط برای سرعت و continuity best-effort استف
 4. اولین backup معتبر restore می‌شود؛
 5. بعد از runtime، SQLite checkpoint/quick-check می‌شود و backup جدید فقط به شکل ciphertext در artifact ذخیره می‌شود.
 
-اگر `STATE_BACKUP_KEY` تنظیم نشده باشد bot همچنان اجرا می‌شود و workflow صریحاً warning می‌دهد که encrypted recovery غیرفعال است. مقدار secret هرگز log نمی‌شود.
+مقدار کلید هرگز در log چاپ نمی‌شود. چرخاندن `TELEGRAM_BOT_TOKEN` کلید مشتق‌شده را هم عوض می‌کند؛ بنابراین پیش از چرخش توکن، یک `STATE_BACKUP_KEY` اختصاصی تنظیم کنید یا از سلامت state فعلی مطمئن شوید.
 
 فرمت کلید: base64 یک کلید تصادفی دقیقاً 32-byte. نمونهٔ تولید امن:
 
@@ -71,9 +77,9 @@ python -c "import base64,secrets; print(base64.b64encode(secrets.token_bytes(32)
 ### Optional
 
 - `GEMINI_API_KEY` — در نبود آن fallback فعال است
-- `STATE_BACKUP_KEY` — encrypted recovery؛ نبود آن bot را متوقف نمی‌کند
+- `STATE_BACKUP_KEY` — کلید اختصاصی encrypted recovery؛ نبود آن با مشتق‌سازی پایدار از bot token پوشش داده می‌شود
 - `SENTRY_DSN` — observability فنیِ scrubbed در main workflow
-- `GEMINI_MODEL` — env/Actions variable override؛ default کد `gemini-2.5-flash-lite`
+- `GEMINI_MODEL` — env/Actions variable override؛ default کد `gemini-3.1-flash-lite`
 
 هیچ secret واقعی نباید در tracked file، artifact plaintext، issue یا log نوشته شود.
 

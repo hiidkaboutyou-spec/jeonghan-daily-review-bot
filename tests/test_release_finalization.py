@@ -106,13 +106,27 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("10#$now_hm", due)
         self.assertIn("1830", due)
         self.assertIn('actor.login == "github-actions[bot]"', due)
-        self.assertIn('.head_sha == $sha', due)
-        self.assertIn('--arg sha "$GITHUB_SHA"', due)
+        self.assertNotIn('.head_sha == $sha', due)
+        self.assertNotIn('--arg sha "$GITHUB_SHA"', due)
+        self.assertIn('.head_branch == "main" and .created_at >= $today', due)
         self.assertIn("status != \"completed\" or .conclusion == \"success\"", due)
         self.assertIn("gh_workflow_retry fic-digest.yml --ref main", due)
         self.assertIn("gh_api_retry", due)
         self.assertIn("gh_workflow_retry", due)
         self.assertIn("for attempt in 1 2 3", due)
+
+    def test_launch_docs_match_the_deployed_model_and_hosting_mode(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        runbook = (ROOT / "docs" / "audit" / "OPERATIONS_RUNBOOK.md").read_text(
+            encoding="utf-8"
+        )
+        launch = (ROOT / "docs" / "LAUNCH_STATUS.md").read_text(encoding="utf-8")
+        self.assertIn("gemini-3.1-flash-lite", readme)
+        self.assertIn("gemini-3.1-flash-lite", runbook)
+        self.assertNotIn("gemini-2.5-flash-lite", readme)
+        self.assertNotIn("gemini-2.5-flash-lite", runbook)
+        self.assertIn("GitHub Actions", launch)
+        self.assertIn("بدون Render", launch)
 
     def test_runtime_runs_are_serialized_and_only_safe_state_is_cached(self):
         workflow = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")

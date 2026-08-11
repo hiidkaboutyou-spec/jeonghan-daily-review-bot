@@ -15,7 +15,7 @@ It does **not** automatically publish to a public Telegram channel.
 File: `.github/workflows/main.yml`
 
 - validation on relevant push/PR changes;
-- scheduled runtime: `7,22,37,52 * * * *`;
+- scheduled runtime: تقریباً هر پنج دقیقه، با quiet window کوتاه اطراف اجرای nightly؛
 - manual dispatch has `check` and `live` modes.
 
 ### Nightly Jeonghan Fanfic Digest
@@ -52,7 +52,7 @@ Optional:
 - `STATE_BACKUP_KEY` — enables encrypted recovery backup.
 - `SENTRY_DSN` — optional scrubbed technical observability.
 
-`GEMINI_MODEL` can be supplied as an environment/Actions variable where the workflow supports it; code default is `gemini-2.5-flash-lite`.
+`GEMINI_MODEL` can be supplied as an environment/Actions variable where the workflow supports it; code default is `gemini-3.1-flash-lite`.
 
 Never paste real tokens, cookies, chat/user IDs, backup keys, private messages or private SQLite content into GitHub issues, PR comments, public logs or tracked files.
 
@@ -74,9 +74,9 @@ The decoded key must be exactly 32 bytes. `tools/state_backup.py` rejects malfor
 
 ## What happens if `STATE_BACKUP_KEY` is missing
 
-Normal bot validation/runtime is not intentionally broken by absence of this optional secret. Runtime emits a warning that encrypted recovery is disabled; Actions Cache remains best-effort only.
+Normal bot validation/runtime is not broken by absence of this optional secret. The workflow derives a stable process key from `TELEGRAM_BOT_TOKEN`, masks it before exporting it to later steps, and can still create authenticated encrypted recovery snapshots. A dedicated `STATE_BACKUP_KEY` is preferable because rotating the Telegram token also rotates the derived key.
 
-Do **not** interpret this as durable persistence.
+Do **not** rotate the Telegram token and discard the old token before confirming that current state is healthy or a dedicated recovery key is active.
 
 ## How cache works
 
@@ -89,14 +89,14 @@ Cache is an optimization and continuity mechanism. GitHub can evict caches. GitH
 
 ## How encrypted recovery works
 
-When `STATE_BACKUP_KEY` is configured:
+When a recovery key is available (dedicated or derived):
 
 1. cache restore happens first;
 2. if required state is missing, workflow lists non-expired `private-state-backup` artifacts newest→oldest;
 3. each artifact is downloaded to `/tmp`, unpacked and authenticated/validated with `python -m tools.state_backup validate`;
 4. the first valid candidate is restored;
 5. JSON and SQLite are validated before replacement;
-6. after runtime/checkpoint, a new ciphertext-only backup can be uploaded for 90 days.
+6. after runtime/checkpoint, a new ciphertext-only backup can be uploaded with the workflow's current three-day retention; normal runs refresh snapshots on a bounded cadence.
 
 The uploaded artifact contains `.state/private-state-backup.enc`, not plaintext JSON or SQLite.
 
@@ -104,7 +104,7 @@ Because this repository is public, encryption is essential. GitHub documents art
 
 ## Verify backup creation after merge
 
-Do this only after `STATE_BACKUP_KEY` has been added and the branch has been human-approved/merged.
+Do this after the branch has been human-approved/merged. A dedicated `STATE_BACKUP_KEY` is recommended but the production workflow can use its masked derived key.
 
 1. Open **Actions**.
 2. Open a completed scheduled/live run of `Jeonghan Daily Review Bot` or `Nightly Jeonghan Fanfic Digest`.

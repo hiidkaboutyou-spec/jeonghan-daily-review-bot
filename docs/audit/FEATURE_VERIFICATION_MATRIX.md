@@ -1,5 +1,7 @@
 # Feature Verification Matrix
 
+Production evidence below was refreshed after the 2026-08-11 default-branch launch. The exact launch commit and workflow links are recorded in [`../LAUNCH_STATUS.md`](../LAUNCH_STATUS.md).
+
 Classification is deliberately conservative. Mocked/CI evidence is not promoted to production evidence when a real external platform or scheduled default-branch run is required.
 
 | ID | Capability / expected behavior | Implementation path | Automated / CI evidence | Production evidence | Classification | Residual limitation / next action |
@@ -34,22 +36,22 @@ Classification is deliberately conservative. Mocked/CI evidence is not promoted 
 | F28 | Validate/load 16,306 historical ChannelStyle examples | channel corpus/style modules | corpus hash/count/rebuild tests; app check | deterministic tracked corpus | VERIFIED WORKING | Corpus quality is separate from factual authority |
 | F29 | Give historical dates zero style-authority/recency weight | style retrieval | date-score tests | deterministic | VERIFIED WORKING | None actionable |
 | F30 | Enforce fidelity for identities, numbers/dates, URLs, hashtags, laughter, speakers | translation/hardening modules | extensive Part 3/4 deterministic tests | full live model output still quota-blocked | VERIFIED WORKING | Hard gates do not prove prose quality |
-| F31 | Use ChannelStyle writer as primary production writer when artifacts validate | `app/channel_style_application.py`, entrypoint | ProductionWriterWiring tests | post-merge scheduled runtime not executed on branch | IMPLEMENTED BUT NOT VERIFIED | Confirm startup log on first scheduled run after merge |
+| F31 | Use ChannelStyle writer as primary production writer when artifacts validate | `app/channel_style_application.py`, entrypoint | ProductionWriterWiring tests | default-branch live log: `Channel translation v2 active as PRIMARY` with 16,306 examples | VERIFIED WORKING | Human prose-quality gate remains separate (F35) |
 | F32 | Learn only explicit confirmed feedback; never auto-learn generated/rejected drafts | style feedback runtime | feedback/rejection tests | deterministic | VERIFIED WORKING | Human confirmation remains required |
 | F33 | Deterministic Part 4 benchmark harness: freshness/checkpoint/resume/quality gate | benchmark tools/workflow | benchmark harness/cache/freshness tests | checkpoint artifacts observed | VERIFIED WORKING | Live generation separate |
 | F34 | Generate complete live Gemini benchmark on approved model | Gemini/benchmark workflow | harness works | real attempts return 429 `RESOURCE_EXHAUSTED` | BLOCKED BY EXTERNAL ACCESS | Wait for project/account quota; resume existing checkpoint |
 | F35 | Human quality gate on representative real SOURCE→OLD→NEW cases | Part 4 process | prior human review correctly failed poor cases | no fresh complete benchmark after latest hardening | IMPLEMENTED BUT NOT VERIFIED | Complete live benchmark, then human review; do not auto-pass |
 | F36 | AO3 pagination continues across non-qualifying pages, stops on true empty/failure/count/cap | `app/fic_digest.py` | AO3 reliability tests including 25-page cap | live AO3 intentionally absent from CI | VERIFIED WORKING | HTML structure is external |
-| F37 | AO3/X detail retrieval paced/serial; fic work metadata classified new/updated/unchanged | `app/fic_digest.py`, `app/fic_state.py` | serial/pacing + fic-state/chapter tests | no post-merge live AO3 run | VERIFIED WORKING | Live HTML changes remain external |
-| F38 | Nightly fic digest preserves ordering and resumes partial delivery | fic digest + message receipts | formatting/chunk/delivery-key tests | scheduled default-branch branch version not yet production-run | IMPLEMENTED BUT NOT VERIFIED | Verify first scheduled run after merge |
+| F37 | AO3/X detail retrieval paced/serial; fic work metadata classified new/updated/unchanged | `app/fic_digest.py`, `app/fic_state.py` | serial/pacing + fic-state/chapter tests | default-branch live run built `x=13`, `ao3_pool=48`, `ao3_list=36` after bounded transient recovery | VERIFIED WORKING | Live HTML changes remain external |
+| F38 | Nightly fic digest preserves ordering and resumes partial delivery | fic digest + message receipts | formatting/chunk/delivery-key tests | default-branch live run confirmed delivery for both X and AO3 lists | VERIFIED WORKING | Telegram's residual acceptance-before-receipt window remains |
 | F39 | Use Actions cache for best-effort JSON/private SQLite continuity | main/fic workflows | workflow tests and prior workflow cache use | GitHub cache is evictable | PARTIALLY WORKING | Never treat cache as authoritative; encrypted recovery recommended |
-| F40 | Authenticated encrypted state recovery from newest valid artifact | `tools/state_backup.py`, main/fic workflows | roundtrip, tamper, wrong-key, atomic rollback, workflow-selection tests | `STATE_BACKUP_KEY` existence and scheduled restore not verified | IMPLEMENTED BUT NOT VERIFIED | Owner sets secret; verify real backup and controlled restore after merge |
+| F40 | Authenticated encrypted state recovery from newest valid artifact | `tools/state_backup.py`, main/fic workflows | roundtrip, tamper, wrong-key, atomic rollback, workflow-selection tests | default-branch run created and uploaded ciphertext artifact `private-state-backup`; healthy state was not deleted to force restore | PARTIALLY WORKING | Use a disposable controlled restore drill; do not destroy healthy production state |
 
 ## Totals
 
-- VERIFIED WORKING: 30
-- IMPLEMENTED BUT NOT VERIFIED: 8
-- PARTIALLY WORKING: 1
+- VERIFIED WORKING: 32
+- IMPLEMENTED BUT NOT VERIFIED: 5
+- PARTIALLY WORKING: 2
 - BROKEN: 0
 - UNREACHABLE: 0
 - MISSING: 0
@@ -57,4 +59,4 @@ Classification is deliberately conservative. Mocked/CI evidence is not promoted 
 
 Total: 40 capabilities.
 
-> F35 is intentionally not promoted to VERIFIED simply because the harness exists. It needs human judgment over a fresh complete live benchmark. F40 likewise needs owner secret configuration and a real scheduled recovery run before production verification.
+> F35 is intentionally not promoted to VERIFIED simply because the harness exists. It needs human judgment over a fresh complete live benchmark. F40 remains partial because production artifact creation is proven but a destructive live restore was intentionally not forced.

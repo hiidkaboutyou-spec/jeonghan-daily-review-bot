@@ -10,7 +10,7 @@ from .x_client import XCollectionError, XCollector
 logger = logging.getLogger(__name__)
 
 
-def _check_telegram(settings: Settings) -> None:
+def _check_telegram(settings: Settings) -> str:
     """Fail closed only when the assistant cannot receive or send messages."""
     telegram = TelegramBot(
         settings.telegram_token,
@@ -31,6 +31,8 @@ def _check_telegram(settings: Settings) -> None:
         raise ConfigError("Telegram getMe preflight returned an invalid response.")
     if not isinstance(chat, dict) or not chat.get("id"):
         raise ConfigError("Telegram review chat is not accessible to the bot.")
+    username = str(me.get("username") or "").strip().lstrip("@")
+    return f"ok (@{username})" if username else "ok"
 
 
 def _check_gemini(settings: Settings) -> str:
@@ -73,9 +75,9 @@ async def run_preflight() -> dict[str, str]:
     if errors:
         raise ConfigError("; ".join(errors))
 
-    _check_telegram(settings)
+    telegram_status = _check_telegram(settings)
     return {
-        "telegram": "ok",
+        "telegram": telegram_status,
         "x": await _check_x(settings),
         "gemini": _check_gemini(settings),
     }

@@ -35,9 +35,17 @@ class ProductionPreflightTests(unittest.TestCase):
 
     @patch("app.production_preflight.TelegramBot")
     def test_telegram_bot_and_chat_are_both_checked(self, bot_class):
-        bot_class.return_value.api.side_effect = [{"id": 1}, {"id": -1001}]
-        _check_telegram(settings())
+        bot_class.return_value.api.side_effect = [
+            {"id": 1, "username": "jeonghan_helper_bot"},
+            {"id": -1001},
+        ]
+        self.assertEqual(_check_telegram(settings()), "ok (@jeonghan_helper_bot)")
         self.assertEqual(bot_class.return_value.api.call_count, 2)
+
+    @patch("app.production_preflight.TelegramBot")
+    def test_telegram_preflight_does_not_require_a_public_username(self, bot_class):
+        bot_class.return_value.api.side_effect = [{"id": 1}, {"id": -1001}]
+        self.assertEqual(_check_telegram(settings()), "ok")
 
     def test_missing_optional_providers_use_degraded_modes(self):
         self.assertIn("fallback", _check_gemini(settings()))
