@@ -19,17 +19,51 @@ on:
 permissions:
   contents: read
 
-# Expensive translation evaluation must not be killed by ordinary validation
-# commits. v6 returns to the approved production model while retaining the v4
-# human-gate writer hardening. Older 2.5 stage caches are eligible as stage-only
-# acceleration; completed cases still have to pass the current writer fingerprint.
+# Pull requests use a bounded live production smoke so every code change gets a
+# fast, actionable EN/KO/JA Gemini check. The expensive 30-40 case human/editorial
+# certification remains available on workflow_dispatch and is never represented as
+# something CI can self-approve without human review.
 concurrency:
-  group: channel-style-translation-benchmark-v4-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  group: channel-style-translation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  benchmark:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+  production-smoke:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONUNBUFFERED: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: gemini-2.5-flash-lite
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade "pip>=26.1.2"
+          python -m pip install -r requirements.txt
+          python -m pip check
+
+      - name: Validate translation project
+        run: |
+          python -m compileall -q app tests tools
+          python -m app --check
+          python -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Live EN KO JA production translation smoke
+        run: python -m tools.run_translation_production_smoke
+
+  human-benchmark:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 55
     env:
@@ -49,6 +83,7 @@ jobs:
         run: |
           python -m pip install --upgrade "pip>=26.1.2"
           python -m pip install -r requirements.txt
+          python -m pip check
 
       - name: Validate translation project
         run: |
@@ -60,21 +95,18 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: .state/part4-real-benchmark.json
-          key: part4-benchmark-v6-${{ runner.os }}-${{ github.event.pull_request.number || github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: part4-benchmark-v7-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            part4-benchmark-v6-${{ runner.os }}-${{ github.event.pull_request.number || github.ref_name }}-
-            part4-benchmark-v4-${{ runner.os }}-pr-${{ github.event.pull_request.number }}-
-            part4-benchmark-v3-${{ runner.os }}-pr-${{ github.event.pull_request.number }}-
+            part4-benchmark-v7-${{ runner.os }}-${{ github.ref_name }}-
+            part4-benchmark-v6-${{ runner.os }}-${{ github.ref_name }}-
 
-      - name: Generate fresh PART 4 human-gate benchmark
+      - name: Generate full PART 4 human-gate benchmark
         id: benchmark
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: gemini-2.5-flash-lite
         shell: bash
         run: |
-          # The observed project limit accepts three direct-v2 cases in the
-          # rolling window, so cool down before attempting the fourth.
           set +e
           python -m tools.run_translation_benchmark_human \
             --output .state/part4-real-benchmark.json \
@@ -95,19 +127,10 @@ jobs:
           BENCHMARK_STATUS: ${{ steps.benchmark.outputs.status }}
         run: |
           {
-            echo "## Translation benchmark"
+            echo "## Translation human benchmark"
             echo
-            if [ "$BENCHMARK_STATUS" = "BLOCKED_BY_EXTERNAL_QUOTA" ]; then
-              echo "⚠️ **Live benchmark: BLOCKED BY EXTERNAL QUOTA**"
-              echo
-              echo "- Repository regression: no"
-              echo "- Benchmark harness: verified working"
-              echo "- Quality status: INCOMPLETE"
-              echo "- Human quality gate: NOT PASSED"
-              echo "- Merge authorization: NOT GRANTED"
-            else
-              echo "- Live benchmark status: $BENCHMARK_STATUS"
-            fi
+            echo "- Live benchmark status: $BENCHMARK_STATUS"
+            echo "- Human/editorial certification remains bound to exact reviewed output hashes."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Save PART 4 benchmark checkpoint
@@ -115,7 +138,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: .state/part4-real-benchmark.json
-          key: part4-benchmark-v6-${{ runner.os }}-${{ github.event.pull_request.number || github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: part4-benchmark-v7-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload PART 4 benchmark artifact
         if: always()
