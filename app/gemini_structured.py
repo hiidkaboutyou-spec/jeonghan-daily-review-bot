@@ -213,11 +213,18 @@ def generate_json_v2(
                 )
         except Exception as exc:
             shared_failure = gemini_shared_failure_kind(exc)
+            model_specific = gemini_should_try_next_model(exc)
             if shared_failure == "quota":
                 # Gemini quotas are model-dependent. Retire this model for the
                 # current process and try each configured free fallback at most
                 # once. If every model is exhausted, open the process circuit so
                 # later groups stay queued instead of producing an error storm.
+                unavailable_models.add(model)
+                self._gemini_unavailable_models = unavailable_models
+            elif model_specific:
+                # A removed/unknown endpoint will never recover later in this
+                # workflow process. Retire it once instead of repeating the same
+                # 404 for every queued translation until the job times out.
                 unavailable_models.add(model)
                 self._gemini_unavailable_models = unavailable_models
             elif shared_failure == "authentication":
@@ -243,6 +250,16 @@ def generate_json_v2(
                         }
                     continue
                 self._gemini_circuit_open = "quota"
-            if not gemini_should_try_next_model(exc):
+            elif model_specific:
+                remaining = [candidate for candidate in all_models if candidate not in unavailable_models]
+                if remaining:
+                    if isinstance(getattr(self, "last_diagnostics", None), dict):
+                        self.last_diagnostics["generation_model_failover"] = {
+                            "unavailable": sorted(unavailable_models),
+                            "next": remaining[0],
+                        }
+                    continue
+                self._gemini_circuit_open = "models_unavailable"
+            if not model_specific:
                 break
     return None

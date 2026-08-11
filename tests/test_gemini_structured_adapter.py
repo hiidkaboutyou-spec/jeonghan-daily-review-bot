@@ -142,6 +142,25 @@ class GeminiStructuredAdapterTests(unittest.TestCase):
             "gemini-free-fallback",
         )
 
+    def test_removed_models_are_retired_once_instead_of_retried_per_item(self):
+        writer = _Writer(["removed-primary", "removed-fallback"])
+        client = _Client(error=RuntimeError("404 model not found for API version"))
+
+        self.assertIsNone(_call(writer, client))
+        self.assertEqual(client.models.calls, 2)
+        self.assertEqual(
+            writer._gemini_unavailable_models,
+            {"removed-primary", "removed-fallback"},
+        )
+        self.assertEqual(writer._gemini_circuit_open, "models_unavailable")
+
+        self.assertIsNone(_call(writer, client))
+        self.assertEqual(client.models.calls, 2)
+        self.assertEqual(
+            writer.last_diagnostics["generation_circuit_open"],
+            "models_unavailable",
+        )
+
     def test_one_transport_failure_does_not_disable_later_translations(self):
         writer = _Writer()
         client = _Client(error=TimeoutError("temporary timeout"))
