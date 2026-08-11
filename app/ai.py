@@ -11,6 +11,14 @@ from .style import StyleMemory
 
 logger = logging.getLogger(__name__)
 GEMINI_REQUEST_TIMEOUT_MS = 45_000
+# Keep production fallbacks current and deliberately small. The stable 3.1
+# Flash-Lite endpoint replaced the retired 3.1 preview and is the first fallback
+# for a model-specific free-tier quota. The older stable 2.5 Lite endpoint remains
+# a final compatibility fallback, but the heavier Flash model is not sprayed.
+GEMINI_FREE_FALLBACK_MODELS = (
+    "gemini-3.1-flash-lite",
+    "gemini-2.5-flash-lite",
+)
 
 
 def gemini_should_try_next_model(exc: Exception) -> bool:
@@ -75,13 +83,7 @@ class CaptionWriter:
         return self._client
 
     def _model_candidates(self) -> list[str]:
-        return _unique(
-            [
-                self.model,
-                "gemini-2.5-flash-lite",
-                "gemini-2.5-flash",
-            ]
-        )
+        return _unique([self.model, *GEMINI_FREE_FALLBACK_MODELS])
 
     def write_group(self, group: EventGroup, *, mode: str = "default") -> GroupCopy:
         query_text = "\n".join(item.text for item in group.updates)

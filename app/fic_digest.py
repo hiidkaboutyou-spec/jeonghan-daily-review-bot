@@ -19,7 +19,7 @@ from bs4 import BeautifulSoup
 from .config import Settings
 from .fic_state import FicObservation, FicStateStore
 from .message_delivery import MessageDeliveryStore
-from .ai import GEMINI_REQUEST_TIMEOUT_MS, gemini_should_try_next_model
+from .ai import GEMINI_FREE_FALLBACK_MODELS, GEMINI_REQUEST_TIMEOUT_MS, gemini_should_try_next_model
 from .telegram import TelegramBot
 from .x_client import XCollector
 
@@ -373,7 +373,7 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
             "Joshua/Hong Jisoo = جاشوآ. خروجی JSON با items شامل url و summary_fa باشد. "
             + json.dumps(payload, ensure_ascii=False)
         )
-        candidates = list(dict.fromkeys([settings.gemini_model, "gemini-2.5-flash-lite", "gemini-2.5-flash"]))
+        candidates = list(dict.fromkeys([settings.gemini_model, *GEMINI_FREE_FALLBACK_MODELS]))
         for model in [m for m in candidates if m]:
             try:
                 response = client.models.generate_content(

@@ -4,6 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from app.ai import CaptionWriter
 from app.gemini_structured import generate_json_v2
 
 
@@ -67,6 +68,20 @@ def _call(writer, client):
 
 
 class GeminiStructuredAdapterTests(unittest.TestCase):
+    def test_production_candidates_use_current_stable_lite_fallback_first(self):
+        writer = CaptionWriter("key", "gemini-3.5-flash-lite", SimpleNamespace())
+
+        self.assertEqual(
+            writer._model_candidates(),
+            [
+                "gemini-3.5-flash-lite",
+                "gemini-3.1-flash-lite",
+                "gemini-2.5-flash-lite",
+            ],
+        )
+        self.assertNotIn("gemini-3.1-flash-lite-preview", writer._model_candidates())
+        self.assertNotIn("gemini-2.5-flash", writer._model_candidates())
+
     def test_prefers_sdk_parsed_structured_response(self):
         writer = _Writer()
         expected = {"items": [{"id": "A", "body": "ترجمه"}]}
