@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from app.ai import GroupCopy
 from app.main import short_id
-from app.models import EventGroup, Update
+from app.models import EventGroup, MediaItem, Update
 from app.private_runtime import PrivateReviewApplication
 from app.state import StateStore
 from app.telegram import TelegramError
@@ -122,6 +122,63 @@ class PrivateDeliveryResumeTests(unittest.TestCase):
 
         app.state.pop_pending.assert_not_called()
         app.deliver_updates.assert_not_awaited()
+
+    def test_missing_media_gets_one_visible_source_link_notice(self):
+        with tempfile.TemporaryDirectory() as temp:
+            update = self.update("missing-media", 1)
+            update.media = [MediaItem(kind="photo", url="https://pbs.twimg.com/media/missing.jpg")]
+            group = EventGroup(key="single:missing-media", category="general", title="old", updates=[update])
+            app = PrivateReviewApplication.__new__(PrivateReviewApplication)
+            app.state = StateStore(Path(temp) / "state.json")
+            app.settings = SimpleNamespace(themes={"themes": {"general": {}}})
+            app.archive_db = Mock()
+            app.inbox = Mock()
+            app._deliver_private_media = AsyncMock(return_value=False)
+            app.writer = Mock()
+            app.writer.write_group.return_value = GroupCopy("عنوان", "general", {update.id: "ترجمه"})
+            app.themes = Mock()
+            app.themes.caption.return_value = "کپشن"
+            app.telegram = Mock()
+            app.telegram.send_message.side_effect = [
+                {"message_id": 1},
+                {"message_id": 2},
+                {"message_id": 3},
+            ]
+
+            with patch("app.private_runtime.organize_updates", return_value=[group]):
+                asyncio.run(app.deliver_updates([update], force=False))
+
+            warning = app.telegram.send_message.call_args_list[1]
+            self.assertIn(update.url, warning.args[0])
+            self.assertEqual(warning.kwargs["delivery_key"], f"media-unavailable:{update.id}")
+
+    def test_large_delivery_queue_polls_new_commands_between_batches(self):
+        with tempfile.TemporaryDirectory() as temp:
+            updates = [self.update(str(index), index) for index in range(1, 7)]
+            groups = [
+                EventGroup(key=f"single:{item.id}", category="general", title="old", updates=[item])
+                for item in updates
+            ]
+            app = PrivateReviewApplication.__new__(PrivateReviewApplication)
+            app.state = StateStore(Path(temp) / "state.json")
+            app.settings = SimpleNamespace(themes={"themes": {"general": {}}})
+            app.archive_db = Mock()
+            app.inbox = Mock()
+            app._deliver_private_media = AsyncMock(return_value=True)
+            app.process_telegram_updates = AsyncMock()
+            app.writer = Mock()
+            app.writer.write_group.side_effect = [
+                GroupCopy("عنوان", "general", {item.id: f"ترجمه {item.id}"}) for item in updates
+            ]
+            app.themes = Mock()
+            app.themes.caption.side_effect = [f"کپشن {item.id}" for item in updates]
+            app.telegram = Mock()
+            app.telegram.send_message.return_value = {"message_id": 1}
+
+            with patch("app.private_runtime.organize_updates", return_value=groups):
+                asyncio.run(app.deliver_updates(updates, force=False))
+
+            app.process_telegram_updates.assert_awaited_once()
 
 
 if __name__ == "__main__":

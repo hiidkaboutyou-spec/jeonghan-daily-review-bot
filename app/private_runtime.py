@@ -176,7 +176,12 @@ class PrivateReviewApplication(Application):
         total_updates = sum(len(group.updates) for group in groups)
         self.telegram.send_message(ensure_rtl_line(f"{total_updates} آپدیت در {len(groups)} گروه پیدا شد؛ ارسال از قدیمی به جدید شروع شد."), reply_markup=main_keyboard())
         deferred = 0
-        for group in groups:
+        for group_index, group in enumerate(groups):
+            # A large translation queue can keep one Actions pass busy for several
+            # minutes. Check Telegram between small batches so commands/callbacks
+            # sent during that pass do not wait for the next workflow process.
+            if group_index and group_index % 5 == 0:
+                await self.process_telegram_updates()
             existing_drafts: dict[str, Draft] = {}
             if not force:
                 for update in group.updates:
@@ -248,7 +253,13 @@ class PrivateReviewApplication(Application):
 
             for update, draft, delivery_key in prepared:
                 if update.media:
-                    await self._deliver_private_media(update)
+                    media_delivered = await self._deliver_private_media(update)
+                    if media_delivered is False:
+                        self.telegram.send_message(
+                            "⚠️ مدیای این آپدیت دیگر از X دانلود نشد؛ متن را فرستادم و خود پست از این لینک باز می‌شود:\n"
+                            + update.url,
+                            delivery_key=f"media-unavailable:{update.id}",
+                        )
                 self.state.save_draft(draft)
                 sent = self.telegram.send_message(
                     draft.caption,
@@ -268,13 +279,13 @@ class PrivateReviewApplication(Application):
         if deferred:
             self._notify_translation_outage_if_due(deferred)
 
-    async def _deliver_private_media(self, update: Update) -> None:
+    async def _deliver_private_media(self, update: Update) -> bool:
         media = list(update.media[:20])
         cached = self.media_cache.get_all(media)
         if cached is not None and cached:
             try:
                 self.telegram.send_cached_media(cached)
-                return
+                return True
             except TelegramError:
                 for item in media:
                     self.media_cache.delete(item)
@@ -291,12 +302,13 @@ class PrivateReviewApplication(Application):
                     prepared.append(values[0])
                     prepared_items.append(item)
             if not prepared:
-                return
+                return False
             sent = self.telegram.send_media(prepared)
             for item, message in zip(prepared_items, sent):
                 file_id, unique_id = telegram_file_identity(message, item.kind)
                 if file_id:
                     self.media_cache.put(item, file_id, unique_id)
+            return True
         finally:
             for temp in temp_handles:
                 temp.cleanup()

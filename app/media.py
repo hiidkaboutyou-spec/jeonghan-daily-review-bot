@@ -75,6 +75,7 @@ class MediaManager:
     def _download_photo(self, item: MediaItem, tweet_url: str, root: Path, index: int) -> PreparedMedia | None:
         path = root / f"photo-{index}.jpg"
         last_error: Exception | None = None
+        origin_missing = False
         high, lower = _photo_quality_candidates(item.url)
 
         for method, url in high:
@@ -86,6 +87,13 @@ class MediaManager:
             except Exception as exc:
                 last_error = exc
                 logger.info("High-quality photo fallback needed (%s): %s", method, _safe_error(exc))
+                if _missing_remote_media(exc):
+                    # Every X size uses the same media path. If the origin itself
+                    # is gone, changing only name=orig/large/small cannot revive it.
+                    # Give gallery-dl one chance to refresh the Tweet metadata,
+                    # then stop instead of making ten more doomed HTTP requests.
+                    origin_missing = True
+                    break
 
         gallery = self._download_with_gallery_dl(
             tweet_url,
@@ -98,6 +106,9 @@ class MediaManager:
             content_type = mimetypes.guess_type(gallery.name)[0] or "image/jpeg"
             if content_type in {"image/jpeg", "image/png"}:
                 return self._prepared("photo", gallery, content_type, "gallery-dl")
+
+        if origin_missing and last_error is not None:
+            raise last_error
 
         for method, url in lower:
             path.unlink(missing_ok=True)
@@ -350,6 +361,13 @@ def _photo_quality_candidates(url: str) -> tuple[list[tuple[str, str]], list[tup
             seen.add(candidate)
             clean_lower.append((method, candidate))
     return clean_high, clean_lower
+
+
+def _missing_remote_media(exc: Exception) -> bool:
+    if not isinstance(exc, requests.HTTPError):
+        return False
+    response = getattr(exc, "response", None)
+    return int(getattr(response, "status_code", 0) or 0) in {404, 410}
 
 
 def _photo_variants(url: str) -> list[str]:

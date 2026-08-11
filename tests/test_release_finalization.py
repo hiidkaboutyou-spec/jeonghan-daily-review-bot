@@ -46,6 +46,13 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("X_COOKIE", preflight)
         self.assertIn("GEMINI_API_KEY", preflight)
 
+    def test_live_workflows_pin_the_verified_stable_gemini_model(self):
+        workflows = ROOT / ".github" / "workflows"
+        for name in ("main.yml", "fic-digest.yml"):
+            text = (workflows / name).read_text(encoding="utf-8")
+            self.assertIn("GEMINI_MODEL: gemini-3.1-flash-lite", text, name)
+            self.assertNotIn("gemini-3.5-flash-lite", text, name)
+
     def test_direct_main_push_runs_one_live_pass_without_exposing_prs(self):
         workflow = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")
         self.assertIn(

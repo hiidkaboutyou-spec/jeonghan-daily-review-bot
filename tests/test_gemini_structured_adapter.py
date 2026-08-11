@@ -68,15 +68,12 @@ def _call(writer, client):
 
 
 class GeminiStructuredAdapterTests(unittest.TestCase):
-    def test_production_candidates_use_current_stable_lite_fallback_first(self):
-        writer = CaptionWriter("key", "gemini-3.5-flash-lite", SimpleNamespace())
+    def test_production_candidates_use_current_stable_lite_without_duplicate_fallback(self):
+        writer = CaptionWriter("key", "gemini-3.1-flash-lite", SimpleNamespace())
 
         self.assertEqual(
             writer._model_candidates(),
-            [
-                "gemini-3.5-flash-lite",
-                "gemini-3.1-flash-lite",
-            ],
+            ["gemini-3.1-flash-lite"],
         )
         self.assertNotIn("gemini-3.1-flash-lite-preview", writer._model_candidates())
         self.assertNotIn("gemini-2.5-flash-lite", writer._model_candidates())
@@ -166,6 +163,23 @@ class GeminiStructuredAdapterTests(unittest.TestCase):
         client = _Client(error=TimeoutError("temporary timeout"))
         self.assertIsNone(_call(writer, client))
         self.assertFalse(hasattr(writer, "_gemini_circuit_open"))
+
+    def test_temporary_503_retries_same_model_once_then_succeeds(self):
+        writer = _Writer(["gemini-stable"])
+        response = _Response(parsed={"items": [{"id": "A", "body": "ترجمه"}]})
+        generate = Mock(side_effect=[RuntimeError("503 UNAVAILABLE high demand"), response])
+        client = SimpleNamespace(models=SimpleNamespace(generate_content=generate))
+
+        with patch("app.gemini_structured.time.sleep") as sleep:
+            result = _call(writer, client)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(generate.call_count, 2)
+        sleep.assert_called_once_with(2.0)
+        self.assertEqual(
+            writer.last_diagnostics["generation_failures"][-1]["reason"],
+            "transient_retry:RuntimeError",
+        )
 
     def test_production_pacing_spaces_request_starts_below_provider_rpm(self):
         writer = _Writer()

@@ -101,6 +101,11 @@ class _PreparedMediaManager:
         return temp, [PreparedMedia("photo", path, "image/jpeg")]
 
 
+class _EmptyMediaManager:
+    def prepare(self, update):
+        return tempfile.TemporaryDirectory(), []
+
+
 class _TelegramRecorder:
     def __init__(self, *, fail: bool = False):
         self.fail = fail
@@ -143,9 +148,18 @@ class MediaDeliveryRuntimeTests(unittest.TestCase):
     def test_same_exact_bytes_different_urls_are_not_sent_twice(self):
         with tempfile.TemporaryDirectory() as temp:
             app = self.bare_app(Path(temp) / "private.sqlite3")
-            asyncio.run(app._deliver_private_media(_update("1", "https://media.example/a.jpg")))
-            asyncio.run(app._deliver_private_media(_update("2", "https://mirror.example/b.jpg")))
+            self.assertTrue(asyncio.run(app._deliver_private_media(_update("1", "https://media.example/a.jpg"))))
+            self.assertTrue(asyncio.run(app._deliver_private_media(_update("2", "https://mirror.example/b.jpg"))))
             self.assertEqual(app.telegram.calls, 1)
+            app.media_delivery.close()
+
+    def test_all_failed_media_is_reported_to_the_delivery_caller(self):
+        with tempfile.TemporaryDirectory() as temp:
+            app = self.bare_app(Path(temp) / "private.sqlite3")
+            app.media = _EmptyMediaManager()
+            result = asyncio.run(app._deliver_private_media(_update("1", "https://media.example/missing.jpg")))
+            self.assertFalse(result)
+            self.assertEqual(app.telegram.calls, 0)
             app.media_delivery.close()
 
     def test_failed_telegram_send_does_not_create_false_delivery_receipt(self):

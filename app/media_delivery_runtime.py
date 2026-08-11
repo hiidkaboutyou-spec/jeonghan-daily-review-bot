@@ -35,7 +35,7 @@ class MediaDedupReviewApplication(ReminderReviewApplication):
             if getattr(telegram, "message_delivery_store", None) is None:
                 telegram.message_delivery_store = MessageDeliveryStore(durable_db)
 
-    async def _deliver_private_media(self, update: Update) -> None:
+    async def _deliver_private_media(self, update: Update) -> bool:
         # Intentional lightweight test doubles may omit persistent state entirely.
         # Real production always has StateStore.path; in the no-state test case,
         # preserve the parent behavior instead of constructing a fake durable path.
@@ -44,7 +44,7 @@ class MediaDedupReviewApplication(ReminderReviewApplication):
 
         media = list(update.media[:20])
         if not media:
-            return
+            return True
 
         # Fast path: Telegram already knows every source media URL. file_unique_id
         # gives an additional stable identity that survives changing file_ids.
@@ -68,7 +68,7 @@ class MediaDedupReviewApplication(ReminderReviewApplication):
                 send_identities.append(identities)
 
             if not send_cached:
-                return
+                return True
             try:
                 sent = self.telegram.send_cached_media(send_cached)
             except TelegramError:
@@ -90,7 +90,7 @@ class MediaDedupReviewApplication(ReminderReviewApplication):
                         kind=item.kind,
                         update_id=update.id,
                     )
-                return
+                return True
 
         # Slow path: prepare the real bytes, then SHA-256 them before upload. This
         # catches the same image/video served from a different source URL.
@@ -99,6 +99,7 @@ class MediaDedupReviewApplication(ReminderReviewApplication):
         prepared_items = []
         prepared_identities: list[tuple[str, ...]] = []
         pending_identities: set[str] = set()
+        already_delivered = False
         try:
             for item in media:
                 single = Update.from_dict(update.to_dict())
@@ -115,6 +116,7 @@ class MediaDedupReviewApplication(ReminderReviewApplication):
                 )
                 if self.media_delivery.any_recent(identities) or pending_identities.intersection(identities):
                     logger.info("Skipping recently delivered exact media for update %s", update.id)
+                    already_delivered = True
                     continue
                 pending_identities.update(identities)
                 prepared.append(value)
@@ -122,7 +124,7 @@ class MediaDedupReviewApplication(ReminderReviewApplication):
                 prepared_identities.append(identities)
 
             if not prepared:
-                return
+                return already_delivered
 
             sent = self.telegram.send_media(prepared)
             for item, identities, message in zip(prepared_items, prepared_identities, sent):
@@ -139,6 +141,7 @@ class MediaDedupReviewApplication(ReminderReviewApplication):
                     kind=item.kind,
                     update_id=update.id,
                 )
+            return True
         finally:
             for temp in temp_handles:
                 temp.cleanup()

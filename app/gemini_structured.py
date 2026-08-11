@@ -14,7 +14,11 @@ import time
 from typing import Any
 
 from . import channel_translation as v1
-from .ai import gemini_shared_failure_kind, gemini_should_try_next_model
+from .ai import (
+    gemini_retryable_provider_failure,
+    gemini_shared_failure_kind,
+    gemini_should_try_next_model,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +112,63 @@ def _generation_config(types, model: str, *, system_instruction: str, temperatur
     return types.GenerateContentConfig(**common)
 
 
+def _read_structured_response(
+    writer: object,
+    response: object,
+    *,
+    model: str,
+    purpose: str,
+) -> dict[str, Any] | None:
+    parsed = getattr(response, "parsed", None)
+    if isinstance(parsed, dict) and parsed:
+        if isinstance(getattr(writer, "last_diagnostics", None), dict):
+            writer.last_diagnostics["structured_response_source"] = "response.parsed"
+            writer.last_diagnostics["generation_model"] = model
+        return parsed
+
+    text = str(getattr(response, "text", "") or "").strip()
+    if text:
+        try:
+            parsed_text = json.loads(text)
+        except json.JSONDecodeError as exc:
+            _record_failure(
+                writer,
+                model=model,
+                purpose=purpose,
+                reason=f"invalid_json:{type(exc).__name__}",
+                response=response,
+            )
+        else:
+            if isinstance(parsed_text, dict) and parsed_text:
+                if isinstance(getattr(writer, "last_diagnostics", None), dict):
+                    writer.last_diagnostics["structured_response_source"] = "response.text"
+                    writer.last_diagnostics["generation_model"] = model
+                return parsed_text
+            _record_failure(
+                writer,
+                model=model,
+                purpose=purpose,
+                reason="json_not_nonempty_object",
+                response=response,
+            )
+    else:
+        _record_failure(
+            writer,
+            model=model,
+            purpose=purpose,
+            reason="empty_structured_response",
+            response=response,
+        )
+        logger.warning(
+            "Gemini %s model %s returned no usable structured JSON (finish=%s block=%s)",
+            purpose,
+            model,
+            _finish_reason(response) or "none",
+            _block_reason(response) or "none",
+        )
+    return None
+
+
 def generate_json_v2(
     self,
     client,
@@ -148,70 +209,53 @@ def generate_json_v2(
         return None
 
     for model in candidates:
+        config = _generation_config(
+            types,
+            model,
+            system_instruction=system_instruction,
+            temperature=temperature,
+            schema=schema,
+        )
         response = None
-        try:
-            config = _generation_config(
-                types,
-                model,
-                system_instruction=system_instruction,
-                temperature=temperature,
-                schema=schema,
-            )
-            _pace_generation(self)
-            response = client.models.generate_content(
-                model=model,
-                contents=prompt,
-                config=config,
-            )
-
-            parsed = getattr(response, "parsed", None)
-            if isinstance(parsed, dict) and parsed:
-                if isinstance(getattr(self, "last_diagnostics", None), dict):
-                    self.last_diagnostics["structured_response_source"] = "response.parsed"
-                    self.last_diagnostics["generation_model"] = model
-                return parsed
-
-            text = str(getattr(response, "text", "") or "").strip()
-            if text:
-                try:
-                    parsed_text = json.loads(text)
-                except json.JSONDecodeError as exc:
+        final_error: Exception | None = None
+        for attempt in range(2):
+            try:
+                _pace_generation(self)
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=config,
+                )
+            except Exception as exc:
+                if attempt == 0 and gemini_retryable_provider_failure(exc):
                     _record_failure(
                         self,
                         model=model,
                         purpose=purpose,
-                        reason=f"invalid_json:{type(exc).__name__}",
-                        response=response,
+                        reason=f"transient_retry:{type(exc).__name__}",
                     )
-                else:
-                    if isinstance(parsed_text, dict) and parsed_text:
-                        if isinstance(getattr(self, "last_diagnostics", None), dict):
-                            self.last_diagnostics["structured_response_source"] = "response.text"
-                            self.last_diagnostics["generation_model"] = model
-                        return parsed_text
-                    _record_failure(
-                        self,
-                        model=model,
-                        purpose=purpose,
-                        reason="json_not_nonempty_object",
-                        response=response,
+                    logger.warning(
+                        "Gemini %s model %s had a temporary provider failure; retrying once",
+                        purpose,
+                        model,
                     )
+                    time.sleep(2.0)
+                    continue
+                final_error = exc
+                break
             else:
-                _record_failure(
+                parsed = _read_structured_response(
                     self,
+                    response,
                     model=model,
                     purpose=purpose,
-                    reason="empty_structured_response",
-                    response=response,
                 )
-                logger.warning(
-                    "Gemini %s model %s returned no usable structured JSON (finish=%s block=%s)",
-                    purpose,
-                    model,
-                    _finish_reason(response) or "none",
-                    _block_reason(response) or "none",
-                )
-        except Exception as exc:
+                if parsed is not None:
+                    return parsed
+                break
+
+        if final_error is not None:
+            exc = final_error
             shared_failure = gemini_shared_failure_kind(exc)
             model_specific = gemini_should_try_next_model(exc)
             if shared_failure == "quota":

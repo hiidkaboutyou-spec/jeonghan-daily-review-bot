@@ -223,7 +223,7 @@ jobs:
           TELEGRAM_REVIEW_CHAT_ID: ${{ secrets.TELEGRAM_REVIEW_CHAT_ID }}
           X_COOKIE: ${{ secrets.X_COOKIE }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: gemini-3.5-flash-lite
+          GEMINI_MODEL: gemini-3.1-flash-lite
         run: python -m app.production_preflight
 
       - name: Run one complete automatic monitor pass
@@ -235,7 +235,7 @@ jobs:
           TELEGRAM_REVIEW_CHAT_ID: ${{ secrets.TELEGRAM_REVIEW_CHAT_ID }}
           X_COOKIE: ${{ secrets.X_COOKIE }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: gemini-3.5-flash-lite
+          GEMINI_MODEL: gemini-3.1-flash-lite
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           ASSISTANT_RUNTIME_MODE: github_actions_polling
         shell: bash

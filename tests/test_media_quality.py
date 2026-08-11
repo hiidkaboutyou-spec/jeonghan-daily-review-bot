@@ -92,6 +92,19 @@ class HighQualityMediaTests(unittest.TestCase):
             self.assertEqual(result.metadata["retrieval_method"], "gallery-dl")
             self.assertEqual(manager._stream_download.call_count, 3)
 
+    def test_missing_x_origin_uses_one_metadata_refresh_without_doomed_size_retries(self):
+        manager = MediaManager({})
+        response = requests.Response()
+        response.status_code = 404
+        missing = requests.HTTPError("404 missing", response=response)
+        with tempfile.TemporaryDirectory() as temp:
+            manager._stream_download = MagicMock(side_effect=missing)
+            manager._download_with_gallery_dl = MagicMock(return_value=None)
+            with self.assertRaises(requests.HTTPError):
+                manager._download_photo(self.photo(), "https://x.com/a/status/1", Path(temp), 0)
+        self.assertEqual(manager._stream_download.call_count, 1)
+        manager._download_with_gallery_dl.assert_called_once()
+
     def test_ytdlp_uses_best_video_audio_with_combined_fallback(self):
         captured = {}
         class FakeYDL:

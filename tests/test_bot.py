@@ -284,12 +284,12 @@ class DateAndConfigTests(unittest.TestCase):
     def test_empty_gemini_model_variable_uses_config_default(self):
         with patch.dict(os.environ, {"GEMINI_MODEL": ""}, clear=False):
             settings = Settings.load(require_secrets=False)
-        self.assertEqual(settings.gemini_model, "gemini-3.5-flash-lite")
+        self.assertEqual(settings.gemini_model, "gemini-3.1-flash-lite")
 
     def test_retired_gemini_model_variable_self_heals(self):
         with patch.dict(os.environ, {"GEMINI_MODEL": "gemini-2.5-flash-lite"}, clear=False):
             settings = Settings.load(require_secrets=False)
-        self.assertEqual(settings.gemini_model, "gemini-3.5-flash-lite")
+        self.assertEqual(settings.gemini_model, "gemini-3.1-flash-lite")
 
     def test_main_menu_is_persistent_reply_keyboard(self):
         keyboard = main_keyboard()

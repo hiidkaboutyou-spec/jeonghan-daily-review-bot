@@ -50,6 +50,22 @@ def gemini_shared_failure_kind(exc: Exception) -> str:
     return ""
 
 
+def gemini_retryable_provider_failure(exc: Exception) -> bool:
+    """Return true for short-lived provider failures worth one same-model retry."""
+    value = f"{type(exc).__name__}: {exc}".casefold()
+    markers = (
+        "503",
+        "service unavailable",
+        "unavailable",
+        "high demand",
+        "500 internal",
+        "internal server error",
+        "502 bad gateway",
+        "504 gateway timeout",
+    )
+    return any(marker in value for marker in markers)
+
+
 @dataclass(slots=True)
 class GroupCopy:
     title: str
