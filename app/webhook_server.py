@@ -103,9 +103,9 @@ class WebhookRuntime:
     def process_update_sync(self, item: dict[str, Any]) -> bool:
         """Process and durably save one Telegram update before acknowledging it.
 
-        Return False only for exhausted transient Telegram failures. The HTTP layer
-        then sends a non-2xx response so Telegram retries the same update. Duplicate
-        retries are harmless because telegram_offset is persisted and checked here.
+        Return False for exhausted transient failures. The HTTP layer then sends a
+        non-2xx response so Telegram retries the same update. Duplicate retries are
+        harmless because telegram_offset is persisted and checked here.
         """
         with self.lock:
             app = self._require_app()
@@ -129,16 +129,23 @@ class WebhookRuntime:
                         handled = False
                         break
                     continue
-                except (XCollectionError, ConfigError) as exc:
+                except XCollectionError as exc:
                     if attempt >= 3:
-                        logger.warning("Webhook update %s exhausted application retries (%s)", update_id, type(exc).__name__)
-                        app.state.telegram_offset = max(app.state.telegram_offset, update_id + 1)
+                        logger.warning("Webhook update %s exhausted X retries (%s)", update_id, type(exc).__name__)
+                        handled = False
                         break
                     continue
-                except Exception:
-                    logger.exception("Webhook update %s failed", update_id)
+                except ConfigError as exc:
+                    # Configuration faults are deterministic for this running
+                    # instance. A Telegram retry would loop forever, so consume the
+                    # update after logging it clearly for operator action.
+                    logger.error("Webhook update %s configuration failure (%s)", update_id, type(exc).__name__)
+                    app.state.telegram_offset = max(app.state.telegram_offset, update_id + 1)
+                    break
+                except Exception as exc:
+                    logger.exception("Webhook update %s failed (%s)", update_id, type(exc).__name__)
                     if attempt >= 3:
-                        app.state.telegram_offset = max(app.state.telegram_offset, update_id + 1)
+                        handled = False
                         break
                 else:
                     app.state.clear_telegram_failure(update_id)
@@ -225,7 +232,7 @@ async def telegram_webhook(
     # retries idempotent if a response is lost after successful processing.
     handled = await runtime.run_state(runtime.process_update_sync, payload)
     if not handled:
-        raise HTTPException(status_code=503, detail="transient Telegram failure; retry update")
+        raise HTTPException(status_code=503, detail="temporary processing failure; retry update")
     return {"ok": True}
 
 
