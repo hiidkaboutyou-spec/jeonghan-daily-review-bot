@@ -27,12 +27,9 @@ class WebhookRuntime:
     def __init__(self) -> None:
         self.settings: Settings | None = None
         self.application: WebhookAwarePersonalAssistant | None = None
-        self.queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=500)
-        self.maintenance_queue: asyncio.Queue[None] = asyncio.Queue(maxsize=1)
         # ArchiveStore, ReviewInboxStore, ReminderStore and related SQLite helpers
-        # keep persistent sqlite3.Connection objects. Python's sqlite3 connections
-        # are thread-affine by default, so construct and use the entire assistant on
-        # one dedicated worker for its full lifetime.
+        # keep persistent sqlite3.Connection objects. Construct and use the entire
+        # assistant on one dedicated worker for its full lifetime.
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="assistant-state")
         self.lock = threading.RLock()
         self.secret = ""
@@ -45,6 +42,19 @@ class WebhookRuntime:
         if kwargs:
             return await loop.run_in_executor(self.executor, lambda: fn(*args, **kwargs))
         return await loop.run_in_executor(self.executor, fn, *args)
+
+    @staticmethod
+    def _public_url_from_environment() -> str:
+        explicit = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
+        if explicit:
+            return explicit
+        render_url = os.getenv("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+        if render_url:
+            return render_url
+        render_host = os.getenv("RENDER_EXTERNAL_HOSTNAME", "").strip().strip("/")
+        if render_host:
+            return f"https://{render_host}"
+        return ""
 
     def startup_sync(self) -> None:
         settings = Settings.load(require_secrets=True)
@@ -65,11 +75,9 @@ class WebhookRuntime:
 
         self.application = WebhookAwarePersonalAssistant(settings)
         self.secret = derive_runtime_secret(settings.telegram_token)
-        explicit = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
-        domain = os.getenv("KOYEB_PUBLIC_DOMAIN", "").strip()
-        self.public_base_url = explicit or (f"https://{domain}" if domain else "")
+        self.public_base_url = self._public_url_from_environment()
         if not self.public_base_url:
-            raise ConfigError("PUBLIC_BASE_URL or KOYEB_PUBLIC_DOMAIN is required for webhook mode")
+            raise ConfigError("PUBLIC_BASE_URL or Render public URL environment is required for webhook mode")
 
         webhook_url = self.public_base_url + "/telegram/webhook"
         self.application.telegram.api(
@@ -92,16 +100,23 @@ class WebhookRuntime:
             raise RuntimeError("Webhook runtime is not initialized")
         return self.application
 
-    def process_update_sync(self, item: dict[str, Any]) -> None:
+    def process_update_sync(self, item: dict[str, Any]) -> bool:
+        """Process and durably save one Telegram update before acknowledging it.
+
+        Return False only for exhausted transient Telegram failures. The HTTP layer
+        then sends a non-2xx response so Telegram retries the same update. Duplicate
+        retries are harmless because telegram_offset is persisted and checked here.
+        """
         with self.lock:
             app = self._require_app()
             try:
                 update_id = int(item.get("update_id", 0) or 0)
             except (TypeError, ValueError):
-                return
+                return True
             if update_id < app.state.telegram_offset:
-                return
+                return True
 
+            handled = True
             for attempt in range(1, 4):
                 try:
                     asyncio.run(app._process_one_telegram_update(item))
@@ -111,6 +126,7 @@ class WebhookRuntime:
                 except TelegramTransientError as exc:
                     if attempt >= 3:
                         logger.warning("Webhook update %s exhausted Telegram retries (%s)", update_id, type(exc).__name__)
+                        handled = False
                         break
                     continue
                 except (XCollectionError, ConfigError) as exc:
@@ -130,6 +146,7 @@ class WebhookRuntime:
                     break
             app.state.save()
             self._save_and_backup_if_changed()
+            return handled
 
     def maintenance_sync(self) -> None:
         with self.lock:
@@ -157,42 +174,18 @@ class WebhookRuntime:
         except Exception as exc:
             logger.warning("Telegram cloud-state backup failed (%s)", type(exc).__name__)
             return
-        # Re-fingerprint after WAL checkpoint so the next request does not upload a
-        # duplicate backup merely because checkpointing moved bytes into the DB.
         self.last_backup_hash = backup_fingerprint(state_dir)
 
 
 runtime = WebhookRuntime()
 
 
-async def _update_worker() -> None:
-    while True:
-        item = await runtime.queue.get()
-        try:
-            await runtime.run_state(runtime.process_update_sync, item)
-        finally:
-            runtime.queue.task_done()
-
-
-async def _maintenance_worker() -> None:
-    while True:
-        await runtime.maintenance_queue.get()
-        try:
-            await runtime.run_state(runtime.maintenance_sync)
-        finally:
-            runtime.maintenance_queue.task_done()
-
-
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await runtime.run_state(runtime.startup_sync)
-    update_task = asyncio.create_task(_update_worker())
-    maintenance_task = asyncio.create_task(_maintenance_worker())
     try:
         yield
     finally:
-        update_task.cancel()
-        maintenance_task.cancel()
         if runtime.application is not None:
             await runtime.run_state(runtime._save_and_backup_if_changed, force=True)
         runtime.executor.shutdown(wait=True, cancel_futures=True)
@@ -210,8 +203,8 @@ def root() -> dict[str, Any]:
 def healthz() -> dict[str, Any]:
     return {
         "ok": runtime.application is not None,
-        "queue": runtime.queue.qsize(),
-        "maintenance_queue": runtime.maintenance_queue.qsize(),
+        "mode": "telegram-webhook",
+        "public_base_url": bool(runtime.public_base_url),
     }
 
 
@@ -226,18 +219,22 @@ async def telegram_webhook(
     payload = await request.json()
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="invalid update")
-    try:
-        runtime.queue.put_nowait(payload)
-    except asyncio.QueueFull:
-        raise HTTPException(status_code=503, detail="update queue full")
+
+    # Do not acknowledge Telegram until the update is processed and state is saved.
+    # Telegram retries non-2xx deliveries; the persisted telegram_offset makes those
+    # retries idempotent if a response is lost after successful processing.
+    handled = await runtime.run_state(runtime.process_update_sync, payload)
+    if not handled:
+        raise HTTPException(status_code=503, detail="transient Telegram failure; retry update")
     return {"ok": True}
 
 
-@api.post("/maintenance", status_code=202)
+@api.post("/maintenance")
 async def maintenance(x_assistant_secret: str | None = Header(default=None)) -> dict[str, bool]:
     supplied = str(x_assistant_secret or "")
     if not runtime.secret or not hmac.compare_digest(supplied, runtime.secret):
         raise HTTPException(status_code=403, detail="invalid maintenance secret")
-    if runtime.maintenance_queue.empty():
-        runtime.maintenance_queue.put_nowait(None)
-    return {"accepted": True}
+    # Run before acknowledging so a free host cannot spin down after a 202 while the
+    # work exists only in volatile memory.
+    await runtime.run_state(runtime.maintenance_sync)
+    return {"ok": True}
