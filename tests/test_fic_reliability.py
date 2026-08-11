@@ -99,6 +99,29 @@ class Ao3ReliabilityTests(unittest.TestCase):
         self.assertIsNotNone(response)
         sleep.assert_called_once_with(7.0)
 
+    def test_deleted_ao3_work_is_not_retried(self):
+        class Missing:
+            status_code = 404
+            headers = {}
+
+        with patch("app.fic_digest.requests.get", return_value=Missing()) as get, patch(
+            "app.fic_digest.time.sleep"
+        ) as sleep:
+            response = _get("https://archiveofourown.org/works/404", attempts=3)
+
+        self.assertIsNone(response)
+        get.assert_called_once()
+        sleep.assert_not_called()
+
+    def test_search_uses_ao3_character_filter_not_broad_any_field_query(self):
+        with patch("app.fic_digest._get", return_value=SimpleNamespace(text=_page("1"))) as get:
+            result = search_ao3(1, max_pages=1, pace_seconds=0)
+
+        self.assertEqual([fic.work_id for fic in result], ["1"])
+        url = get.call_args.args[0]
+        self.assertIn("work_search%5Bcharacter_names%5D=Yoon+Jeonghan", url)
+        self.assertNotIn("work_search%5Bquery%5D", url)
+
     def test_x_detail_lookups_are_serial_and_paced(self):
         settings = SimpleNamespace(x_cookies={}, sources=[], keyword_groups=[])
         tweet = SimpleNamespace(

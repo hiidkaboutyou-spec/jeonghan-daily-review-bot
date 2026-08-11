@@ -41,7 +41,10 @@ on:
   schedule:
     # Offset from the top of the hour because GitHub documents heavier schedule
     # congestion around minute 0. Five minutes is GitHub's minimum cron interval.
-    - cron: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
+    # Keep 18:27–18:59 UTC quiet so a pending 18:30 nightly fic job cannot be
+    # replaced by a newer scheduled monitor in GitHub's one-pending-run queue.
+    - cron: "2,7,12,17,22,27,32,37,42,47,52,57 0-17,19-23 * * *"
+    - cron: "2,7,12,17,22 18 * * *"
 
 permissions:
   contents: read
@@ -363,6 +366,25 @@ jobs:
             )"
             other_active=$((other_active + count))
           done
+
+          # The nightly/manual fic job shares this concurrency group because both
+          # workflows update the same private SQLite state. Let a waiting fic job
+          # run before creating another self-dispatched monitor; otherwise GitHub's
+          # one-pending-run rule can replace and starve the fic job forever.
+          fic_active=0
+          for status in pending queued in_progress; do
+            count="$(
+              gh api -H 'Accept: application/vnd.github+json' \
+                "/repos/${GITHUB_REPOSITORY}/actions/workflows/fic-digest.yml/runs?status=${status}&per_page=100" |
+                jq '[.workflow_runs[] | select((.event == "schedule" or .event == "workflow_dispatch") and .head_branch == "main")] | length'
+            )"
+            fic_active=$((fic_active + count))
+          done
+
+          if [ "$fic_active" -gt 0 ]; then
+            echo "A fanfic digest is queued or running; yielding the shared runtime slot."
+            exit 0
+          fi
 
           if [ "$other_active" -gt 0 ]; then
             echo "Another runtime pass is already queued or running; no duplicate was created."

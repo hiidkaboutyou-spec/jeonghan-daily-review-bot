@@ -19,7 +19,13 @@ from bs4 import BeautifulSoup
 from .config import Settings
 from .fic_state import FicObservation, FicStateStore
 from .message_delivery import MessageDeliveryStore
-from .ai import GEMINI_FREE_FALLBACK_MODELS, GEMINI_REQUEST_TIMEOUT_MS, gemini_should_try_next_model
+from .ai import (
+    GEMINI_FREE_FALLBACK_MODELS,
+    GEMINI_REQUEST_TIMEOUT_MS,
+    gemini_retryable_provider_failure,
+    gemini_shared_failure_kind,
+    gemini_should_try_next_model,
+)
 from .telegram import TelegramBot
 from .x_client import XCollector
 
@@ -30,6 +36,10 @@ JEONGHAN_TERMS = ("jeonghan", "yoon jeonghan", "정한", "윤정한", "ジョン
 AO3_PAGE_LIMIT = 25
 AO3_PACE_SECONDS = 1.0
 AO3_BALANCED_PAGE_LIMIT = 12
+AO3_SEARCH_BUDGET_SECONDS = 90.0
+AO3_X_LOOKUP_BUDGET_SECONDS = 120.0
+FIC_SUMMARY_BATCH_SIZE = 8
+FIC_SUMMARY_PACE_SECONDS = 4.2
 
 SHIP_ALIASES = [
     ("Jeongcheol", ("Choi Seungcheol", "S.Coups")),
@@ -146,6 +156,11 @@ def _get(url: str, *, timeout: int = 20, attempts: int = 3) -> requests.Response
                     time.sleep(min(8.0, 2.0 ** attempt))
                     continue
                 return None
+            if 400 <= response.status_code < 500 and response.status_code not in {408, 425, 429}:
+                # Deleted/private AO3 works are common in old X recommendation
+                # posts. Retrying the same permanent response only delays /fic.
+                logger.info("AO3 request is no longer publicly available (HTTP %s)", response.status_code)
+                return None
             response.raise_for_status()
             return response
         except requests.RequestException as exc:
@@ -196,13 +211,16 @@ def search_ao3(
     max_pages: int = AO3_PAGE_LIMIT,
     pace_seconds: float = AO3_PACE_SECONDS,
     sort_column: str = "kudos_count",
+    max_elapsed_seconds: float = AO3_SEARCH_BUDGET_SECONDS,
 ) -> list[Fic]:
     if limit <= 0:
         return []
     if sort_column not in {"kudos_count", "revised_at", "created_at", "bookmarks_count", "hits"}:
         raise ValueError("unsupported AO3 sort column")
     base_params = {
-        "work_search[query]": '"Yoon Jeonghan" OR Jeonghan',
+        # Use AO3's dedicated character filter instead of a broad full-text OR
+        # query, then retain the strict relationship-tag check below.
+        "work_search[character_names]": "Yoon Jeonghan",
         "work_search[language_id]": "en",
         "work_search[sort_column]": sort_column,
         "work_search[sort_direction]": "desc",
@@ -210,7 +228,11 @@ def search_ao3(
     }
     fics: list[Fic] = []
     seen: set[str] = set()
+    started = time.monotonic()
     for page in range(1, max(1, int(max_pages)) + 1):
+        if page > 1 and time.monotonic() - started >= max(1.0, float(max_elapsed_seconds)):
+            logger.warning("AO3 search stopped at its bounded time budget after page %s", page - 1)
+            break
         params = dict(base_params)
         params["page"] = str(page)
         response = _get(AO3 + "/works/search?" + urlencode(params), timeout=25, attempts=3)
@@ -285,7 +307,9 @@ def fetch_ao3_work(url: str) -> Fic | None:
     if not match:
         return None
     canonical = f"{AO3}/works/{match.group(1)}"
-    response = _get(canonical + "?view_adult=true", timeout=12, attempts=2)
+    # X recommendation links are supplemental and frequently stale. One bounded
+    # lookup keeps them from blocking the stronger AO3 search for many minutes.
+    response = _get(canonical + "?view_adult=true", timeout=10, attempts=1)
     if response is None:
         return None
     soup = BeautifulSoup(response.text, "html.parser")
@@ -363,17 +387,21 @@ async def search_x_recommendations(settings: Settings, limit: int = 24) -> list[
                     current = candidates.get(work_id)
                     if current is None or score > current[1]:
                         candidates[work_id] = (url, score, note)
-                if len(candidates) >= max(limit * 2, 36):
+                if len(candidates) >= max(limit + 8, 24):
                     break
         except Exception as exc:
             logger.warning("X fic recommendation query failed but digest will continue: %s", type(exc).__name__)
         await asyncio.sleep(0.5)
 
-    ranked = sorted(candidates.values(), key=lambda item: item[1], reverse=True)[: max(limit * 2, limit)]
+    ranked = sorted(candidates.values(), key=lambda item: item[1], reverse=True)[: limit + 8]
     found: list[Fic] = []
     # AO3 has no supported public API. Fetch detail pages serially and paced instead
     # of opening four simultaneous requests against a volunteer-run service.
+    lookup_started = time.monotonic()
     for index, (url, score, note) in enumerate(ranked):
+        if index and time.monotonic() - lookup_started >= AO3_X_LOOKUP_BUDGET_SECONDS:
+            logger.warning("X fic detail lookups stopped at their bounded time budget")
+            break
         try:
             fic = await asyncio.to_thread(fetch_ao3_work, url)
         except Exception as exc:
@@ -442,8 +470,7 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
             api_key=settings.gemini_api_key,
             http_options=types.HttpOptions(timeout=GEMINI_REQUEST_TIMEOUT_MS),
         )
-        payload = [{"url": f.url, "title": f.title, "summary": f.summary} for f in fics]
-        prompt = (
+        prompt_prefix = (
             "برای هر فن‌فیک فقط بر اساس summary رسمی AO3 یک ترجمه/خلاصهٔ فارسی روان، امروزی و طبیعی 1 تا 3 جمله‌ای بنویس. "
             "لحن می‌تواند محاوره‌ای و خوش‌خوان باشد، اما معنا، شدت احساس و زاویهٔ دید نویسنده باید دقیق بماند. "
             "محتوای بزرگسالانه و جنسی مجاز است: سانسور، حذف، ملایم‌سازی یا تغییرش نده. "
@@ -453,57 +480,96 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
             "Jun/Junhui = جون، DK/Seokmin = دوکیوم، The8/Minghao = مینگ‌هائو، Woozi/Jihoon = ووزی، "
             "Seungkwan = سونگکوان، Dino/Chan = دینو، Vernon/Hansol = ورنون. "
             "خروجی JSON با items شامل url و summary_fa باشد. "
-            + json.dumps(payload, ensure_ascii=False)
         )
         candidates = list(dict.fromkeys([settings.gemini_model, *GEMINI_FREE_FALLBACK_MODELS]))
-        for model in [m for m in candidates if m]:
-            try:
-                response = client.models.generate_content(
-                    model=model,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        temperature=0.1,
-                        response_mime_type="application/json",
-                        response_json_schema={
-                            "type": "object",
-                            "required": ["items"],
-                            "properties": {
-                                "items": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "object",
-                                        "required": ["url", "summary_fa"],
-                                        "properties": {
-                                            "url": {"type": "string"},
-                                            "summary_fa": {"type": "string"},
+        translated: dict[str, str] = {}
+        for offset in range(0, len(fics), FIC_SUMMARY_BATCH_SIZE):
+            batch = fics[offset : offset + FIC_SUMMARY_BATCH_SIZE]
+            payload = [{"url": f.url, "title": f.title, "summary": f.summary} for f in batch]
+            prompt = prompt_prefix + json.dumps(payload, ensure_ascii=False)
+            batch_result: dict[str, str] = {}
+            stop_all_batches = False
+            for model in [m for m in candidates if m]:
+                response = None
+                final_error: Exception | None = None
+                for attempt in range(2):
+                    try:
+                        response = client.models.generate_content(
+                            model=model,
+                            contents=prompt,
+                            config=types.GenerateContentConfig(
+                                temperature=0.1,
+                                response_mime_type="application/json",
+                                response_json_schema={
+                                    "type": "object",
+                                    "required": ["items"],
+                                    "properties": {
+                                        "items": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "required": ["url", "summary_fa"],
+                                                "properties": {
+                                                    "url": {"type": "string"},
+                                                    "summary_fa": {"type": "string"},
+                                                },
+                                            },
                                         },
                                     },
-                                }
-                            },
-                        },
-                    ),
-                )
-                parsed = json.loads(response.text or "{}")
-                result = {
-                    str(x.get("url")): _normalize_fic_summary_names(str(x.get("summary_fa", "")))
-                    for x in parsed.get("items", [])
-                    if x.get("url") and str(x.get("summary_fa", "")).strip()
-                }
-                if result:
-                    missing = [fic for fic in fics if fic.url not in result]
-                    if missing:
-                        result.update(_fallback_summaries(missing))
-                    return {fic.url: result.get(fic.url, fic.summary) for fic in fics}
-            except Exception as exc:
-                retry_model = gemini_should_try_next_model(exc)
-                logger.warning(
-                    "Fic Gemini model %s failed%s: %s",
-                    model,
-                    "; trying model fallback" if retry_model else "",
-                    type(exc).__name__,
-                )
-                if not retry_model:
+                                },
+                            ),
+                        )
+                        break
+                    except Exception as exc:
+                        if attempt == 0 and gemini_retryable_provider_failure(exc):
+                            logger.warning("Fic Gemini model %s was temporarily unavailable; retrying once", model)
+                            time.sleep(2.0)
+                            continue
+                        final_error = exc
+                        break
+
+                if final_error is not None:
+                    shared_failure = gemini_shared_failure_kind(final_error)
+                    retry_model = gemini_should_try_next_model(final_error)
+                    logger.warning(
+                        "Fic Gemini model %s failed%s: %s",
+                        model,
+                        "; trying model fallback" if retry_model else "",
+                        type(final_error).__name__,
+                    )
+                    if shared_failure:
+                        stop_all_batches = True
+                    if retry_model:
+                        continue
                     break
+
+                try:
+                    parsed = json.loads(str(getattr(response, "text", "") or "{}"))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    parsed = {}
+                if not isinstance(parsed, dict):
+                    parsed = {}
+                batch_urls = {fic.url for fic in batch}
+                batch_result = {
+                    str(item.get("url")): _normalize_fic_summary_names(str(item.get("summary_fa", "")))
+                    for item in parsed.get("items", [])
+                    if isinstance(item, dict)
+                    and str(item.get("url", "")) in batch_urls
+                    and str(item.get("summary_fa", "")).strip()
+                }
+                if batch_result:
+                    break
+
+            missing = [fic for fic in batch if fic.url not in batch_result]
+            translated.update(batch_result)
+            translated.update(_fallback_summaries(missing))
+            if stop_all_batches:
+                translated.update(_fallback_summaries(fics[offset + len(batch) :]))
+                break
+            if offset + len(batch) < len(fics):
+                time.sleep(FIC_SUMMARY_PACE_SECONDS)
+
+        return {fic.url: translated.get(fic.url, _translate_summary(fic.summary)) for fic in fics}
     except Exception as exc:
         logger.warning("Gemini summary layer unavailable: %s", type(exc).__name__)
     return _fallback_summaries(fics)

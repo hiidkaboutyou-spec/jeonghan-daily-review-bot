@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -48,6 +49,65 @@ class FanficDigestTests(unittest.TestCase):
         self.assertEqual(client.models.generate_content.call_count, 1)
         self.assertIn("have sex", result[fic.url])
         self.assertLessEqual(factory.call_args.kwargs["http_options"].timeout, 45_000)
+
+    def test_one_blocked_batch_does_not_poison_later_fic_translations(self):
+        fics = [
+            Fic(
+                title=f"Fic {index}",
+                url=f"https://archiveofourown.org/works/{index}",
+                author="writer",
+                summary=f"Source summary {index}",
+                relationships=["Choi Seungcheol/Yoon Jeonghan"],
+            )
+            for index in range(1, 4)
+        ]
+        translated = json.dumps(
+            {"items": [{"url": fics[2].url, "summary_fa": "جونگهان برگشت خونه."}]},
+            ensure_ascii=False,
+        )
+        client = SimpleNamespace(
+            models=SimpleNamespace(
+                generate_content=Mock(
+                    side_effect=[SimpleNamespace(text=""), SimpleNamespace(text=translated)]
+                )
+            )
+        )
+        settings = SimpleNamespace(gemini_api_key="key", gemini_model="gemini-3.1-flash-lite")
+        with patch("google.genai.Client", return_value=client), patch(
+            "app.fic_digest.FIC_SUMMARY_BATCH_SIZE", 2
+        ), patch("app.fic_digest.time.sleep"):
+            result = summarize_fics_persian(settings, fics)
+
+        self.assertIn("متن اصلی AO3", result[fics[0].url])
+        self.assertEqual(result[fics[2].url], "جونگهان برگشت خونه.")
+        self.assertEqual(client.models.generate_content.call_count, 2)
+
+    def test_temporary_fic_provider_failure_retries_once(self):
+        fic = Fic(
+            title="Fic",
+            url="https://archiveofourown.org/works/1",
+            author="writer",
+            summary="Jeonghan returns home.",
+            relationships=["Choi Seungcheol/Yoon Jeonghan"],
+        )
+        translated = json.dumps(
+            {"items": [{"url": fic.url, "summary_fa": "جونگهان برمی‌گرده خونه."}]},
+            ensure_ascii=False,
+        )
+        client = SimpleNamespace(
+            models=SimpleNamespace(
+                generate_content=Mock(
+                    side_effect=[RuntimeError("503 high demand"), SimpleNamespace(text=translated)]
+                )
+            )
+        )
+        settings = SimpleNamespace(gemini_api_key="key", gemini_model="gemini-stable")
+        with patch("google.genai.Client", return_value=client), patch("app.fic_digest.time.sleep") as sleep:
+            result = summarize_fics_persian(settings, [fic])
+
+        self.assertEqual(result[fic.url], "جونگهان برمی‌گرده خونه.")
+        self.assertEqual(client.models.generate_content.call_count, 2)
+        sleep.assert_called_once_with(2.0)
 
     def test_chunks_never_truncate_long_block(self):
         text = "عنوان\n\n" + ("الف" * 9000) + "\n\nپایان"

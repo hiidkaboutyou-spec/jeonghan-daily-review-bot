@@ -43,7 +43,7 @@ on:
 
 permissions:
   contents: read
-  actions: read
+  actions: write
 
 concurrency:
   group: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'jeonghan-daily-review-bot-runtime' || format('nightly-jeonghan-fic-validation-{0}', github.ref) }}
@@ -227,3 +227,29 @@ jobs:
         with:
           path: .state/private-review.sqlite3
           key: jeonghan-private-review-v1-${{ runner.os }}-${{ github.run_id }}
+
+      - name: Resume live assistant after fanfic digest
+        if: >-
+          success() &&
+          (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+          github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          active=0
+          for status in pending queued in_progress; do
+            count="$(
+              gh api -H 'Accept: application/vnd.github+json' \
+                "/repos/${GITHUB_REPOSITORY}/actions/workflows/main.yml/runs?status=${status}&per_page=100" |
+                jq '[.workflow_runs[] | select(.head_branch == "main")] | length'
+            )"
+            active=$((active + count))
+          done
+          if [ "$active" -gt 0 ]; then
+            echo "A live assistant pass is already queued or running."
+            exit 0
+          fi
+          gh workflow run main.yml --ref main -f mode=live
+          echo "Queued the next live assistant pass after the fanfic digest."

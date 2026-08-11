@@ -65,7 +65,9 @@ class ReleaseWorkflowTests(unittest.TestCase):
 
     def test_automatic_monitor_uses_five_minute_schedule_without_long_live_loop(self):
         workflow = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")
-        self.assertIn('cron: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"', workflow)
+        self.assertIn('cron: "2,7,12,17,22,27,32,37,42,47,52,57 0-17,19-23 * * *"', workflow)
+        self.assertIn('cron: "2,7,12,17,22 18 * * *"', workflow)
+        self.assertNotIn('27,32,37,42,47,52,57 18 * * *', workflow)
         self.assertIn("Run one complete automatic monitor pass", workflow)
         self.assertNotIn('end=$((SECONDS + 540))', workflow)
         self.assertNotIn('end=$((SECONDS + 780))', workflow)
@@ -81,6 +83,15 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("gh workflow run main.yml --ref main -f mode=live", queue)
         self.assertIn("Another runtime pass is already queued or running", queue)
         self.assertIn("Queued the next live assistant pass.", queue)
+        self.assertIn("actions/workflows/fic-digest.yml/runs", queue)
+        self.assertIn("yielding the shared runtime slot", queue)
+
+    def test_fic_runtime_resumes_main_after_serialized_delivery(self):
+        workflow = (ROOT / ".github" / "workflows" / "fic-digest.yml").read_text(encoding="utf-8")
+        resume = workflow.split("- name: Resume live assistant after fanfic digest", 1)[1]
+        self.assertIn("actions: write", workflow)
+        self.assertIn("actions/workflows/main.yml/runs", resume)
+        self.assertIn("gh workflow run main.yml --ref main -f mode=live", resume)
 
     def test_runtime_runs_are_serialized_and_only_safe_state_is_cached(self):
         workflow = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")
