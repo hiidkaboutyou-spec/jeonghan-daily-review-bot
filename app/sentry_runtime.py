@@ -6,7 +6,7 @@ import asyncio
 from .channel_style_validation import check_project
 from .config import ConfigError, Settings
 from .observability import capture_technical_exception, init_optional_sentry
-from .personal_assistant import PersonalAssistantReviewApplication
+from .webhook_aware_assistant import WebhookAwarePersonalAssistant
 
 
 async def async_main() -> int:
@@ -16,8 +16,7 @@ async def async_main() -> int:
         errors = settings.validate_files()
         if errors:
             raise ConfigError("; ".join(errors))
-        await PersonalAssistantReviewApplication(settings).run()
-        return 0
+        return int(await WebhookAwarePersonalAssistant(settings).run())
     except ConfigError as exc:
         capture_technical_exception(exc, component="config")
         return 2
