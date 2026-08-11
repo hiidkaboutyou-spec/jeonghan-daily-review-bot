@@ -83,6 +83,28 @@ class StateAuditTests(unittest.TestCase):
             self.assertIsInstance(store.data["archive"], dict)
             self.assertEqual(store.data["pending_delivery"], [{"id": "x"}])
 
+    def test_runtime_cooldowns_and_health_markers_survive_reload(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "state.json"
+            store = StateStore(path)
+            store.data.update(
+                {
+                    "polling_mode_checked": "2026-08-11T20:00:00+00:00",
+                    "translation_outage_notice": "2026-08-11T20:01:00+00:00",
+                    "translation_retry_after": "2026-08-11T21:01:00+00:00",
+                    "translation_outage_streak": 3,
+                    "x_scan_failure_streak": 2,
+                }
+            )
+            store.save()
+
+            restored = StateStore(path)
+            self.assertEqual(restored.data["polling_mode_checked"], "2026-08-11T20:00:00+00:00")
+            self.assertEqual(restored.data["translation_outage_notice"], "2026-08-11T20:01:00+00:00")
+            self.assertEqual(restored.data["translation_retry_after"], "2026-08-11T21:01:00+00:00")
+            self.assertEqual(restored.data["translation_outage_streak"], 3)
+            self.assertEqual(restored.data["x_scan_failure_streak"], 2)
+
 
 class OrganizerAuditTests(unittest.TestCase):
     @staticmethod

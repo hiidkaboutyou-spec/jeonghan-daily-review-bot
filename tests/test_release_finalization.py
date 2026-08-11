@@ -72,22 +72,11 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertNotIn('end=$((SECONDS + 540))', workflow)
         self.assertNotIn('end=$((SECONDS + 780))', workflow)
 
-    def test_live_runtime_self_dispatches_without_duplicate_chains(self):
+    def test_live_runtime_uses_cron_without_an_unbounded_self_dispatch_chain(self):
         workflow = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")
-        queue = workflow.split("- name: Queue next live assistant pass", 1)[1]
-        self.assertIn("actions: write", workflow)
-        self.assertIn("success()", queue)
-        self.assertIn("github.ref == 'refs/heads/main'", queue)
-        self.assertIn("for status in pending queued in_progress", queue)
-        self.assertIn('select(.id != $current)', queue)
-        self.assertIn("gh_workflow_retry main.yml --ref main -f mode=live", queue)
-        self.assertIn("gh_api_retry", queue)
-        self.assertIn("gh_workflow_retry", queue)
-        self.assertIn("for attempt in 1 2 3", queue)
-        self.assertIn("Another runtime pass is already queued or running", queue)
-        self.assertIn("Queued the next live assistant pass.", queue)
-        self.assertIn("actions/workflows/fic-digest.yml/runs", queue)
-        self.assertIn("yielding the shared runtime slot", queue)
+        self.assertIn('cron: "2,7,12,17,22,27,32,37,42,47,52,57 0-17,19-23 * * *"', workflow)
+        self.assertNotIn("- name: Queue next live assistant pass", workflow)
+        self.assertNotIn("gh_workflow_retry main.yml --ref main -f mode=live", workflow)
 
     def test_fic_runtime_resumes_main_after_serialized_delivery(self):
         workflow = (ROOT / ".github" / "workflows" / "fic-digest.yml").read_text(encoding="utf-8")
@@ -100,9 +89,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
 
     def test_live_chain_dispatches_one_missing_nightly_fic_after_due_time(self):
         workflow = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")
-        due = workflow.split("- name: Queue due nightly fanfic digest", 1)[1].split(
-            "- name: Queue next live assistant pass", 1
-        )[0]
+        due = workflow.split("- name: Queue due nightly fanfic digest", 1)[1]
         self.assertIn("10#$now_hm", due)
         self.assertIn("1830", due)
         self.assertIn('actor.login == "github-actions[bot]"', due)

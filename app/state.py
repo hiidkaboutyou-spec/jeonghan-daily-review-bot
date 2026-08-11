@@ -9,7 +9,7 @@ from typing import Any
 
 from .models import Draft, Update
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 class StateStore:
@@ -25,6 +25,11 @@ class StateStore:
             "last_auto_run": "",
             "last_auto_attempt": "",
             "last_x_error_notice": "",
+            "polling_mode_checked": "",
+            "translation_outage_notice": "",
+            "translation_retry_after": "",
+            "translation_outage_streak": 0,
+            "x_scan_failure_streak": 0,
             "seen": {},
             "archive": {},
             "sessions": {},
@@ -56,9 +61,21 @@ class StateStore:
             fresh["telegram_offset"] = max(0, int(value.get("telegram_offset", 0) or 0))
         except (TypeError, ValueError):
             fresh["telegram_offset"] = 0
-        for key in ("last_auto_run", "last_auto_attempt", "last_x_error_notice"):
+        for key in (
+            "last_auto_run",
+            "last_auto_attempt",
+            "last_x_error_notice",
+            "polling_mode_checked",
+            "translation_outage_notice",
+            "translation_retry_after",
+        ):
             raw = value.get(key, "")
             fresh[key] = str(raw) if isinstance(raw, (str, int, float)) else ""
+        for key in ("translation_outage_streak", "x_scan_failure_streak"):
+            try:
+                fresh[key] = max(0, min(int(value.get(key, 0) or 0), 1000))
+            except (TypeError, ValueError):
+                fresh[key] = 0
         for key in ("seen", "archive", "sessions", "drafts", "awaiting"):
             raw = value.get(key)
             if isinstance(raw, dict):

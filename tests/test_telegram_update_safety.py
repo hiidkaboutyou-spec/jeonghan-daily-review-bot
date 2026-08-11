@@ -56,7 +56,7 @@ class TelegramUpdateSafetyTests(unittest.TestCase):
     def test_state_schema_migrates_and_tracks_failure_without_error_text(self):
         with tempfile.TemporaryDirectory() as temp:
             state = self.make_state(temp)
-            self.assertEqual(SCHEMA_VERSION, 3)
+            self.assertEqual(SCHEMA_VERSION, 4)
             count = state.record_telegram_failure(12, "TelegramError")
             self.assertEqual(count, 1)
             self.assertEqual(state.telegram_failure_count(12), 1)

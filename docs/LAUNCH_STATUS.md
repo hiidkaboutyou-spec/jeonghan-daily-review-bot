@@ -6,7 +6,7 @@
 
 - محیط اجرا: GitHub Actions؛ بدون Render و بدون نیاز به کارت بانکی
 - شاخهٔ production: `main`
-- اجرای دستیار: زنجیرهٔ live تقریباً هر پنج دقیقه، با یک quiet window کوتاه اطراف nightly
+- اجرای دستیار: cron تقریباً هر پنج دقیقه، بدون self-dispatch loop و با یک quiet window کوتاه اطراف nightly
 - فیک شبانه: هر روز ساعت ۲۲:۰۰ تهران (`18:30 UTC`)
 - مدل اصلی ترجمه: `gemini-3.1-flash-lite`
 - مقصد: فقط چت خصوصی review؛ autopublish عمومی وجود ندارد
@@ -22,6 +22,7 @@
 - workflowهای Daily و Fanfic از یک concurrency group استفاده می‌کنند و state مشترک را هم‌زمان نمی‌نویسند.
 - اجرای موفق فیک همان روز مانع auto-dispatch تکراری بعد از commitهای مستنداتی می‌شود.
 - Telegram hard dependency است؛ X و Gemini در preflight به‌صورت صریح سالم یا degraded گزارش می‌شوند.
+- خطای quota ترجمه یک deadline تصاعدی و پایدار می‌سازد؛ آپدیت خام ارسال/seen نمی‌شود و تا بازشدن سهمیه در صف می‌ماند.
 - کلید recovery در log mask می‌شود. اگر secret اختصاصی وجود نداشته باشد، workflow یک کلید پایدار از bot token مشتق می‌کند.
 - ciphertext artifact روی cadence محدود و با retention سه‌روزه ذخیره می‌شود؛ plaintext state آپلود نمی‌شود.
 

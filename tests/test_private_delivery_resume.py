@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
@@ -122,6 +122,35 @@ class PrivateDeliveryResumeTests(unittest.TestCase):
 
         app.state.pop_pending.assert_not_called()
         app.deliver_updates.assert_not_awaited()
+
+    def test_persisted_translation_retry_deadline_pauses_pending_queue(self):
+        app = PrivateReviewApplication.__new__(PrivateReviewApplication)
+        app.state = Mock()
+        app.state.data = {
+            "translation_retry_after": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        }
+        app.settings = SimpleNamespace(runtime={"max_auto_items_per_run": 1000})
+        app.deliver_updates = AsyncMock()
+
+        asyncio.run(app.deliver_pending())
+
+        app.state.pop_pending.assert_not_called()
+        app.deliver_updates.assert_not_awaited()
+
+    def test_quota_outage_sets_exponential_persisted_cooldown(self):
+        app = PrivateReviewApplication.__new__(PrivateReviewApplication)
+        app.state = SimpleNamespace(data={"translation_outage_streak": 1})
+        app.writer = SimpleNamespace(_gemini_circuit_open="quota")
+        app._safe_send = Mock()
+        before = datetime.now(timezone.utc)
+
+        app._notify_translation_outage_if_due(4)
+
+        retry_after = datetime.fromisoformat(app.state.data["translation_retry_after"])
+        self.assertEqual(app.state.data["translation_outage_streak"], 2)
+        self.assertGreaterEqual(retry_after, before + timedelta(minutes=59))
+        self.assertLessEqual(retry_after, before + timedelta(minutes=61))
+        app._safe_send.assert_called_once()
 
     def test_missing_media_gets_one_visible_source_link_notice(self):
         with tempfile.TemporaryDirectory() as temp:

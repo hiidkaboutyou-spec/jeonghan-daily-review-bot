@@ -413,11 +413,15 @@ class Application:
         self.state.data["last_x_error_notice"] = now.isoformat()
 
     async def deliver_pending(self) -> None:
+        now = datetime.now(timezone.utc)
+        retry_after = _parse_state_datetime(self.state.data.get("translation_retry_after"))
+        if retry_after and now < retry_after:
+            # Keep the queue untouched while a provider/project quota cools down.
+            # This timestamp is persisted across Actions processes.
+            return
         outage_notice = _parse_state_datetime(self.state.data.get("translation_outage_notice"))
-        if outage_notice and datetime.now(timezone.utc) - outage_notice < timedelta(minutes=12):
-            # A workflow process is restarted every few seconds during its live
-            # window. Do not hammer a provider that just reported an outage; the
-            # next scheduled workflow will retry the untouched queue.
+        if outage_notice and now - outage_notice < timedelta(minutes=12):
+            # Compatibility for state written before the persisted retry deadline.
             return
         limit = max(1, int(self.settings.runtime.get("max_auto_items_per_run", 1000)))
         pending = self.state.pop_pending(limit)
@@ -492,14 +496,28 @@ class Application:
                 self.state.mark_seen(update)
         if deferred:
             self._notify_translation_outage_if_due(deferred)
+        else:
+            self.state.data["translation_retry_after"] = ""
+            self.state.data["translation_outage_streak"] = 0
 
     def _notify_translation_outage_if_due(self, count: int) -> None:
         now = datetime.now(timezone.utc)
+        quota_limited = str(getattr(self.writer, "_gemini_circuit_open", "") or "") == "quota"
+        try:
+            previous_streak = max(0, int(self.state.data.get("translation_outage_streak", 0) or 0))
+        except (TypeError, ValueError):
+            previous_streak = 0
+        streak = min(previous_streak + 1, 1000)
+        # A daily/free-tier quota can stay closed far longer than an RPM burst.
+        # Back off 30m, 1h, 2h, 4h, then 6h instead of retrying every workflow.
+        delay_minutes = min(360, 30 * (2 ** min(streak - 1, 4))) if quota_limited else 20
+        self.state.data["translation_outage_streak"] = streak
+        self.state.data["translation_retry_after"] = (now + timedelta(minutes=delay_minutes)).isoformat()
         previous = _parse_state_datetime(self.state.data.get("translation_outage_notice"))
         if previous and now - previous < timedelta(hours=2):
             return
         self._safe_send(
-            f"⚠️ سرویس ترجمه در دسترس نبود؛ {count} آپدیت خام ارسال نشد و برای تلاش بعدی در صف ماند."
+            f"⚠️ سرویس ترجمه در دسترس نبود؛ {count} آپدیت خام ارسال نشد و امن در صف ماند. تلاش بعدی با فاصله انجام می‌شود تا سهمیه بیشتر مصرف نشود."
         )
         self.state.data["translation_outage_notice"] = now.isoformat()
 

@@ -4,7 +4,7 @@
 
 ## وضعیت لانچ
 
-نسخهٔ production روی شاخهٔ `main` و فقط با GitHub Actions اجرا می‌شود؛ Render یا کارت بانکی لازم نیست. زنجیرهٔ live تقریباً هر پنج دقیقه اجرا/تمدید می‌شود و Nightly Fanfic Digest هر روز ساعت ۲۲:۰۰ تهران (`18:30 UTC`) اجرا می‌شود. آخرین وضعیت و لینک‌های اثبات production در [`docs/LAUNCH_STATUS.md`](docs/LAUNCH_STATUS.md) ثبت شده‌اند.
+نسخهٔ production روی شاخهٔ `main` و فقط با GitHub Actions اجرا می‌شود؛ Render یا کارت بانکی لازم نیست. اجرای live با cron تقریباً هر پنج دقیقه انجام می‌شود و Nightly Fanfic Digest هر روز ساعت ۲۲:۰۰ تهران (`18:30 UTC`) اجرا می‌شود. loop خودکارِ بدون فاصله عمداً وجود ندارد تا سهمیهٔ Actions/X/Gemini مصرف نشود. آخرین وضعیت و لینک‌های اثبات production در [`docs/LAUNCH_STATUS.md`](docs/LAUNCH_STATUS.md) ثبت شده‌اند.
 
 ## قابلیت‌های اصلی
 
