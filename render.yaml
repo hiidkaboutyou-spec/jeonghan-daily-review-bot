@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: jeonghan-personal-assistant
+    runtime: docker
+    plan: free
+    region: frankfurt
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeployTrigger: checksPass
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_ADMIN_USER_ID
+        sync: false
+      - key: TELEGRAM_REVIEW_CHAT_ID
+        sync: false
+      - key: X_COOKIE
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
