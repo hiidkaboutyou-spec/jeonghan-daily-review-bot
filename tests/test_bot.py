@@ -107,7 +107,6 @@ class StateTests(unittest.TestCase):
             self.assertTrue(store.is_seen("11"))
             self.assertEqual(store.get_update("11").id, "11")
 
-
     def test_pending_item_survives_until_it_is_marked_seen(self):
         with tempfile.TemporaryDirectory() as temp:
             store = StateStore(Path(temp) / "state.json")
@@ -128,26 +127,21 @@ class StateTests(unittest.TestCase):
             store.data["pending_delivery"] = [{"id": "poison"}, valid.to_dict()]
             pending = store.pop_pending(1)
             self.assertEqual([item.id for item, _ in pending], ["13"])
-            self.assertEqual(
-                [item.get("id") for item in store.data["pending_delivery"]],
-                ["13"],
-            )
+            self.assertEqual([item.get("id") for item in store.data["pending_delivery"]], ["13"])
 
 
 class XConversionTests(unittest.TestCase):
     def test_twscrape_tweet_and_best_video_are_converted(self):
         media = SimpleNamespace(
             photos=[SimpleNamespace(url="https://pbs.twimg.com/media/photo")],
-            videos=[
-                SimpleNamespace(
-                    thumbnailUrl="https://pbs.twimg.com/thumb",
-                    duration=1200,
-                    variants=[
-                        SimpleNamespace(url="https://video/low.mp4", contentType="video/mp4", bitrate=256000),
-                        SimpleNamespace(url="https://video/high.mp4", contentType="video/mp4", bitrate=1024000),
-                    ],
-                )
-            ],
+            videos=[SimpleNamespace(
+                thumbnailUrl="https://pbs.twimg.com/thumb",
+                duration=1200,
+                variants=[
+                    SimpleNamespace(url="https://video/low.mp4", contentType="video/mp4", bitrate=256000),
+                    SimpleNamespace(url="https://video/high.mp4", contentType="video/mp4", bitrate=1024000),
+                ],
+            )],
             animated=[],
         )
         tweet = SimpleNamespace(
@@ -211,10 +205,8 @@ class XConversionTests(unittest.TestCase):
             url="https://x.com/spammer/status/spam1",
             author="spammer",
             author_name="Spammer",
-            text=(
-                "Jeonghan Honey 스폰서 알바 아르바이트 스폰서 일일 일탈 알바 "
-                "고수익 배우자 섹스 투잡 고액 급여 단기 알바"
-            ),
+            text=("Jeonghan Honey 스폰서 알바 아르바이트 스폰서 일일 일탈 알바 "
+                  "고수익 배우자 섹스 투잡 고액 급여 단기 알바"),
             created_at=datetime.now(timezone.utc),
         )
         self.assertFalse(is_relevant_jeonghan_update(update, trusted_source=False))
@@ -254,11 +246,7 @@ class XConversionTests(unittest.TestCase):
         self.assertTrue(is_relevant_jeonghan_update(update, trusted_source=False))
 
     def test_dedicated_source_thread_part_without_name_is_kept(self):
-        collector = XCollector(
-            {},
-            [{"handle": "jeonghannisms", "enabled": True, "jeonghan_only": True}],
-            [],
-        )
+        collector = XCollector({}, [{"handle": "jeonghannisms", "enabled": True, "jeonghan_only": True}], [])
         update = Update(
             id="thread2",
             url="https://x.com/jeonghannisms/status/thread2",
@@ -296,7 +284,12 @@ class DateAndConfigTests(unittest.TestCase):
     def test_empty_gemini_model_variable_uses_config_default(self):
         with patch.dict(os.environ, {"GEMINI_MODEL": ""}, clear=False):
             settings = Settings.load(require_secrets=False)
-        self.assertEqual(settings.gemini_model, "gemini-2.5-flash-lite")
+        self.assertEqual(settings.gemini_model, "gemini-3.5-flash-lite")
+
+    def test_retired_gemini_model_variable_self_heals(self):
+        with patch.dict(os.environ, {"GEMINI_MODEL": "gemini-2.5-flash-lite"}, clear=False):
+            settings = Settings.load(require_secrets=False)
+        self.assertEqual(settings.gemini_model, "gemini-3.5-flash-lite")
 
     def test_main_menu_is_persistent_reply_keyboard(self):
         keyboard = main_keyboard()
