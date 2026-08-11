@@ -18,6 +18,14 @@ _SOURCE_24_RE = re.compile(
     r"(?P<source>@?[A-Za-z0-9_]{1,30}|https?://(?:www\.)?(?:x\.com|twitter\.com)/[A-Za-z0-9_]{1,30})",
     re.IGNORECASE,
 )
+_STANDARD_BUTTONS = {
+    "🕑 ۲ ساعت اخیر",
+    "🗂 ۲۴ ساعت منبع",
+    "🔎 سرچ آرشیو",
+    "📚 فن‌فیک",
+    "📋 وضعیت",
+    "❔ راهنما",
+}
 
 
 @dataclass(frozen=True)
@@ -34,12 +42,7 @@ def _normalized(text: str) -> str:
 
 
 def parse_assistant_intent(text: str) -> AssistantIntent:
-    """Route ordinary Persian messages without requiring slash commands.
-
-    Explicit Telegram commands are delegated unchanged. Unknown normal text is
-    treated as an archive search because search is the safest useful default for
-    this private single-user assistant.
-    """
+    """Route ordinary Persian messages without requiring slash commands."""
 
     raw = str(text or "").strip()
     value = _normalized(raw)
@@ -48,17 +51,8 @@ def parse_assistant_intent(text: str) -> AssistantIntent:
         return AssistantIntent("empty")
     if value.startswith("/"):
         return AssistantIntent("delegate")
-
-    if raw in {
-        "🕑 ۲ ساعت اخیر",
-        "🗂 ۲۴ ساعت منبع",
-        "🔎 سرچ آرشیو",
-        "📚 فن‌فیک",
-        "📋 وضعیت",
-        "❔ راهنما",
-    }:
+    if raw in _STANDARD_BUTTONS:
         return AssistantIntent("delegate")
-
     if raw == "✨ دستیار من":
         return AssistantIntent("dashboard")
     if raw == "📥 پیش‌نویس‌ها":
@@ -76,24 +70,29 @@ def parse_assistant_intent(text: str) -> AssistantIntent:
     source_match = _SOURCE_24_RE.search(value)
     if source_match:
         return AssistantIntent("source24", source_match.group("source"))
-    if any(token in lowered for token in ("24 ساعت", "۲۴ ساعت", "بیست و چهار ساعت")) and any(
-        token in lowered for token in ("منبع", "سورس", "source")
-    ):
+    if "24 ساعت" in lowered and any(token in lowered for token in ("منبع", "سورس", "source")):
         return AssistantIntent("sources")
 
-    recent_phrases = (
-        "2 ساعت اخیر",
-        "دو ساعت اخیر",
-        "2 ساعت گذشته",
-        "دو ساعت گذشته",
-        "آپدیت جدید",
-        "اپدیت جدید",
-        "چه خبر",
-        "چی اومده",
-        "چی جدید",
-    )
-    if any(token in lowered for token in recent_phrases):
+    if any(
+        token in lowered
+        for token in (
+            "2 ساعت اخیر",
+            "دو ساعت اخیر",
+            "2 ساعت گذشته",
+            "دو ساعت گذشته",
+            "آپدیت جدید",
+            "اپدیت جدید",
+            "چه خبر",
+            "چی اومده",
+            "چی جدید",
+        )
+    ):
         return AssistantIntent("recent2h")
+
+    if any(token in lowered for token in ("امروز چی شد", "امروز چه خبر", "آپدیت های امروز", "آپدیت‌های امروز")):
+        return AssistantIntent("today")
+    if any(token in lowered for token in ("دیروز چی شد", "آپدیت های دیروز", "آپدیت‌های دیروز")):
+        return AssistantIntent("yesterday")
 
     if any(token in lowered for token in ("وضعیت", "بات سالم", "ربات سالم", "status")):
         return AssistantIntent("dashboard")
@@ -110,9 +109,8 @@ def parse_assistant_intent(text: str) -> AssistantIntent:
     if _DATE_RE.search(value):
         return AssistantIntent("search", value)
 
-    # The bot is private and archive-centric. Falling back to archive search is
-    # more useful than returning "command not recognized" and still has no public
-    # publishing side effect.
+    # Private/archive-only fallback: ordinary text becomes a search instead of an
+    # unhelpful "command not recognized" response. This has no public side effect.
     return AssistantIntent("search", raw)
 
 
@@ -144,11 +142,7 @@ def install_assistant_keyboard() -> None:
 
 
 class PersonalAssistantReviewApplication(ChannelStyleReviewApplication):
-    """Single-user Persian assistant layered over the production review bot.
-
-    It does not add public publishing. It only routes the existing private fetch,
-    archive, review, reminder and fic features through a simpler conversational UI.
-    """
+    """Conversational single-user layer over the production private review bot."""
 
     def __init__(self, settings):
         super().__init__(settings)
@@ -161,14 +155,33 @@ class PersonalAssistantReviewApplication(ChannelStyleReviewApplication):
         if not text:
             return
 
-        # Preserve the existing two-step search/custom-source flows. Their next
-        # free-text message belongs to the pending flow, not to the assistant parser.
-        awaiting = self.state.data.get("awaiting", {})
-        if isinstance(awaiting, dict) and awaiting.get(str(self.settings.admin_user_id)) and not text.startswith("/"):
-            await super().handle_message(message)
-            return
+        # Replying directly to a delivered draft can control the same review actions
+        # as the inline buttons. This makes review feel conversational on mobile.
+        reply_action = self._reply_feedback_action(text)
+        if reply_action:
+            draft_id, message_id = self._draft_from_reply(message)
+            if draft_id and message_id:
+                await self.handle_draft_action(reply_action, draft_id, message_id)
+                return
 
         intent = parse_assistant_intent(text)
+        awaiting = self.state.data.get("awaiting", {})
+        awaiting_kind = awaiting.get(str(self.settings.admin_user_id)) if isinstance(awaiting, dict) else None
+
+        # A free-text answer while the bot is explicitly waiting for a search/source
+        # remains part of that flow. A command or navigation button cancels the wait,
+        # so the user can change direction without getting trapped in the old prompt.
+        is_navigation = (
+            text.startswith("/")
+            or text in _STANDARD_BUTTONS
+            or intent.kind in {"dashboard", "inbox", "reminders", "recent2h", "sources", "fic", "today", "yesterday"}
+        )
+        if awaiting_kind and not is_navigation:
+            await super().handle_message(message)
+            return
+        if awaiting_kind and is_navigation:
+            self.state.pop_awaiting(self.settings.admin_user_id)
+
         if intent.kind in {"empty", "delegate"}:
             await super().handle_message(message)
             return
@@ -183,6 +196,15 @@ class PersonalAssistantReviewApplication(ChannelStyleReviewApplication):
             return
         if intent.kind == "recent2h":
             await self.run_recent2h()
+            return
+        if intent.kind == "today":
+            await self.run_search(datetime.now(self.settings.timezone).date().isoformat())
+            return
+        if intent.kind == "yesterday":
+            local_day = datetime.now(self.settings.timezone).date().toordinal() - 1
+            from datetime import date
+
+            await self.run_search(date.fromordinal(local_day).isoformat())
             return
         if intent.kind == "sources":
             self.show_sources()
@@ -214,11 +236,13 @@ class PersonalAssistantReviewApplication(ChannelStyleReviewApplication):
             "من مثل یک دستیار خصوصی روی آرشیو و آپدیت‌های جونگهان کار می‌کنم؛ لازم نیست دستور حفظ کنی.\n\n"
             "مثلاً همین‌ها را فارسی بفرست:\n"
             "• چه خبر؟ / آپدیت جدید → دو ساعت اخیر\n"
+            "• امروز چی شد؟ → همهٔ نتایج مربوط به امروز\n"
             "• ۲۴ ساعت @username → محتوای کامل آن منبع\n"
             "• پیدا کن لایوی که داشت بازی می‌کرد → سرچ آرشیو + X\n"
             "• پیش‌نویس‌ها → صندوق بررسی\n"
             "• فن‌فیک → X و AO3\n"
             "• وضعیت → داشبورد سلامت و کار بعدی\n\n"
+            "روی یک پیش‌نویس Reply هم می‌تونی بنویسی «بامزه‌تر»، «نرم‌تر»، «دقیق‌تر»، «متن تمیز» یا «رد».\n"
             "هر متن معمولی دیگری هم به‌عنوان چیزی که باید در آرشیو دنبالش بگردم در نظر گرفته می‌شود."
         )
         self.telegram.send_message(ensure_rtl_line(text), reply_markup=assistant_main_keyboard())
@@ -269,3 +293,38 @@ class PersonalAssistantReviewApplication(ChannelStyleReviewApplication):
             return local.strftime("%Y-%m-%d %H:%M")
         except ValueError:
             return value[:80]
+
+    def _draft_from_reply(self, message) -> tuple[str, int]:
+        reply = message.get("reply_to_message") or {}
+        try:
+            message_id = int(reply.get("message_id", 0) or 0)
+        except (TypeError, ValueError):
+            return "", 0
+        if not message_id:
+            return "", 0
+        drafts = self.state.data.get("drafts", {})
+        if not isinstance(drafts, dict):
+            return "", 0
+        for draft_id, raw in drafts.items():
+            if not isinstance(raw, dict):
+                continue
+            try:
+                if int(raw.get("telegram_message_id", 0) or 0) == message_id:
+                    return str(draft_id), message_id
+            except (TypeError, ValueError):
+                continue
+        return "", 0
+
+    def _reply_feedback_action(self, text: str) -> str:
+        lowered = _normalized(text).lower()
+        if any(token in lowered for token in ("بامزه تر", "بامزه‌تر", "خنده دارتر", "فان تر", "funnier")):
+            return "fun"
+        if any(token in lowered for token in ("نرم تر", "نرم‌تر", "ملایم تر", "ملایم‌تر", "softer")):
+            return "soft"
+        if any(token in lowered for token in ("دقیق تر", "دقیق‌تر", "رسمی تر", "precise")):
+            return "precise"
+        if any(token in lowered for token in ("متن تمیز", "کپی", "copy")):
+            return "copy"
+        if lowered in {"رد", "ردش کن", "حذف", "reject"}:
+            return "reject"
+        return ""
