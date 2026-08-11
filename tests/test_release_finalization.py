@@ -93,6 +93,17 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("actions/workflows/main.yml/runs", resume)
         self.assertIn("gh workflow run main.yml --ref main -f mode=live", resume)
 
+    def test_live_chain_dispatches_one_missing_nightly_fic_after_due_time(self):
+        workflow = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")
+        due = workflow.split("- name: Queue due nightly fanfic digest", 1)[1].split(
+            "- name: Queue next live assistant pass", 1
+        )[0]
+        self.assertIn("10#$now_hm", due)
+        self.assertIn("1830", due)
+        self.assertIn('actor.login == "github-actions[bot]"', due)
+        self.assertIn("status != \"completed\" or .conclusion == \"success\"", due)
+        self.assertIn("gh workflow run fic-digest.yml --ref main", due)
+
     def test_runtime_runs_are_serialized_and_only_safe_state_is_cached(self):
         workflow = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")
         self.assertIn("jeonghan-daily-review-bot-", workflow)

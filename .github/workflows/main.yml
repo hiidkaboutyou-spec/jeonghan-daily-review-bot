@@ -342,6 +342,42 @@ jobs:
           path: .state/private-review.sqlite3
           key: jeonghan-private-review-v1-${{ runner.os }}-${{ github.run_id }}
 
+      - name: Queue due nightly fanfic digest
+        if: >-
+          success() &&
+          env.LIVE_RUN == 'true' &&
+          github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          now_hm="$(date -u +%H%M)"
+          if [ "$((10#$now_hm))" -lt 1830 ]; then
+            echo "Nightly fanfic window has not opened yet."
+            exit 0
+          fi
+
+          today_start="$(date -u +%Y-%m-%dT00:00:00Z)"
+          covered="$(
+            gh api -H 'Accept: application/vnd.github+json' \
+              "/repos/${GITHUB_REPOSITORY}/actions/workflows/fic-digest.yml/runs?per_page=100" |
+              jq --arg today "$today_start" '
+                [.workflow_runs[] |
+                  select(.head_branch == "main" and .created_at >= $today) |
+                  select(.event == "schedule" or
+                    (.event == "workflow_dispatch" and .actor.login == "github-actions[bot]")) |
+                  select(.status != "completed" or .conclusion == "success")
+                ] | length'
+          )"
+          if [ "$covered" -gt 0 ]; then
+            echo "Today's nightly fanfic digest is already queued, running, or complete."
+            exit 0
+          fi
+
+          gh workflow run fic-digest.yml --ref main
+          echo "Queued today's missing nightly fanfic digest."
+
       - name: Queue next live assistant pass
         if: >-
           success() &&
