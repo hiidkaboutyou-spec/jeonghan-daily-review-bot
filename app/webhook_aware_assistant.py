@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 
 from .personal_assistant import PersonalAssistantReviewApplication
@@ -9,6 +10,11 @@ from .x_client import XCollectionError
 
 logger = logging.getLogger(__name__)
 WEBHOOK_DELEGATED_EXIT_CODE = 3
+
+
+def github_actions_polling_only() -> bool:
+    """Return true when production intentionally runs without an external host."""
+    return os.getenv("ASSISTANT_RUNTIME_MODE", "").strip().lower() == "github_actions_polling"
 
 
 class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
@@ -22,6 +28,15 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
     """
 
     async def run(self) -> int:
+        if github_actions_polling_only():
+            # Render/Koyeb are intentionally not part of this deployment. Remove any
+            # stale webhook without dropping queued updates, then use Telegram
+            # getUpdates immediately instead of waiting for a dead host first.
+            self.telegram.ensure_polling_mode()
+            self.state.data["polling_mode_checked"] = datetime.now(timezone.utc).isoformat()
+            await super().run()
+            return 0
+
         try:
             info = self.telegram.api("getWebhookInfo", timeout=30, attempts=2) or {}
         except Exception as exc:

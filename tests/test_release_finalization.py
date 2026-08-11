@@ -14,10 +14,10 @@ class ReleaseWorkflowTests(unittest.TestCase):
             "- name: Checkpoint private review database", 1
         )[0]
         self.assertIn("python -m app", live)
+        self.assertIn("ASSISTANT_RUNTIME_MODE: github_actions_polling", live)
         self.assertIn('if [ "$code" -eq 0 ]; then', live)
-        self.assertIn('if [ "$code" -eq 3 ]; then', live)
         self.assertIn("Automatic monitor pass completed.", live)
-        self.assertIn("Healthy webhook runtime accepted the maintenance pass.", live)
+        self.assertNotIn("Healthy webhook runtime accepted the maintenance pass.", live)
         self.assertNotIn("successful_passes=0", live)
         self.assertNotIn('while [ "$SECONDS"', live)
 

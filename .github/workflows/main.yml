@@ -198,6 +198,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: gemini-3.5-flash-lite
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          ASSISTANT_RUNTIME_MODE: github_actions_polling
         shell: bash
         run: |
           set +e
@@ -206,10 +207,6 @@ jobs:
           set -e
           if [ "$code" -eq 0 ]; then
             echo "Automatic monitor pass completed."
-            exit 0
-          fi
-          if [ "$code" -eq 3 ]; then
-            echo "Healthy webhook runtime accepted the maintenance pass."
             exit 0
           fi
           if [ "$code" -eq 2 ]; then

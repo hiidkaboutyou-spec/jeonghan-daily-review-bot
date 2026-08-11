@@ -9,6 +9,7 @@ from unittest.mock import patch
 from app.telegram import TelegramTransientError
 from app.telegram_cloud_state import backup_fingerprint, ensure_process_backup_key
 from app.webhook_runtime_utils import derive_runtime_secret, maintenance_url_from_webhook
+from app.webhook_aware_assistant import github_actions_polling_only
 from app.webhook_server import WebhookRuntime
 
 
@@ -37,6 +38,12 @@ class _FakeApp:
 
 
 class WebhookRuntimeTests(unittest.TestCase):
+    def test_github_actions_only_mode_is_explicit(self):
+        with patch.dict(os.environ, {"ASSISTANT_RUNTIME_MODE": "github_actions_polling"}, clear=False):
+            self.assertTrue(github_actions_polling_only())
+        with patch.dict(os.environ, {"ASSISTANT_RUNTIME_MODE": ""}, clear=False):
+            self.assertFalse(github_actions_polling_only())
+
     def test_runtime_secret_is_stable_and_telegram_compatible(self):
         first = derive_runtime_secret("123:abc")
         second = derive_runtime_secret("123:abc")
