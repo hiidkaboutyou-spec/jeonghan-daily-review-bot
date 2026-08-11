@@ -238,10 +238,33 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          gh_api_retry() {
+            local attempt output
+            for attempt in 1 2 3; do
+              if output="$(gh api "$@")"; then
+                printf '%s' "$output"
+                return 0
+              fi
+              echo "GitHub API attempt ${attempt}/3 failed; retrying." >&2
+              sleep $((attempt * 2))
+            done
+            return 1
+          }
+          gh_workflow_retry() {
+            local attempt
+            for attempt in 1 2 3; do
+              if gh workflow run "$@"; then
+                return 0
+              fi
+              echo "GitHub workflow dispatch attempt ${attempt}/3 failed; retrying." >&2
+              sleep $((attempt * 2))
+            done
+            return 1
+          }
           active=0
           for status in pending queued in_progress; do
             count="$(
-              gh api -H 'Accept: application/vnd.github+json' \
+              gh_api_retry -H 'Accept: application/vnd.github+json' \
                 "/repos/${GITHUB_REPOSITORY}/actions/workflows/main.yml/runs?status=${status}&per_page=100" |
                 jq '[.workflow_runs[] | select(.head_branch == "main")] | length'
             )"
@@ -251,5 +274,5 @@ jobs:
             echo "A live assistant pass is already queued or running."
             exit 0
           fi
-          gh workflow run main.yml --ref main -f mode=live
+          gh_workflow_retry main.yml --ref main -f mode=live
           echo "Queued the next live assistant pass after the fanfic digest."

@@ -80,7 +80,10 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("github.ref == 'refs/heads/main'", queue)
         self.assertIn("for status in pending queued in_progress", queue)
         self.assertIn('select(.id != $current)', queue)
-        self.assertIn("gh workflow run main.yml --ref main -f mode=live", queue)
+        self.assertIn("gh_workflow_retry main.yml --ref main -f mode=live", queue)
+        self.assertIn("gh_api_retry", queue)
+        self.assertIn("gh_workflow_retry", queue)
+        self.assertIn("for attempt in 1 2 3", queue)
         self.assertIn("Another runtime pass is already queued or running", queue)
         self.assertIn("Queued the next live assistant pass.", queue)
         self.assertIn("actions/workflows/fic-digest.yml/runs", queue)
@@ -91,7 +94,9 @@ class ReleaseWorkflowTests(unittest.TestCase):
         resume = workflow.split("- name: Resume live assistant after fanfic digest", 1)[1]
         self.assertIn("actions: write", workflow)
         self.assertIn("actions/workflows/main.yml/runs", resume)
-        self.assertIn("gh workflow run main.yml --ref main -f mode=live", resume)
+        self.assertIn("gh_workflow_retry main.yml --ref main -f mode=live", resume)
+        self.assertIn("gh_api_retry", resume)
+        self.assertIn("gh_workflow_retry", resume)
 
     def test_live_chain_dispatches_one_missing_nightly_fic_after_due_time(self):
         workflow = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")
@@ -102,7 +107,10 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("1830", due)
         self.assertIn('actor.login == "github-actions[bot]"', due)
         self.assertIn("status != \"completed\" or .conclusion == \"success\"", due)
-        self.assertIn("gh workflow run fic-digest.yml --ref main", due)
+        self.assertIn("gh_workflow_retry fic-digest.yml --ref main", due)
+        self.assertIn("gh_api_retry", due)
+        self.assertIn("gh_workflow_retry", due)
+        self.assertIn("for attempt in 1 2 3", due)
 
     def test_runtime_runs_are_serialized_and_only_safe_state_is_cached(self):
         workflow = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")

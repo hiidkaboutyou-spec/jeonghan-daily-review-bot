@@ -352,6 +352,29 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          gh_api_retry() {
+            local attempt output
+            for attempt in 1 2 3; do
+              if output="$(gh api "$@")"; then
+                printf '%s' "$output"
+                return 0
+              fi
+              echo "GitHub API attempt ${attempt}/3 failed; retrying." >&2
+              sleep $((attempt * 2))
+            done
+            return 1
+          }
+          gh_workflow_retry() {
+            local attempt
+            for attempt in 1 2 3; do
+              if gh workflow run "$@"; then
+                return 0
+              fi
+              echo "GitHub workflow dispatch attempt ${attempt}/3 failed; retrying." >&2
+              sleep $((attempt * 2))
+            done
+            return 1
+          }
           now_hm="$(date -u +%H%M)"
           if [ "$((10#$now_hm))" -lt 1830 ]; then
             echo "Nightly fanfic window has not opened yet."
@@ -360,7 +383,7 @@ jobs:
 
           today_start="$(date -u +%Y-%m-%dT00:00:00Z)"
           covered="$(
-            gh api -H 'Accept: application/vnd.github+json' \
+            gh_api_retry -H 'Accept: application/vnd.github+json' \
               "/repos/${GITHUB_REPOSITORY}/actions/workflows/fic-digest.yml/runs?per_page=100" |
               jq --arg today "$today_start" '
                 [.workflow_runs[] |
@@ -375,7 +398,7 @@ jobs:
             exit 0
           fi
 
-          gh workflow run fic-digest.yml --ref main
+          gh_workflow_retry fic-digest.yml --ref main
           echo "Queued today's missing nightly fanfic digest."
 
       - name: Queue next live assistant pass
@@ -389,13 +412,37 @@ jobs:
         run: |
           set -euo pipefail
 
+          gh_api_retry() {
+            local attempt output
+            for attempt in 1 2 3; do
+              if output="$(gh api "$@")"; then
+                printf '%s' "$output"
+                return 0
+              fi
+              echo "GitHub API attempt ${attempt}/3 failed; retrying." >&2
+              sleep $((attempt * 2))
+            done
+            return 1
+          }
+          gh_workflow_retry() {
+            local attempt
+            for attempt in 1 2 3; do
+              if gh workflow run "$@"; then
+                return 0
+              fi
+              echo "GitHub workflow dispatch attempt ${attempt}/3 failed; retrying." >&2
+              sleep $((attempt * 2))
+            done
+            return 1
+          }
+
           # A scheduled run can arrive while this run is finishing. Reuse it
           # rather than creating duplicate live chains; concurrency serializes
           # every runtime run against the same persisted Telegram/X state.
           other_active=0
           for status in pending queued in_progress; do
             count="$(
-              gh api -H 'Accept: application/vnd.github+json' \
+              gh_api_retry -H 'Accept: application/vnd.github+json' \
                 "/repos/${GITHUB_REPOSITORY}/actions/workflows/main.yml/runs?status=${status}&per_page=100" |
                 jq --argjson current "$GITHUB_RUN_ID" \
                   '[.workflow_runs[] | select(.id != $current)] | length'
@@ -410,7 +457,7 @@ jobs:
           fic_active=0
           for status in pending queued in_progress; do
             count="$(
-              gh api -H 'Accept: application/vnd.github+json' \
+              gh_api_retry -H 'Accept: application/vnd.github+json' \
                 "/repos/${GITHUB_REPOSITORY}/actions/workflows/fic-digest.yml/runs?status=${status}&per_page=100" |
                 jq '[.workflow_runs[] | select((.event == "schedule" or .event == "workflow_dispatch") and .head_branch == "main")] | length'
             )"
@@ -427,5 +474,5 @@ jobs:
             exit 0
           fi
 
-          gh workflow run main.yml --ref main -f mode=live
+          gh_workflow_retry main.yml --ref main -f mode=live
           echo "Queued the next live assistant pass."
