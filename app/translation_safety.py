@@ -16,6 +16,7 @@ _PROTECTED_RE = re.compile(r"https?://\S+|[#@][\w\u0600-\u06ff\u3040-\u30ff\uac0
 _FOREIGN_RE = re.compile(r"[A-Za-z\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]")
 _PERSIAN_RE = re.compile(r"[\u0600-\u06ff]")
 _FAILURE_RE = re.compile(r"ترجمه[ٔ‌ ]+(?:خودکار[ ]+)?این پیام ناموفق", re.I)
+_UNAVAILABLE_RE = re.compile(r"ترجمه[ٔ‌ ]+خودکار در دسترس نبود", re.I)
 _LITERAL_RE = re.compile(
     r"(?:گوشی را راه[‌ -]?اندازی کنید|مثل یک شراب خوب پیر شده(?: است)?|"
     r"نسخه بد خود را نشان می[‌ ]?دهد|اول تو خانواده من هستی)",
@@ -47,6 +48,11 @@ def metadata_only(update: Update) -> bool:
         return False
     text = update.text.strip()
     return not text or bool(_HASHTAG_ONLY_RE.fullmatch(text))
+
+
+def translation_unavailable(value: str) -> bool:
+    """Return true for an outage placeholder that must never be delivered as a draft."""
+    return bool(_UNAVAILABLE_RE.search(str(value or "")))
 
 
 def safe_metadata_body(update: Update) -> str:
