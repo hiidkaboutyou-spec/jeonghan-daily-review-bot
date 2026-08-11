@@ -11,7 +11,15 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ROOT = Path(__file__).resolve().parents[1]
 HANDLE_RE = re.compile(r"^[A-Za-z0-9_]{1,15}$")
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite"
+DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
+# These model IDs can still be present in old GitHub Variables/config after the
+# provider stops serving them to an account. Normalize them before runtime so a
+# stale deployment setting cannot silently disable translation again.
+LEGACY_GEMINI_MODELS = {
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-3.1-flash-lite-preview",
+}
 
 
 class ConfigError(RuntimeError):
@@ -28,6 +36,13 @@ def read_json(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ConfigError(f"Config file must contain a JSON object: {path.relative_to(ROOT)}")
     return value
+
+
+def normalize_gemini_model(value: str) -> str:
+    model = str(value or "").strip()
+    if not model or model in LEGACY_GEMINI_MODELS:
+        return DEFAULT_GEMINI_MODEL
+    return model
 
 
 def parse_cookie_secret(raw: str) -> dict[str, str]:
@@ -129,7 +144,8 @@ class Settings:
             raise ConfigError(f"Unknown timezone in config/settings.json: {timezone_name}") from exc
 
         configured_model = str(settings_json.get("gemini_model", DEFAULT_GEMINI_MODEL)).strip()
-        gemini_model = os.getenv("GEMINI_MODEL", "").strip() or configured_model or DEFAULT_GEMINI_MODEL
+        requested_model = os.getenv("GEMINI_MODEL", "").strip() or configured_model or DEFAULT_GEMINI_MODEL
+        gemini_model = normalize_gemini_model(requested_model)
         return cls(
             telegram_token=token,
             admin_user_id=admin_id,

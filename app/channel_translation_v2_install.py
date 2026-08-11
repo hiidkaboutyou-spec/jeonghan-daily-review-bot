@@ -9,11 +9,13 @@ other callers remain untouched.
 
 import logging
 from types import MethodType
+from typing import Any
 
 from .ai import CaptionWriter, GroupCopy
 from . import channel_translation as v1
 from .channel_entities import canonicalize_group, entity_failures
 from .channel_quality import rerank_for_mode
+from .gemini_structured import generate_json_v2
 from .translation_safety import (
     manual_review_body,
     metadata_only,
@@ -37,6 +39,35 @@ from .channel_translation_playbook import unavailable_translation
 logger = logging.getLogger(__name__)
 
 _ORIGINAL_V1_WRITE_GROUP = v1.ChannelStyleCaptionWriter.write_group
+_ORIGINAL_PARSE_BODIES = v1._parse_bodies
+
+
+def _parse_v2_bodies(parsed: dict[str, Any] | None, expected: list[str]) -> dict[str, str] | None:
+    """Accept a valid one-item response even when Gemini mutates its opaque ID.
+
+    The source/body association is unambiguous for a one-item group, so rejecting a
+    non-empty body solely because the model rewrote an internal routing ID turns a
+    successful translation into `direct_generation_unavailable`. Multi-item groups
+    stay strict because positional recovery there could associate text with the
+    wrong source update.
+    """
+    exact = _ORIGINAL_PARSE_BODIES(parsed, expected)
+    if exact is not None:
+        return exact
+    if len(expected) != 1 or not isinstance(parsed, dict):
+        return None
+    items = parsed.get("items", [])
+    if not isinstance(items, list) or len(items) != 1 or not isinstance(items[0], dict):
+        return None
+    body = str(items[0].get("body", "")).strip()
+    if not body:
+        return None
+    returned_id = str(items[0].get("id", "")).strip()
+    logger.warning(
+        "V2 recovered one-item structured response with mismatched routing id (present=%s)",
+        bool(returned_id),
+    )
+    return {expected[0]: body}
 
 
 def _finalize_output(self, group, copy: GroupCopy) -> GroupCopy:
@@ -169,9 +200,16 @@ def install_direct_v2(writer):
     """Bind v2 behavior only to this production writer instance."""
     if getattr(writer, "_channel_direct_v2_installed", False):
         return writer
+    # V2 calls v1._parse_bodies dynamically. Install a narrowly-scoped recovery
+    # that is only permissive for one-item responses, where routing by order is
+    # unambiguous. Multi-item production groups retain exact-ID validation.
+    v1._parse_bodies = _parse_v2_bodies
     writer._direct_group = MethodType(V2Methods._direct_group, writer)
     writer._repair_failed_items = MethodType(V2Methods._repair_failed_items, writer)
-    writer._generate_json_v2 = MethodType(V2Methods._generate_json_v2, writer)
+    # Bind the current SDK adapter used by the real production writer. It accepts
+    # both response.parsed and response.text and records bounded, redacted failure
+    # diagnostics instead of silently collapsing every unusable response to None.
+    writer._generate_json_v2 = MethodType(generate_json_v2, writer)
     writer.write_group = MethodType(_installed_write_group, writer)
     writer._channel_direct_v2_installed = True
     return writer

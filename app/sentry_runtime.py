@@ -3,10 +3,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 
-from .channel_style_application import ChannelStyleReviewApplication
 from .channel_style_validation import check_project
 from .config import ConfigError, Settings
 from .observability import capture_technical_exception, init_optional_sentry
+from .personal_assistant import PersonalAssistantReviewApplication
 
 
 async def async_main() -> int:
@@ -16,7 +16,7 @@ async def async_main() -> int:
         errors = settings.validate_files()
         if errors:
             raise ConfigError("; ".join(errors))
-        await ChannelStyleReviewApplication(settings).run()
+        await PersonalAssistantReviewApplication(settings).run()
         return 0
     except ConfigError as exc:
         capture_technical_exception(exc, component="config")
