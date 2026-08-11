@@ -3,7 +3,7 @@ from __future__ import annotations
 """Small, production-safe adapter for Gemini structured JSON responses.
 
 The Google Gen AI SDK may expose structured output through ``response.parsed``
-as well as ``response.text``.  Treating an empty text accessor as an API failure
+as well as ``response.text``. Treating an empty text accessor as an API failure
 can discard a valid structured response, so production accepts either form while
 remaining fail-closed when neither contains a usable JSON object.
 """
@@ -60,7 +60,6 @@ def _record_failure(writer: object, *, model: str, purpose: str, reason: str, re
         if block:
             entry["block_reason"] = block
     failures.append(entry)
-    # Bound diagnostics so a long-running bot cannot grow state/log payloads forever.
     del failures[:-6]
 
 
@@ -76,9 +75,11 @@ def generate_json_v2(
 ) -> dict[str, Any] | None:
     """Generate one schema-constrained JSON object using the current Gen AI SDK.
 
-    Prefer ``response.parsed`` when the SDK has already parsed the structured
-    response; otherwise parse ``response.text``.  No source/prompt text is ever
-    copied into diagnostics.
+    ``schema`` is already a raw JSON Schema dictionary, so use
+    ``response_json_schema``. ``response_schema`` is the higher-level schema/type
+    input and is not the right contract for this raw dictionary path. Prefer
+    ``response.parsed`` when available, then fall back to parsing ``response.text``.
+    No source/prompt text is copied into diagnostics.
     """
     try:
         from google.genai import types
@@ -91,12 +92,11 @@ def generate_json_v2(
     for model in self._model_candidates():
         response = None
         try:
-            # Current Google Gen AI SDK documentation recommends response_schema.
             config = types.GenerateContentConfig(
                 system_instruction=system_instruction,
                 temperature=temperature,
                 response_mime_type="application/json",
-                response_schema=schema,
+                response_json_schema=schema,
             )
             response = client.models.generate_content(
                 model=model,
