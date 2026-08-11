@@ -106,6 +106,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("10#$now_hm", due)
         self.assertIn("1830", due)
         self.assertIn('actor.login == "github-actions[bot]"', due)
+        self.assertIn('.head_sha == $sha', due)
+        self.assertIn('--arg sha "$GITHUB_SHA"', due)
         self.assertIn("status != \"completed\" or .conclusion == \"success\"", due)
         self.assertIn("gh_workflow_retry fic-digest.yml --ref main", due)
         self.assertIn("gh_api_retry", due)
