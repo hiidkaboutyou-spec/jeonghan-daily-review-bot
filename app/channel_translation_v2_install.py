@@ -237,6 +237,11 @@ def install_direct_v2(writer):
     # diagnostics instead of silently collapsing every unusable response to None.
     writer._generate_json_v2 = MethodType(generate_json_v2, writer)
     writer.write_group = MethodType(_installed_write_group, writer)
+    # The current free project accepts about twenty request starts per minute.
+    # Keep headroom for preflight/other project traffic instead of allowing one
+    # large X batch to turn the remaining drafts into translation-outage notices.
+    writer._gemini_min_request_interval_seconds = 3.5
+    writer._gemini_next_request_at = 0.0
     writer._channel_direct_v2_installed = True
     return writer
 

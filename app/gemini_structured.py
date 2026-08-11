@@ -10,12 +10,38 @@ remaining fail-closed when neither contains a usable JSON object.
 
 import json
 import logging
+import time
 from typing import Any
 
 from . import channel_translation as v1
 from .ai import gemini_shared_failure_kind, gemini_should_try_next_model
 
 logger = logging.getLogger(__name__)
+
+
+def _pace_generation(writer: object) -> None:
+    """Keep production request starts below Gemini's project-wide RPM limit.
+
+    The production installer enables this on the one shared writer instance. Unit
+    adapters and non-production callers remain unpaced unless they opt in by
+    setting ``_gemini_min_request_interval_seconds``.
+    """
+    try:
+        interval = max(0.0, float(getattr(writer, "_gemini_min_request_interval_seconds", 0.0)))
+    except (TypeError, ValueError):
+        interval = 0.0
+    if interval <= 0:
+        return
+
+    now = time.monotonic()
+    next_request_at = max(0.0, float(getattr(writer, "_gemini_next_request_at", 0.0) or 0.0))
+    wait = next_request_at - now
+    if wait > 0:
+        time.sleep(wait)
+        now = time.monotonic()
+    # Anchor the next slot to the later value. This keeps request starts spaced
+    # even if the monotonic clock is coarse or a previous call finished quickly.
+    writer._gemini_next_request_at = max(now, next_request_at) + interval
 
 
 def _finish_reason(response: object) -> str:
@@ -124,6 +150,7 @@ def generate_json_v2(
                 temperature=temperature,
                 schema=schema,
             )
+            _pace_generation(self)
             response = client.models.generate_content(
                 model=model,
                 contents=prompt,

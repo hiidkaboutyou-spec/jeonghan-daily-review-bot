@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from app.gemini_structured import generate_json_v2
 
@@ -112,6 +113,23 @@ class GeminiStructuredAdapterTests(unittest.TestCase):
         client = _Client(error=TimeoutError("temporary timeout"))
         self.assertIsNone(_call(writer, client))
         self.assertFalse(hasattr(writer, "_gemini_circuit_open"))
+
+    def test_production_pacing_spaces_request_starts_below_provider_rpm(self):
+        writer = _Writer()
+        writer._gemini_min_request_interval_seconds = 3.5
+        response = _Response(parsed={"items": [{"id": "A", "body": "ترجمه"}]})
+        client = _Client(response=response)
+
+        with (
+            patch("app.gemini_structured.time.monotonic", side_effect=[100.0, 101.0, 103.5]),
+            patch("app.gemini_structured.time.sleep") as sleep,
+        ):
+            self.assertIsNotNone(_call(writer, client))
+            self.assertIsNotNone(_call(writer, client))
+
+        sleep.assert_called_once_with(2.5)
+        self.assertEqual(client.models.calls, 2)
+        self.assertEqual(writer._gemini_next_request_at, 107.0)
 
 
 if __name__ == "__main__":
