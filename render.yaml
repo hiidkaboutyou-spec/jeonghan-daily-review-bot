@@ -23,3 +23,7 @@ services:
         sync: false
       - key: GEMINI_MODEL
         value: gemini-3.5-flash-lite
+      - key: STATE_BACKUP_KEY
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
