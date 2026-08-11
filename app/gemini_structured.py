@@ -63,6 +63,25 @@ def _record_failure(writer: object, *, model: str, purpose: str, reason: str, re
     del failures[:-6]
 
 
+def _generation_config(types, model: str, *, system_instruction: str, temperature: float, schema: dict[str, Any]):
+    """Build the provider-appropriate low-latency structured-output config."""
+    common = {
+        "system_instruction": system_instruction,
+        "response_mime_type": "application/json",
+        "response_json_schema": schema,
+    }
+    if str(model).startswith("gemini-3"):
+        # Translation is instruction-following, not deep reasoning. Minimal thinking
+        # avoids the ~45s timeout pattern seen in the live EN/KO/JA smoke while our
+        # deterministic validators still guard facts, entities and structure.
+        common["thinking_config"] = types.ThinkingConfig(thinking_level="minimal")
+    else:
+        # 2.5 Flash/Lite use the older budget API. Keep the fallback path fast.
+        common["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+        common["temperature"] = temperature
+    return types.GenerateContentConfig(**common)
+
+
 def generate_json_v2(
     self,
     client,
@@ -76,10 +95,9 @@ def generate_json_v2(
     """Generate one schema-constrained JSON object using the current Gen AI SDK.
 
     ``schema`` is already a raw JSON Schema dictionary, so use
-    ``response_json_schema``. ``response_schema`` is the higher-level schema/type
-    input and is not the right contract for this raw dictionary path. Prefer
-    ``response.parsed`` when available, then fall back to parsing ``response.text``.
-    No source/prompt text is copied into diagnostics.
+    ``response_json_schema``. Prefer ``response.parsed`` when available, then fall
+    back to parsing ``response.text``. No source/prompt text is copied into
+    diagnostics.
     """
     try:
         from google.genai import types
@@ -92,11 +110,12 @@ def generate_json_v2(
     for model in self._model_candidates():
         response = None
         try:
-            config = types.GenerateContentConfig(
+            config = _generation_config(
+                types,
+                model,
                 system_instruction=system_instruction,
                 temperature=temperature,
-                response_mime_type="application/json",
-                response_json_schema=schema,
+                schema=schema,
             )
             response = client.models.generate_content(
                 model=model,
@@ -108,6 +127,7 @@ def generate_json_v2(
             if isinstance(parsed, dict) and parsed:
                 if isinstance(getattr(self, "last_diagnostics", None), dict):
                     self.last_diagnostics["structured_response_source"] = "response.parsed"
+                    self.last_diagnostics["generation_model"] = model
                 return parsed
 
             text = str(getattr(response, "text", "") or "").strip()
@@ -126,6 +146,7 @@ def generate_json_v2(
                     if isinstance(parsed_text, dict) and parsed_text:
                         if isinstance(getattr(self, "last_diagnostics", None), dict):
                             self.last_diagnostics["structured_response_source"] = "response.text"
+                            self.last_diagnostics["generation_model"] = model
                         return parsed_text
                     _record_failure(
                         self,
