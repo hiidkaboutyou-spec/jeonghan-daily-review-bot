@@ -41,10 +41,13 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
         if maintenance_url:
             secret = derive_runtime_secret(self.settings.telegram_token)
             try:
+                # Render Free can need roughly a minute to wake from idle. Give the
+                # webhook enough time to cold-start before reclaiming polling, or a
+                # healthy sleeping service would be treated as dead every cycle.
                 response = self.telegram.session.post(
                     maintenance_url,
                     headers={"X-Assistant-Secret": secret},
-                    timeout=25,
+                    timeout=90,
                 )
                 if 200 <= response.status_code < 300:
                     logger.info(
@@ -66,7 +69,7 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
 
         # deleteWebhook(drop_pending_updates=false) keeps Telegram's queued updates.
         # If Telegram itself is temporarily unavailable, let the run fail so the next
-        # five-minute schedule retries instead of pretending monitoring succeeded.
+        # scheduled run retries instead of pretending monitoring succeeded.
         self.telegram.ensure_polling_mode()
         self.state.data["polling_mode_checked"] = datetime.now(timezone.utc).isoformat()
         await super().run()
