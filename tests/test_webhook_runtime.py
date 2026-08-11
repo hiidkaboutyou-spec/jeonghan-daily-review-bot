@@ -6,8 +6,34 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from app.telegram import TelegramTransientError
 from app.telegram_cloud_state import backup_fingerprint, ensure_process_backup_key
 from app.webhook_runtime_utils import derive_runtime_secret, maintenance_url_from_webhook
+from app.webhook_server import WebhookRuntime
+
+
+class _FakeState:
+    def __init__(self) -> None:
+        self.telegram_offset = 0
+        self.saved = 0
+
+    def clear_telegram_failure(self, _update_id: int) -> None:
+        return None
+
+    def save(self) -> None:
+        self.saved += 1
+
+
+class _FakeApp:
+    def __init__(self, *, transient: bool = False) -> None:
+        self.state = _FakeState()
+        self.transient = transient
+        self.calls = 0
+
+    async def _process_one_telegram_update(self, _item) -> None:
+        self.calls += 1
+        if self.transient:
+            raise TelegramTransientError("temporary")
 
 
 class WebhookRuntimeTests(unittest.TestCase):
@@ -47,6 +73,40 @@ class WebhookRuntimeTests(unittest.TestCase):
             (state_dir / "private-review.sqlite3-wal").write_bytes(b"new durable rows")
             after = backup_fingerprint(state_dir)
             self.assertNotEqual(before, after)
+
+    def test_render_external_url_is_used_without_manual_public_url(self):
+        with patch.dict(
+            os.environ,
+            {"PUBLIC_BASE_URL": "", "RENDER_EXTERNAL_URL": "https://assistant.onrender.com"},
+            clear=False,
+        ):
+            self.assertEqual(
+                WebhookRuntime._public_url_from_environment(),
+                "https://assistant.onrender.com",
+            )
+
+    def test_successful_update_is_persisted_before_ack(self):
+        runtime = WebhookRuntime()
+        fake = _FakeApp()
+        runtime.application = fake  # type: ignore[assignment]
+        with patch.object(runtime, "_save_and_backup_if_changed"):
+            handled = runtime.process_update_sync({"update_id": 5})
+        self.assertTrue(handled)
+        self.assertEqual(fake.calls, 1)
+        self.assertEqual(fake.state.telegram_offset, 6)
+        self.assertGreaterEqual(fake.state.saved, 1)
+        runtime.executor.shutdown(wait=True, cancel_futures=True)
+
+    def test_exhausted_transient_failure_is_not_acknowledged(self):
+        runtime = WebhookRuntime()
+        fake = _FakeApp(transient=True)
+        runtime.application = fake  # type: ignore[assignment]
+        with patch.object(runtime, "_save_and_backup_if_changed"):
+            handled = runtime.process_update_sync({"update_id": 5})
+        self.assertFalse(handled)
+        self.assertEqual(fake.calls, 3)
+        self.assertEqual(fake.state.telegram_offset, 0)
+        runtime.executor.shutdown(wait=True, cancel_futures=True)
 
 
 if __name__ == "__main__":
