@@ -8,6 +8,7 @@ from app.fic_digest import (
     Fic,
     _chunks,
     _normalize_fic_summary_names,
+    _rank_digest_fics,
     _translate_summary,
     format_digest,
     summarize_fics_persian,
@@ -79,6 +80,33 @@ class FanficDigestTests(unittest.TestCase):
         self.assertIn("━━ Jihan ━━", text)
         self.assertIn("https://archiveofourown.org/works/1", text)
         self.assertIn("https://archiveofourown.org/works/2", text)
+
+    def test_digest_shows_update_completion_and_safety_metadata(self):
+        fic = Fic(
+            title="A",
+            url="https://archiveofourown.org/works/1",
+            author="one",
+            summary="summary",
+            relationships=["Yoon Jeonghan/Choi Seungcheol"],
+            rating="Explicit",
+            chapters="4/4",
+            observation_status="updated",
+            warnings=["Creator Chose Not To Use Archive Warnings"],
+            freeforms=["Enemies to Lovers", "Happy Ending"],
+        )
+        text = format_digest("title", [fic], {fic.url: fic.summary}, "ao3")
+        self.assertIn("🔄 تازه آپدیت شده", text)
+        self.assertIn("✅ کامل", text)
+        self.assertIn("رده‌بندی: صریح / بزرگسال", text)
+        self.assertIn("نویسنده هشدارهای آرشیو را مشخص نکرده", text)
+        self.assertIn("Enemies to Lovers", text)
+
+    def test_updates_and_new_works_rank_before_unchanged_popular_works(self):
+        unchanged = Fic("old", "https://archiveofourown.org/works/1", "a", "s", ["Yoon Jeonghan/Choi Seungcheol"], kudos=999, observation_status="unchanged")
+        new = Fic("new", "https://archiveofourown.org/works/2", "a", "s", ["Yoon Jeonghan/Choi Seungcheol"], kudos=1, observation_status="new")
+        updated = Fic("updated", "https://archiveofourown.org/works/3", "a", "s", ["Yoon Jeonghan/Choi Seungcheol"], kudos=1, observation_status="updated")
+        ranked = _rank_digest_fics([unchanged, new, updated], "ao3")
+        self.assertEqual([fic.title for fic in ranked], ["updated", "new", "old"])
 
 
 if __name__ == "__main__":

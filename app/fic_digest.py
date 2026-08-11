@@ -29,6 +29,7 @@ HEADERS = {"User-Agent": "JeonghanDailyReviewBot/1.0 (+personal private reading 
 JEONGHAN_TERMS = ("jeonghan", "yoon jeonghan", "정한", "윤정한", "ジョンハン")
 AO3_PAGE_LIMIT = 25
 AO3_PACE_SECONDS = 1.0
+AO3_BALANCED_PAGE_LIMIT = 12
 
 SHIP_ALIASES = [
     ("Jeongcheol", ("Choi Seungcheol", "S.Coups")),
@@ -63,6 +64,8 @@ class Fic:
     chapters: str = ""
     updated: str = ""
     observation_status: str = ""
+    warnings: list[str] | None = None
+    freeforms: list[str] | None = None
 
     @property
     def ship(self) -> str:
@@ -76,6 +79,16 @@ class Fic:
     def work_id(self) -> str:
         match = re.search(r"/works/(\d+)", self.url)
         return match.group(1) if match else ""
+
+    @property
+    def completion_status(self) -> str:
+        match = re.fullmatch(r"\s*(\d+)\s*/\s*(\d+|\?)\s*", self.chapters or "")
+        if not match:
+            return ""
+        current, total = match.groups()
+        if total != "?" and int(current) >= int(total):
+            return "complete"
+        return "in_progress"
 
 
 def _clean(text: str) -> str:
@@ -172,16 +185,26 @@ def _fic_from_search_blurb(work: Any) -> Fic | None:
         hits=_num(work.select_one("dd.hits")),
         chapters=_node_text(work.select_one("dd.chapters")),
         updated=_node_text(work.select_one("p.datetime")),
+        warnings=[_clean(a.get_text(" ", strip=True)) for a in work.select("li.warnings a.tag")],
+        freeforms=[_clean(a.get_text(" ", strip=True)) for a in work.select("li.freeforms a.tag")],
     )
 
 
-def search_ao3(limit: int = 36, *, max_pages: int = AO3_PAGE_LIMIT, pace_seconds: float = AO3_PACE_SECONDS) -> list[Fic]:
+def search_ao3(
+    limit: int = 36,
+    *,
+    max_pages: int = AO3_PAGE_LIMIT,
+    pace_seconds: float = AO3_PACE_SECONDS,
+    sort_column: str = "kudos_count",
+) -> list[Fic]:
     if limit <= 0:
         return []
+    if sort_column not in {"kudos_count", "revised_at", "created_at", "bookmarks_count", "hits"}:
+        raise ValueError("unsupported AO3 sort column")
     base_params = {
         "work_search[query]": '"Yoon Jeonghan" OR Jeonghan',
         "work_search[language_id]": "en",
-        "work_search[sort_column]": "kudos_count",
+        "work_search[sort_column]": sort_column,
         "work_search[sort_direction]": "desc",
         "commit": "Search",
     }
@@ -212,6 +235,49 @@ def search_ao3(limit: int = 36, *, max_pages: int = AO3_PAGE_LIMIT, pace_seconds
         if pace_seconds > 0 and page < max_pages:
             time.sleep(float(pace_seconds))
     return fics
+
+
+def search_ao3_balanced(
+    limit: int = 48,
+    *,
+    max_pages_each: int = AO3_BALANCED_PAGE_LIMIT,
+    pace_seconds: float = AO3_PACE_SECONDS,
+) -> list[Fic]:
+    """Blend recently updated works with established popular works.
+
+    The two searches share the old 25-page safety budget (12 pages each by
+    default), so discovery improves without increasing the worst-case request
+    pressure on AO3.
+    """
+    if limit <= 0:
+        return []
+    recent_quota = max(1, (limit * 2) // 3)
+    popular_quota = max(1, limit - recent_quota)
+    recent = search_ao3(
+        recent_quota,
+        max_pages=max_pages_each,
+        pace_seconds=pace_seconds,
+        sort_column="revised_at",
+    )
+    if pace_seconds > 0:
+        time.sleep(float(pace_seconds))
+    popular = search_ao3(
+        popular_quota + max(4, limit // 6),
+        max_pages=max_pages_each,
+        pace_seconds=pace_seconds,
+        sort_column="kudos_count",
+    )
+    merged: list[Fic] = []
+    seen: set[str] = set()
+    for fic in [*recent, *popular]:
+        key = fic.work_id or fic.url
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(fic)
+        if len(merged) >= limit:
+            break
+    return merged
 
 
 def fetch_ao3_work(url: str) -> Fic | None:
@@ -247,6 +313,8 @@ def fetch_ao3_work(url: str) -> Fic | None:
         hits=_num(soup.select_one("dd.hits")),
         chapters=_node_text(soup.select_one("dd.chapters")),
         updated=_node_text(soup.select_one("dd.status")) or _node_text(soup.select_one("dd.published")),
+        warnings=[_clean(a.get_text(" ", strip=True)) for a in soup.select("dd.warning.tags a.tag")],
+        freeforms=[_clean(a.get_text(" ", strip=True)) for a in soup.select("dd.freeform.tags a.tag")],
     )
 
 
@@ -337,6 +405,16 @@ _FIC_NAME_REPLACEMENTS = (
     (re.compile(r"\b(?:Yoon\s+)?Jeonghan\b", re.I), "جونگهان"),
     (re.compile(r"\b(?:Choi\s+)?Seungcheol\b|\bS\.Coups\b", re.I), "سونگچول"),
     (re.compile(r"\bJoshua\b|\bHong\s+Jisoo\b", re.I), "جاشوآ"),
+    (re.compile(r"\b(?:Kim\s+)?Mingyu\b", re.I), "مینگیو"),
+    (re.compile(r"\b(?:Jeon\s+)?Wonwoo\b", re.I), "ونوو"),
+    (re.compile(r"\b(?:Kwon\s+Soonyoung|Soonyoung|Hoshi)\b", re.I), "هوشی"),
+    (re.compile(r"\b(?:Wen|Moon)\s+Junhui\b|\bJunhui\b", re.I), "جون"),
+    (re.compile(r"\b(?:Lee\s+Seokmin|Seokmin|DK)\b", re.I), "دوکیوم"),
+    (re.compile(r"\b(?:Xu\s+Minghao|Minghao|The8)\b", re.I), "مینگ‌هائو"),
+    (re.compile(r"\b(?:Lee\s+Jihoon|Jihoon|Woozi)\b", re.I), "ووزی"),
+    (re.compile(r"\b(?:Boo\s+)?Seungkwan\b", re.I), "سونگکوان"),
+    (re.compile(r"\b(?:Lee\s+Chan|Dino)\b", re.I), "دینو"),
+    (re.compile(r"\b(?:Chwe\s+Hansol|Hansol|Vernon)\b", re.I), "ورنون"),
 )
 
 
@@ -366,11 +444,15 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
         )
         payload = [{"url": f.url, "title": f.title, "summary": f.summary} for f in fics]
         prompt = (
-            "برای هر فن‌فیک فقط بر اساس summary رسمی AO3 یک ترجمه/خلاصهٔ فارسی روان و طبیعی 1 تا 3 جمله‌ای بنویس. "
+            "برای هر فن‌فیک فقط بر اساس summary رسمی AO3 یک ترجمه/خلاصهٔ فارسی روان، امروزی و طبیعی 1 تا 3 جمله‌ای بنویس. "
+            "لحن می‌تواند محاوره‌ای و خوش‌خوان باشد، اما معنا، شدت احساس و زاویهٔ دید نویسنده باید دقیق بماند. "
             "محتوای بزرگسالانه و جنسی مجاز است: سانسور، حذف، ملایم‌سازی یا تغییرش نده. "
             "هیچ جزئیات، پایان یا trope جدیدی اختراع نکن. فارسی تحت‌اللفظی و ساختار انگلیسی ممنوع است. "
             "املای ثابت نام‌ها: Yoon Jeonghan/Jeonghan = جونگهان، Choi Seungcheol/S.Coups = سونگچول، "
-            "Joshua/Hong Jisoo = جاشوآ. خروجی JSON با items شامل url و summary_fa باشد. "
+            "Joshua/Hong Jisoo = جاشوآ، Mingyu = مینگیو، Wonwoo = ونوو، Hoshi/Soonyoung = هوشی، "
+            "Jun/Junhui = جون، DK/Seokmin = دوکیوم، The8/Minghao = مینگ‌هائو، Woozi/Jihoon = ووزی، "
+            "Seungkwan = سونگکوان، Dino/Chan = دینو، Vernon/Hansol = ورنون. "
+            "خروجی JSON با items شامل url و summary_fa باشد. "
             + json.dumps(payload, ensure_ascii=False)
         )
         candidates = list(dict.fromkeys([settings.gemini_model, *GEMINI_FREE_FALLBACK_MODELS]))
@@ -464,10 +546,58 @@ def _chunks(text: str, max_len: int = 3800) -> list[str]:
     return chunks
 
 
+_RATING_FA = {
+    "General Audiences": "مناسب همه",
+    "Teen And Up Audiences": "نوجوان به بالا",
+    "Mature": "بزرگسال",
+    "Explicit": "صریح / بزرگسال",
+    "Not Rated": "رده‌بندی نشده",
+}
+
+_WARNING_FA = {
+    "No Archive Warnings Apply": "هشدار اصلی ندارد",
+    "Creator Chose Not To Use Archive Warnings": "نویسنده هشدارهای آرشیو را مشخص نکرده",
+    "Graphic Depictions Of Violence": "خشونت با توصیف صریح",
+    "Major Character Death": "مرگ شخصیت اصلی",
+    "Rape/Non-Con": "تجاوز / رابطه بدون رضایت",
+    "Underage": "رابطه با فرد زیر سن قانونی",
+}
+
+_STATUS_FA = {
+    "new": "🆕 تازه پیدا شده",
+    "updated": "🔄 تازه آپدیت شده",
+    "unchanged": "⭐ انتخاب ثابت",
+}
+
+
+def _rank_digest_fics(fics: list[Fic], source: str) -> list[Fic]:
+    status_priority = {"updated": 0, "new": 1, "unchanged": 2, "": 3}
+
+    def quality(fic: Fic) -> tuple[int, int, int, int]:
+        primary = fic.x_score if source == "x" else fic.kudos
+        return primary, fic.bookmarks, fic.kudos, fic.hits
+
+    return sorted(
+        fics,
+        key=lambda fic: (status_priority.get(fic.observation_status, 3), *(-x for x in quality(fic))),
+    )
+
+
+def _status_counts(fics: list[Fic]) -> str:
+    counts = {status: sum(fic.observation_status == status for fic in fics) for status in _STATUS_FA}
+    if not any(counts.values()):
+        return ""
+    return f"تازه: {counts['new']} · آپدیت‌شده: {counts['updated']} · انتخاب ثابت: {counts['unchanged']}"
+
+
 def format_digest(title: str, fics: list[Fic], summaries: dict[str, str], source: str) -> str:
     if not fics:
         return title + "\n\nاین نوبت نتیجهٔ قابل‌اعتماد پیدا نشد؛ لیست خالی به معنی نبودن فن‌فیک نیست و اجرای بعدی دوباره بررسی می‌کند."
-    lines = [title, "", f"تعداد انتخاب‌ها: {len(fics)} | زبان همه: English", ""]
+    lines = [title, "", f"تعداد انتخاب‌ها: {len(fics)} · زبان: انگلیسی"]
+    counts = _status_counts(fics)
+    if counts:
+        lines.append(counts)
+    lines.append("")
     grouped: dict[str, list[Fic]] = {}
     for fic in fics:
         grouped.setdefault(fic.ship, []).append(fic)
@@ -479,18 +609,30 @@ def format_digest(title: str, fics: list[Fic], summaries: dict[str, str], source
             continue
         lines += [f"━━ {ship} ━━", ""]
         for fic in items:
-            stats = f"Kudos {fic.kudos:,} · Bookmarks {fic.bookmarks:,} · Hits {fic.hits:,}"
+            status = _STATUS_FA.get(fic.observation_status, "")
+            stats = f"کودوس {fic.kudos:,} · بوکمارک {fic.bookmarks:,} · بازدید {fic.hits:,}"
             if source == "x":
-                stats += f" · X score {fic.x_score:,}"
+                stats += f" · امتیاز X: {fic.x_score:,}"
             if fic.chapters:
-                stats += f" · Chapters {fic.chapters}"
+                progress = ""
+                if fic.completion_status == "complete":
+                    progress = " (✅ کامل)"
+                elif fic.completion_status == "in_progress":
+                    progress = " (✍️ درحال انتشار)"
+                stats += f" · فصل {fic.chapters}{progress}"
             jh_relationships = _jeonghan_relationships(fic.relationships)
             rel = "; ".join(jh_relationships[:3]) or ship
+            heading = f"{number}) {status + ' · ' if status else ''}{fic.title}"
+            lines += [heading, f"نویسنده: {fic.author}", f"رابطه: {rel}"]
+            if fic.rating:
+                lines.append("رده‌بندی: " + _RATING_FA.get(fic.rating, fic.rating))
+            warnings = [_WARNING_FA.get(value, value) for value in (fic.warnings or [])]
+            if warnings:
+                lines.append("هشدار AO3: " + "؛ ".join(warnings[:3]))
+            if fic.freeforms:
+                lines.append("تگ‌ها: " + "؛ ".join(fic.freeforms[:3]))
             lines += [
-                f"{number}) {fic.title}",
-                f"by {fic.author}",
-                rel,
-                stats + (f" · Words {fic.words}" if fic.words else ""),
+                stats + (f" · کلمه {fic.words}" if fic.words else ""),
                 fic.url,
                 "خلاصه: " + summaries.get(fic.url, fic.summary),
                 "",
@@ -512,40 +654,50 @@ async def build_digests(settings: Settings, *, fic_store: FicStateStore | None =
     x_fics = await search_x_recommendations(settings)
     if fic_store is not None:
         observe_fics(fic_store, x_fics)
+    x_fics = _rank_digest_fics(x_fics, "x")
     x_summaries = await asyncio.to_thread(summarize_fics_persian, settings, x_fics)
-    x_text = format_digest("🌙 لیست شبانه فن‌فیک — پیشنهادهای پیدا شده در X", x_fics, x_summaries, "x")
+    x_text = format_digest("🌙 فن‌فیک‌های پیشنهادی از X", x_fics, x_summaries, "x")
 
-    ao3_fics = await asyncio.to_thread(search_ao3, 36)
-    ao3_fics.sort(key=lambda f: (f.kudos, f.bookmarks, f.hits), reverse=True)
+    ao3_candidates = await asyncio.to_thread(search_ao3_balanced, 48)
+    x_ids = {fic.work_id for fic in x_fics if fic.work_id}
+    ao3_fics = [fic for fic in ao3_candidates if not fic.work_id or fic.work_id not in x_ids][:36]
     if fic_store is not None:
         observe_fics(fic_store, ao3_fics)
+    ao3_fics = _rank_digest_fics(ao3_fics, "ao3")
     ao3_summaries = await asyncio.to_thread(summarize_fics_persian, settings, ao3_fics)
-    ao3_text = format_digest("📚 لیست شبانه فن‌فیک — بهترین‌های خود AO3", ao3_fics, ao3_summaries, "ao3")
+    ao3_text = format_digest("📚 تازه‌ها و انتخاب‌های محبوب AO3", ao3_fics, ao3_summaries, "ao3")
     return x_text, ao3_text
 
 
 async def send_digests(settings: Settings, bot: TelegramBot | None = None) -> None:
     db_path = settings.state_path.with_name("private-review.sqlite3")
-    message_store = MessageDeliveryStore(db_path)
     fic_store = FicStateStore(db_path)
-    bot = bot or TelegramBot(
-        settings.telegram_token,
-        settings.admin_user_id,
-        settings.review_chat_id,
-        message_delivery_store=message_store,
-    )
-    if getattr(bot, "message_delivery_store", None) is None:
-        bot.message_delivery_store = message_store
+    manual_request = bot is not None
+    owned_message_store: MessageDeliveryStore | None = None
+    if bot is None:
+        owned_message_store = MessageDeliveryStore(db_path)
+        bot = TelegramBot(
+            settings.telegram_token,
+            settings.admin_user_id,
+            settings.review_chat_id,
+            message_delivery_store=owned_message_store,
+        )
+    elif getattr(bot, "message_delivery_store", None) is None:
+        owned_message_store = MessageDeliveryStore(db_path)
+        bot.message_delivery_store = owned_message_store
     try:
         x_text, ao3_text = await build_digests(settings, fic_store=fic_store)
         day = datetime.now(settings.timezone).strftime("%Y-%m-%d")
-        bot.send_message(x_text, delivery_key=f"fic:{day}:x")
-        bot.send_message(ao3_text, delivery_key=f"fic:{day}:ao3")
+        if manual_request:
+            run_scope = datetime.now(timezone.utc).strftime("manual:%Y%m%dT%H%M%S%fZ")
+        else:
+            run_scope = day
+        bot.send_message(x_text, delivery_key=f"fic:{run_scope}:x")
+        bot.send_message(ao3_text, delivery_key=f"fic:{run_scope}:ao3")
     finally:
         fic_store.close()
-        # Do not close an externally supplied bot's pre-existing store.
-        if bot.message_delivery_store is message_store:
-            message_store.close()
+        if owned_message_store is not None and bot.message_delivery_store is owned_message_store:
+            owned_message_store.close()
             bot.message_delivery_store = None
 
 

@@ -12,7 +12,9 @@ on:
     paths:
       - "app/fic_digest.py"
       - "app/fic_state.py"
+      - "app/ai.py"
       - "app/message_delivery.py"
+      - "app/telegram_cloud_state.py"
       - "app/x_client.py"
       - "app/config.py"
       - "app/telegram.py"
@@ -27,7 +29,9 @@ on:
     paths:
       - "app/fic_digest.py"
       - "app/fic_state.py"
+      - "app/ai.py"
       - "app/message_delivery.py"
+      - "app/telegram_cloud_state.py"
       - "app/x_client.py"
       - "app/config.py"
       - "app/telegram.py"
@@ -68,6 +72,30 @@ jobs:
           python -m pip install --upgrade "pip>=26.1.2"
           python -m pip install -r requirements.txt
           python -m pip check
+
+      - name: Derive stable encrypted recovery key
+        if: >-
+          (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+          env.STATE_BACKUP_KEY == ''
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          key="$(python - <<'PY'
+          import os
+
+          from app.telegram_cloud_state import ensure_process_backup_key
+
+          token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+          if not token:
+              raise SystemExit("TELEGRAM_BOT_TOKEN is required to derive the encrypted recovery key")
+          ensure_process_backup_key(token)
+          print(os.environ["STATE_BACKUP_KEY"])
+          PY
+          )"
+          echo "::add-mask::$key"
+          echo "STATE_BACKUP_KEY=$key" >> "$GITHUB_ENV"
 
       - name: Report encrypted recovery disabled
         if: >-
@@ -187,7 +215,7 @@ jobs:
           name: private-state-backup
           path: .state/private-state-backup.enc
           if-no-files-found: error
-          retention-days: 90
+          retention-days: 3
           compression-level: 0
 
       - name: Save shared private review database cache

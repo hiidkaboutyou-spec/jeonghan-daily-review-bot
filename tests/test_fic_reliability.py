@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
-from app.fic_digest import Fic, _get, search_ao3, search_x_recommendations, send_digests
+from app.fic_digest import Fic, _get, build_digests, search_ao3, search_ao3_balanced, search_x_recommendations, send_digests
 from app.fic_state import FicObservation, FicStateStore
 
 
@@ -25,6 +25,8 @@ def _page(work_id: str | None, relationship: str = "Yoon Jeonghan/Choi Seungcheo
     <ol><li class='work blurb'>
       <h4 class='heading'><a href='/works/{work_id}'>Work {work_id}</a><a rel='author'>A</a></h4>
       <ul><li class='relationships'><a class='tag'>{relationship}</a></li></ul>
+      <ul><li class='warnings'><a class='tag'>Major Character Death</a></li>
+      <li class='freeforms'><a class='tag'>Slow Burn</a></li></ul>
       <dd class='language'>English</dd><dd class='chapters'>2/3</dd><dd class='kudos'>10</dd>
       <p class='datetime'>09 Aug 2026</p>
     </li></ol>
@@ -65,6 +67,23 @@ class Ao3ReliabilityTests(unittest.TestCase):
             result = search_ao3(1, max_pages=1, pace_seconds=0)
         self.assertEqual(result[0].chapters, "2/3")
         self.assertEqual(result[0].updated, "09 Aug 2026")
+        self.assertEqual(result[0].warnings, ["Major Character Death"])
+        self.assertEqual(result[0].freeforms, ["Slow Burn"])
+
+    def test_balanced_search_combines_recent_and_popular_without_duplicates(self):
+        recent = [
+            Fic("recent 1", "https://archiveofourown.org/works/1", "a", "s", ["Yoon Jeonghan/Choi Seungcheol"]),
+            Fic("recent 2", "https://archiveofourown.org/works/2", "a", "s", ["Yoon Jeonghan/Choi Seungcheol"]),
+        ]
+        popular = [
+            Fic("duplicate", "https://archiveofourown.org/works/2", "a", "s", ["Yoon Jeonghan/Choi Seungcheol"]),
+            Fic("popular", "https://archiveofourown.org/works/3", "a", "s", ["Yoon Jeonghan/Choi Seungcheol"]),
+        ]
+        with patch("app.fic_digest.search_ao3", side_effect=[recent, popular]) as search, patch("app.fic_digest.time.sleep"):
+            result = search_ao3_balanced(3, max_pages_each=4, pace_seconds=1)
+        self.assertEqual([fic.work_id for fic in result], ["1", "2", "3"])
+        self.assertEqual(search.call_args_list[0].kwargs["sort_column"], "revised_at")
+        self.assertEqual(search.call_args_list[1].kwargs["sort_column"], "kudos_count")
 
     def test_retry_after_header_is_honored_for_429(self):
         class Response:
@@ -130,6 +149,20 @@ class FicDeliveryTests(unittest.TestCase):
             self.assertEqual(len(keys), 2)
             self.assertTrue(keys[0].endswith(":x"))
             self.assertTrue(keys[1].endswith(":ao3"))
+            self.assertIn(":manual:", keys[0])
+
+    def test_x_and_ao3_digests_do_not_repeat_the_same_work(self):
+        settings = SimpleNamespace(gemini_api_key="", gemini_model="")
+        duplicate_x = Fic("from x", "https://archiveofourown.org/works/1", "a", "x", ["Yoon Jeonghan/Choi Seungcheol"])
+        duplicate_ao3 = Fic("same work", "https://archiveofourown.org/works/1", "a", "a", ["Yoon Jeonghan/Choi Seungcheol"])
+        unique_ao3 = Fic("unique work", "https://archiveofourown.org/works/2", "a", "b", ["Yoon Jeonghan/Choi Seungcheol"])
+        with patch("app.fic_digest.search_x_recommendations", new=AsyncMock(return_value=[duplicate_x])), patch(
+            "app.fic_digest.search_ao3_balanced", return_value=[duplicate_ao3, unique_ao3]
+        ):
+            x_text, ao3_text = asyncio.run(build_digests(settings))
+        self.assertIn("/works/1", x_text)
+        self.assertNotIn("/works/1", ao3_text)
+        self.assertIn("/works/2", ao3_text)
 
 
 if __name__ == "__main__":

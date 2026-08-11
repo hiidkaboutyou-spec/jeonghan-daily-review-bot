@@ -127,6 +127,10 @@ class Application:
         elif command == "/help":
             self.send_help()
         elif command == "/fic":
+            self.telegram.send_message(
+                "📚 دارم تازه‌ها، آپدیت‌ها و انتخاب‌های محبوب AO3 و X را آماده می‌کنم؛ ممکن است یکی دو دقیقه طول بکشد…",
+                reply_markup=main_keyboard(),
+            )
             from .fic_digest import send_digests
 
             await send_digests(self.settings, self.telegram)

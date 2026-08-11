@@ -59,6 +59,16 @@ class RecoveryWorkflowTests(unittest.TestCase):
         self.assertIn("RUN_NUMBER % 24", cadence)
         self.assertIn("retention-days: 3", upload)
 
+    def test_fic_digest_derives_recovery_key_and_limits_retention(self):
+        text = self._text("fic-digest.yml")
+        derive = text.split("- name: Derive stable encrypted recovery key", 1)[1].split(
+            "- name: Report encrypted recovery disabled", 1
+        )[0]
+        self.assertIn("ensure_process_backup_key", derive)
+        self.assertIn("TELEGRAM_BOT_TOKEN", derive)
+        self.assertIn("::add-mask::$key", derive)
+        self.assertIn("retention-days: 3", text)
+
     def test_only_ciphertext_artifact_is_uploaded(self):
         for name in ("main.yml", "fic-digest.yml"):
             text = self._text(name)
