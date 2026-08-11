@@ -2,6 +2,11 @@ name: Deploy Personal Assistant to Koyeb Free
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/koyeb-deploy-trigger"
 
 permissions:
   contents: read
