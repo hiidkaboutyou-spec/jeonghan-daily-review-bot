@@ -94,12 +94,16 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
         """Run the production scan at the configured near-real-time cadence."""
         now = datetime.now(timezone.utc)
         last = self._state_datetime("last_auto_run") or (now - timedelta(hours=2))
+        last_attempt = self._state_datetime("last_auto_attempt")
         interval = max(
             1,
-            int(self.settings.runtime.get("scheduled_min_interval_minutes", 4)),
+            int(self.settings.runtime.get("scheduled_min_interval_minutes", 12)),
         )
-        if now - last < timedelta(minutes=interval):
+        if last_attempt and now - last_attempt < timedelta(minutes=interval):
             return
+        # Persisted even when X returns partial results, so a temporary X rate
+        # limit cannot make every chained Actions pass repeat the full 24h scan.
+        self.state.data["last_auto_attempt"] = now.isoformat()
 
         lookback = max(2, int(self.settings.runtime.get("scheduled_lookback_hours", 24)))
         start = max(last - timedelta(minutes=30), now - timedelta(hours=lookback))

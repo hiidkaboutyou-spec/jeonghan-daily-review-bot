@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import os
+import asyncio
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from app.telegram import TelegramTransientError
 from app.telegram_cloud_state import backup_fingerprint, ensure_process_backup_key
 from app.webhook_runtime_utils import derive_runtime_secret, maintenance_url_from_webhook
-from app.webhook_aware_assistant import github_actions_polling_only
+from app.webhook_aware_assistant import WebhookAwarePersonalAssistant, github_actions_polling_only
 from app.webhook_server import WebhookRuntime
 
 
@@ -43,6 +46,24 @@ class WebhookRuntimeTests(unittest.TestCase):
             self.assertTrue(github_actions_polling_only())
         with patch.dict(os.environ, {"ASSISTANT_RUNTIME_MODE": ""}, clear=False):
             self.assertFalse(github_actions_polling_only())
+
+    def test_partial_x_attempt_is_persistently_throttled_between_action_passes(self):
+        now = datetime.now(timezone.utc)
+        app = object.__new__(WebhookAwarePersonalAssistant)
+        app.state = SimpleNamespace(
+            data={
+                "last_auto_run": (now - timedelta(hours=1)).isoformat(),
+                "last_auto_attempt": (now - timedelta(minutes=5)).isoformat(),
+            }
+        )
+        app.settings = SimpleNamespace(
+            runtime={"scheduled_min_interval_minutes": 12, "scheduled_lookback_hours": 24}
+        )
+        app.collector = SimpleNamespace(collect_window=AsyncMock())
+
+        asyncio.run(app.run_scheduled_scan())
+
+        app.collector.collect_window.assert_not_awaited()
 
     def test_runtime_secret_is_stable_and_telegram_compatible(self):
         first = derive_runtime_secret("123:abc")

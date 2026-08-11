@@ -23,6 +23,7 @@ class StateStore:
             "telegram_offset": 0,
             "telegram_failures": {},
             "last_auto_run": "",
+            "last_auto_attempt": "",
             "last_x_error_notice": "",
             "seen": {},
             "archive": {},
@@ -55,7 +56,7 @@ class StateStore:
             fresh["telegram_offset"] = max(0, int(value.get("telegram_offset", 0) or 0))
         except (TypeError, ValueError):
             fresh["telegram_offset"] = 0
-        for key in ("last_auto_run", "last_x_error_notice"):
+        for key in ("last_auto_run", "last_auto_attempt", "last_x_error_notice"):
             raw = value.get(key, "")
             fresh[key] = str(raw) if isinstance(raw, (str, int, float)) else ""
         for key in ("seen", "archive", "sessions", "drafts", "awaiting"):

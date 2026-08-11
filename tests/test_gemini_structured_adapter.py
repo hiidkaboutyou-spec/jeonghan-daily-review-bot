@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from app.gemini_structured import generate_json_v2
 
 
 class _Writer:
-    def __init__(self):
+    def __init__(self, models=None):
         self.last_diagnostics = {}
+        self.models = models or ["gemini-test"]
 
     def _model_candidates(self):
-        return ["gemini-test"]
+        return self.models
 
 
 class _Models:
@@ -107,6 +109,23 @@ class GeminiStructuredAdapterTests(unittest.TestCase):
         self.assertIsNone(_call(writer, client))
         self.assertEqual(client.models.calls, 1)
         self.assertEqual(writer.last_diagnostics["generation_circuit_open"], "quota")
+
+    def test_quota_retires_one_model_and_uses_one_bounded_free_fallback(self):
+        writer = _Writer(["gemini-primary", "gemini-free-fallback"])
+        response = _Response(parsed={"items": [{"id": "A", "body": "ترجمه"}]})
+        generate = Mock(side_effect=[RuntimeError("429 RESOURCE_EXHAUSTED quota"), response])
+        client = SimpleNamespace(models=SimpleNamespace(generate_content=generate))
+
+        result = _call(writer, client)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(generate.call_count, 2)
+        self.assertEqual(writer._gemini_unavailable_models, {"gemini-primary"})
+        self.assertFalse(hasattr(writer, "_gemini_circuit_open"))
+        self.assertEqual(
+            writer.last_diagnostics["generation_model_failover"]["next"],
+            "gemini-free-fallback",
+        )
 
     def test_one_transport_failure_does_not_disable_later_translations(self):
         writer = _Writer()

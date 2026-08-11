@@ -140,7 +140,14 @@ def generate_json_v2(
         logger.warning("Gemini types unavailable for %s: %s", purpose, v1._safe_error(exc))
         return None
 
-    for model in self._model_candidates():
+    all_models = list(self._model_candidates())
+    unavailable_models = set(getattr(self, "_gemini_unavailable_models", set()) or set())
+    candidates = [model for model in all_models if model not in unavailable_models]
+    if not candidates:
+        self._gemini_circuit_open = "quota"
+        return None
+
+    for model in candidates:
         response = None
         try:
             config = _generation_config(
@@ -206,10 +213,17 @@ def generate_json_v2(
                 )
         except Exception as exc:
             shared_failure = gemini_shared_failure_kind(exc)
-            if shared_failure in {"quota", "authentication"}:
+            if shared_failure == "quota":
+                # Gemini quotas are model-dependent. Retire this model for the
+                # current process and try each configured free fallback at most
+                # once. If every model is exhausted, open the process circuit so
+                # later groups stay queued instead of producing an error storm.
+                unavailable_models.add(model)
+                self._gemini_unavailable_models = unavailable_models
+            elif shared_failure == "authentication":
                 # One workflow process may translate dozens of groups. Once the
-                # provider says quota/auth is unavailable, retrying the
-                # same request for every group only burns time and floods logs.
+                # provider says auth is unavailable, retrying any other model only
+                # burns time and floods logs.
                 self._gemini_circuit_open = shared_failure
             _record_failure(
                 self,
@@ -219,6 +233,16 @@ def generate_json_v2(
                 response=response,
             )
             logger.warning("Gemini %s model %s failed: %s", purpose, model, v1._safe_error(exc))
+            if shared_failure == "quota":
+                remaining = [candidate for candidate in all_models if candidate not in unavailable_models]
+                if remaining:
+                    if isinstance(getattr(self, "last_diagnostics", None), dict):
+                        self.last_diagnostics["generation_model_failover"] = {
+                            "unavailable": sorted(unavailable_models),
+                            "next": remaining[0],
+                        }
+                    continue
+                self._gemini_circuit_open = "quota"
             if not gemini_should_try_next_model(exc):
                 break
     return None
