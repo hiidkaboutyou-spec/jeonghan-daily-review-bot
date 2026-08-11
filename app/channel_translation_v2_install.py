@@ -15,6 +15,7 @@ from .ai import CaptionWriter, GroupCopy
 from . import channel_translation as v1
 from .channel_entities import canonicalize_group, entity_failures
 from .channel_quality import rerank_for_mode
+from .gemini_structured import generate_json_v2
 from .translation_safety import (
     manual_review_body,
     metadata_only,
@@ -205,7 +206,10 @@ def install_direct_v2(writer):
     v1._parse_bodies = _parse_v2_bodies
     writer._direct_group = MethodType(V2Methods._direct_group, writer)
     writer._repair_failed_items = MethodType(V2Methods._repair_failed_items, writer)
-    writer._generate_json_v2 = MethodType(V2Methods._generate_json_v2, writer)
+    # Bind the current SDK adapter used by the real production writer. It accepts
+    # both response.parsed and response.text and records bounded, redacted failure
+    # diagnostics instead of silently collapsing every unusable response to None.
+    writer._generate_json_v2 = MethodType(generate_json_v2, writer)
     writer.write_group = MethodType(_installed_write_group, writer)
     writer._channel_direct_v2_installed = True
     return writer
