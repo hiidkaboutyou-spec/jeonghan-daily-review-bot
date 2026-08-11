@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from app.telegram_cloud_state import ensure_process_backup_key
+from app.telegram_cloud_state import backup_fingerprint, ensure_process_backup_key
 from app.webhook_runtime_utils import derive_runtime_secret, maintenance_url_from_webhook
 
 
@@ -35,6 +37,16 @@ class WebhookRuntimeTests(unittest.TestCase):
         with patch.dict(os.environ, {"STATE_BACKUP_KEY": existing}, clear=False):
             ensure_process_backup_key("123:abc")
             self.assertEqual(os.environ["STATE_BACKUP_KEY"], existing)
+
+    def test_backup_fingerprint_changes_when_sqlite_wal_changes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            state_dir = Path(temp)
+            (state_dir / "state.json").write_text("{}", encoding="utf-8")
+            (state_dir / "private-review.sqlite3").write_bytes(b"db")
+            before = backup_fingerprint(state_dir)
+            (state_dir / "private-review.sqlite3-wal").write_bytes(b"new durable rows")
+            after = backup_fingerprint(state_dir)
+            self.assertNotEqual(before, after)
 
 
 if __name__ == "__main__":
