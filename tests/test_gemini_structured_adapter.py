@@ -76,10 +76,10 @@ class GeminiStructuredAdapterTests(unittest.TestCase):
             [
                 "gemini-3.5-flash-lite",
                 "gemini-3.1-flash-lite",
-                "gemini-2.5-flash-lite",
             ],
         )
         self.assertNotIn("gemini-3.1-flash-lite-preview", writer._model_candidates())
+        self.assertNotIn("gemini-2.5-flash-lite", writer._model_candidates())
         self.assertNotIn("gemini-2.5-flash", writer._model_candidates())
 
     def test_prefers_sdk_parsed_structured_response(self):

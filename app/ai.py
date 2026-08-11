@@ -12,12 +12,12 @@ from .style import StyleMemory
 logger = logging.getLogger(__name__)
 GEMINI_REQUEST_TIMEOUT_MS = 45_000
 # Keep production fallbacks current and deliberately small. The stable 3.1
-# Flash-Lite endpoint replaced the retired 3.1 preview and is the first fallback
-# for a model-specific free-tier quota. The older stable 2.5 Lite endpoint remains
-# a final compatibility fallback, but the heavier Flash model is not sprayed.
+# Flash-Lite endpoint replaced the retired 3.1 preview and is the only fallback
+# for a model-specific free-tier quota. Production logs for this project show both
+# 2.5 Flash variants returning 404 "no longer available to new users", so retrying
+# them only wastes time and turns a quota event into repeated translation errors.
 GEMINI_FREE_FALLBACK_MODELS = (
     "gemini-3.1-flash-lite",
-    "gemini-2.5-flash-lite",
 )
 
 
