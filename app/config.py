@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass
@@ -12,6 +13,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 ROOT = Path(__file__).resolve().parents[1]
 HANDLE_RE = re.compile(r"^[A-Za-z0-9_]{1,15}$")
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
+logger = logging.getLogger(__name__)
 # These model IDs can still be present in old GitHub Variables/config after the
 # provider stops serving them to an account. Normalize them before runtime so a
 # stale deployment setting cannot silently disable translation again.
@@ -115,7 +117,6 @@ class Settings:
                     "TELEGRAM_BOT_TOKEN": token,
                     "TELEGRAM_ADMIN_USER_ID": admin_raw,
                     "TELEGRAM_REVIEW_CHAT_ID": chat_raw,
-                    "X_COOKIE": x_raw,
                 }.items()
                 if not value
             ]
@@ -131,12 +132,13 @@ class Settings:
         if require_secrets and review_chat_id == 0:
             raise ConfigError("TELEGRAM_REVIEW_CHAT_ID must be a non-zero numeric chat ID.")
 
-        x_cookies = parse_cookie_secret(x_raw) if x_raw else {}
-        if require_secrets:
-            missing_x = [name for name in ("auth_token", "ct0") if not x_cookies.get(name)]
-            if missing_x:
-                raise ConfigError("X_COOKIE is missing required cookies: " + ", ".join(missing_x))
-
+        try:
+            x_cookies = parse_cookie_secret(x_raw) if x_raw else {}
+        except ConfigError:
+            # X is an optional collector. A malformed/expired provider secret must
+            # not take the private Telegram assistant, archive, or reminders down.
+            logger.error("X_COOKIE is invalid; X collection is disabled for this run.")
+            x_cookies = {}
         timezone_name = str(settings_json.get("timezone", "Asia/Tehran"))
         try:
             timezone_info = ZoneInfo(timezone_name)

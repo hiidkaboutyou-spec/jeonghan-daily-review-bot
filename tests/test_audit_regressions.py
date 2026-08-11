@@ -38,6 +38,28 @@ class ConfigAuditTests(unittest.TestCase):
             settings = Settings.load(require_secrets=True)
         self.assertEqual(settings.gemini_api_key, "")
 
+    def test_x_cookie_is_optional_so_telegram_assistant_still_starts(self):
+        env = {
+            "TELEGRAM_BOT_TOKEN": "fake-token",
+            "TELEGRAM_ADMIN_USER_ID": "1",
+            "TELEGRAM_REVIEW_CHAT_ID": "-100123",
+            "X_COOKIE": "",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            settings = Settings.load(require_secrets=True)
+        self.assertEqual(settings.x_cookies, {})
+
+    def test_malformed_x_cookie_degrades_instead_of_killing_assistant(self):
+        env = {
+            "TELEGRAM_BOT_TOKEN": "fake-token",
+            "TELEGRAM_ADMIN_USER_ID": "1",
+            "TELEGRAM_REVIEW_CHAT_ID": "-100123",
+            "X_COOKIE": '{"auth_token":',
+        }
+        with patch.dict(os.environ, env, clear=False):
+            settings = Settings.load(require_secrets=True)
+        self.assertEqual(settings.x_cookies, {})
+
 
 class StateAuditTests(unittest.TestCase):
     def test_old_or_malformed_nested_state_is_normalized(self):

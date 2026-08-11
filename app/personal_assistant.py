@@ -255,7 +255,13 @@ class PersonalAssistantReviewApplication(ChannelStyleReviewApplication):
         queue = len(data.get("pending_delivery", []))
         sources = sum(bool(item.get("enabled", True)) for item in self.settings.sources)
         last_run = str(data.get("last_auto_run") or "").strip()
-        translation = "فعال" if getattr(self, "channel_style_enabled", False) else "حالت امن جایگزین"
+        style_ready = bool(getattr(self, "channel_style_enabled", False))
+        if self.settings.gemini_api_key and style_ready:
+            translation = "هوشمند + سبک چنل"
+        elif self.settings.gemini_api_key:
+            translation = "هوشمند"
+        else:
+            translation = "حالت امن جایگزین (Gemini تنظیم نشده)"
         indexed = int(getattr(self, "channel_style_indexed_examples", 0) or 0)
 
         if pending:

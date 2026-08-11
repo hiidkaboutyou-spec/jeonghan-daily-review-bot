@@ -34,6 +34,16 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("python -m app --check", smoke)
         self.assertNotIn("unittest discover", smoke)
 
+    def test_live_runtime_checks_providers_before_running(self):
+        workflow = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")
+        preflight = workflow.split("- name: Check live production providers", 1)[1].split(
+            "- name: Run one complete automatic monitor pass", 1
+        )[0]
+        self.assertIn("python -m app.production_preflight", preflight)
+        self.assertIn("TELEGRAM_BOT_TOKEN", preflight)
+        self.assertIn("X_COOKIE", preflight)
+        self.assertIn("GEMINI_API_KEY", preflight)
+
     def test_automatic_monitor_uses_five_minute_schedule_without_long_live_loop(self):
         workflow = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")
         self.assertIn('cron: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"', workflow)
