@@ -30,7 +30,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("github.event_name == 'push'", validate)
         self.assertIn("inputs.mode == 'check'", validate)
         self.assertNotIn("github.event_name == 'schedule'", validate)
-        self.assertIn("github.event_name == 'schedule'", smoke)
+        self.assertIn("if: env.LIVE_RUN == 'true'", smoke)
+        self.assertIn("github.event_name == 'schedule'", workflow)
         self.assertIn("python -m app --check", smoke)
         self.assertNotIn("unittest discover", smoke)
 
@@ -43,6 +44,16 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("TELEGRAM_BOT_TOKEN", preflight)
         self.assertIn("X_COOKIE", preflight)
         self.assertIn("GEMINI_API_KEY", preflight)
+
+    def test_direct_main_push_runs_one_live_pass_without_exposing_prs(self):
+        workflow = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")
+        self.assertIn(
+            "(github.event_name == 'push' && github.ref == 'refs/heads/main')",
+            workflow,
+        )
+        self.assertIn("LIVE_RUN: ${{", workflow)
+        self.assertIn("if: env.LIVE_RUN == 'true'", workflow)
+        self.assertIn("github.ref != 'refs/heads/main'", workflow)
 
     def test_automatic_monitor_uses_five_minute_schedule_without_long_live_loop(self):
         workflow = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")

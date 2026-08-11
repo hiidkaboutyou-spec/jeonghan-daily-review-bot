@@ -49,8 +49,8 @@ permissions:
 
 concurrency:
   # Never run two live monitors against the same Telegram/X state concurrently.
-  group: jeonghan-daily-review-bot-${{ (github.event_name == 'push' || github.event_name == 'pull_request') && 'validation' || 'runtime' }}
-  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
+  group: jeonghan-daily-review-bot-${{ ((github.event_name == 'push' && github.ref != 'refs/heads/main') || github.event_name == 'pull_request') && 'validation' || 'runtime' }}
+  cancel-in-progress: ${{ (github.event_name == 'push' && github.ref != 'refs/heads/main') || github.event_name == 'pull_request' }}
 
 jobs:
   validate-and-run:
@@ -60,6 +60,7 @@ jobs:
       PYTHONUNBUFFERED: "1"
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       STATE_BACKUP_KEY: ${{ secrets.STATE_BACKUP_KEY }}
+      LIVE_RUN: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live') || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -103,12 +104,12 @@ jobs:
 
       - name: Report encrypted recovery disabled
         if: >-
-          (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')) &&
+          env.LIVE_RUN == 'true' &&
           env.STATE_BACKUP_KEY == ''
         run: echo "::warning::Encrypted recovery snapshots are disabled because STATE_BACKUP_KEY is not configured; the rolling Actions caches still preserve normal state."
 
       - name: Restore bot state cache
-        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')
+        if: env.LIVE_RUN == 'true'
         uses: actions/cache/restore@v5
         with:
           path: .state/state.json
@@ -117,7 +118,7 @@ jobs:
             jeonghan-state-v2-${{ runner.os }}-
 
       - name: Restore private review database cache
-        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')
+        if: env.LIVE_RUN == 'true'
         uses: actions/cache/restore@v5
         with:
           path: .state/private-review.sqlite3
@@ -127,7 +128,7 @@ jobs:
 
       - name: Restore newest valid encrypted recovery backup when cache is missing
         if: >-
-          (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')) &&
+          env.LIVE_RUN == 'true' &&
           env.STATE_BACKUP_KEY != '' &&
           (hashFiles('.state/state.json') == '' || hashFiles('.state/private-review.sqlite3') == '')
         env:
@@ -183,13 +184,13 @@ jobs:
           python -m unittest discover -s tests -p "test_*.py" -v
 
       - name: Runtime smoke check
-        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')
+        if: env.LIVE_RUN == 'true'
         run: |
           python -m compileall -q app tools
           python -m app --check
 
       - name: Check live production providers
-        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')
+        if: env.LIVE_RUN == 'true'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_ADMIN_USER_ID: ${{ secrets.TELEGRAM_ADMIN_USER_ID }}
@@ -200,7 +201,7 @@ jobs:
         run: python -m app.production_preflight
 
       - name: Run one complete automatic monitor pass
-        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')
+        if: env.LIVE_RUN == 'true'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_ADMIN_USER_ID: ${{ secrets.TELEGRAM_ADMIN_USER_ID }}
@@ -230,7 +231,7 @@ jobs:
       - name: Checkpoint private review database
         if: >-
           always() &&
-          (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')) &&
+          env.LIVE_RUN == 'true' &&
           hashFiles('.state/private-review.sqlite3') != ''
         run: |
           python - <<'PY'
@@ -252,7 +253,7 @@ jobs:
         id: recovery
         if: >-
           always() &&
-          (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')) &&
+          env.LIVE_RUN == 'true' &&
           env.STATE_BACKUP_KEY != ''
         env:
           RUN_NUMBER: ${{ github.run_number }}
@@ -291,7 +292,7 @@ jobs:
       - name: Save bot state cache
         if: >-
           always() &&
-          (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')) &&
+          env.LIVE_RUN == 'true' &&
           hashFiles('.state/state.json') != ''
         uses: actions/cache/save@v5
         with:
@@ -301,7 +302,7 @@ jobs:
       - name: Save private review database cache
         if: >-
           always() &&
-          (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'live')) &&
+          env.LIVE_RUN == 'true' &&
           hashFiles('.state/private-review.sqlite3') != ''
         uses: actions/cache/save@v5
         with:
