@@ -36,7 +36,7 @@ jobs:
       PYTHONUNBUFFERED: "1"
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-      GEMINI_MODEL: gemini-2.5-flash-lite
+      GEMINI_MODEL: gemini-3.5-flash-lite
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -95,16 +95,16 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: .state/part4-real-benchmark.json
-          key: part4-benchmark-v7-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: part4-benchmark-v8-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
+            part4-benchmark-v8-${{ runner.os }}-${{ github.ref_name }}-
             part4-benchmark-v7-${{ runner.os }}-${{ github.ref_name }}-
-            part4-benchmark-v6-${{ runner.os }}-${{ github.ref_name }}-
 
       - name: Generate full PART 4 human-gate benchmark
         id: benchmark
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: gemini-2.5-flash-lite
+          GEMINI_MODEL: gemini-3.5-flash-lite
         shell: bash
         run: |
           set +e
@@ -138,7 +138,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: .state/part4-real-benchmark.json
-          key: part4-benchmark-v7-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: part4-benchmark-v8-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload PART 4 benchmark artifact
         if: always()
