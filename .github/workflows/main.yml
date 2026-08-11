@@ -204,6 +204,7 @@ jobs:
 
       - name: Run one complete automatic monitor pass
         if: env.LIVE_RUN == 'true'
+        timeout-minutes: 15
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_ADMIN_USER_ID: ${{ secrets.TELEGRAM_ADMIN_USER_ID }}

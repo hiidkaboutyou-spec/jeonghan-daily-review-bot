@@ -14,6 +14,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
             "- name: Checkpoint private review database", 1
         )[0]
         self.assertIn("python -m app", live)
+        self.assertIn("timeout-minutes: 15", live)
         self.assertIn("ASSISTANT_RUNTIME_MODE: github_actions_polling", live)
         self.assertIn('if [ "$code" -eq 0 ]; then', live)
         self.assertIn("Automatic monitor pass completed.", live)
