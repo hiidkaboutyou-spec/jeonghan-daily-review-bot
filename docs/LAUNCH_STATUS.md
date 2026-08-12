@@ -8,7 +8,7 @@
 - شاخهٔ production: `main`
 - اجرای دستیار: cron تقریباً هر پنج دقیقه، بدون self-dispatch loop و با یک quiet window کوتاه اطراف nightly
 - فیک شبانه: هر روز ساعت ۲۲:۰۰ تهران (`18:30 UTC`)
-- مدل اصلی ترجمه: `gemini-3.1-flash-lite`
+- مدل اصلی ترجمه: `gemini-3.5-flash-lite` (با fallback محدود به `gemini-3.1-flash-lite`)
 - مقصد: فقط چت خصوصی review؛ autopublish عمومی وجود ندارد
 
 ## شواهد واقعی production

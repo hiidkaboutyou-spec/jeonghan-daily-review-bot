@@ -54,8 +54,12 @@ class MediaDeliveryLedger:
 
     @staticmethod
     def url_identity(item: MediaItem) -> str:
-        version = VIDEO_CACHE_VERSION if item.kind == "video" else "photo-v1"
-        payload = f"{version}\n{item.kind}\n{item.url}".encode("utf-8")
+        # Match MediaFileCache.key_for: invalidate identities for the repaired
+        # video pipeline while preserving receipts for unchanged photos.
+        if item.kind == "video":
+            payload = f"{VIDEO_CACHE_VERSION}\n{item.kind}\n{item.url}".encode("utf-8")
+        else:
+            payload = f"{item.kind}\n{item.url}".encode("utf-8")
         return "url:" + hashlib.sha256(payload).hexdigest()
 
     @staticmethod

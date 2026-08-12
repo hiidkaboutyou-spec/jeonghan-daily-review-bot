@@ -50,7 +50,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         workflows = ROOT / ".github" / "workflows"
         for name in ("main.yml", "fic-digest.yml"):
             text = (workflows / name).read_text(encoding="utf-8")
-            self.assertIn("GEMINI_MODEL: gemini-3.1-flash-lite", text, name)
+            self.assertIn("GEMINI_MODEL: gemini-3.5-flash-lite", text, name)
             self.assertNotIn("gemini-3.1-flash-lite-preview", text, name)
 
     def test_direct_main_push_runs_one_live_pass_without_exposing_prs(self):
@@ -108,8 +108,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
             encoding="utf-8"
         )
         launch = (ROOT / "docs" / "LAUNCH_STATUS.md").read_text(encoding="utf-8")
-        self.assertIn("gemini-3.1-flash-lite", readme)
-        self.assertIn("gemini-3.1-flash-lite", runbook)
+        self.assertIn("gemini-3.5-flash-lite", readme)
+        self.assertIn("gemini-3.5-flash-lite", runbook)
         self.assertNotIn("gemini-2.5-flash-lite", readme)
         self.assertNotIn("gemini-2.5-flash-lite", runbook)
         self.assertIn("GitHub Actions", launch)

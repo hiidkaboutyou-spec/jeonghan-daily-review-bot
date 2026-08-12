@@ -52,7 +52,7 @@ Optional:
 - `STATE_BACKUP_KEY` — enables encrypted recovery backup.
 - `SENTRY_DSN` — optional scrubbed technical observability.
 
-`GEMINI_MODEL` can be supplied as an environment/Actions variable where the workflow supports it; code default is `gemini-3.1-flash-lite`.
+`GEMINI_MODEL` can be supplied as an environment/Actions variable where the workflow supports it; code default is `gemini-3.5-flash-lite`.
 
 Never paste real tokens, cookies, chat/user IDs, backup keys, private messages or private SQLite content into GitHub issues, PR comments, public logs or tracked files.
 

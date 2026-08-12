@@ -1,6 +1,6 @@
 # Full Forensic Audit
 
-> **Production launch update — 2026-08-11:** The historical audit baseline below has been superseded by the production `main` deployment. Live default-branch runs verified Telegram, X, `gemini-3.1-flash-lite`, the primary ChannelStyle writer, encrypted artifact creation/upload, and the full nightly fanfic delivery. Current evidence is maintained in [`../LAUNCH_STATUS.md`](../LAUNCH_STATUS.md) and the feature matrix.
+> **Production launch update — 2026-08-11:** The historical audit baseline below has been superseded by the production `main` deployment. Live default-branch runs verified Telegram, X, the configured Gemini Flash-Lite model, the primary ChannelStyle writer, encrypted artifact creation/upload, and the full nightly fanfic delivery. Current evidence is maintained in [`../LAUNCH_STATUS.md`](../LAUNCH_STATUS.md) and the feature matrix.
 
 ## Scope and evidence boundary
 
@@ -47,7 +47,7 @@ Core runtime flow:
 - Schedule: approximately every five minutes, with a short quiet window around the nightly fic runtime.
 - Manual dispatch: explicit `check` or `live` mode.
 - Runtime concurrency resolves to `jeonghan-daily-review-bot-runtime` and does not intentionally overlap the Nightly fic runtime.
-- Production Gemini model defaults to `gemini-3.1-flash-lite`; configured fallbacks remain bounded.
+- Production Gemini model defaults to `gemini-3.5-flash-lite`; configured fallbacks remain bounded.
 
 ### `.github/workflows/fic-digest.yml`
 
@@ -235,7 +235,7 @@ The final secret-pattern and dependency-advisory scan is a closure gate and must
 | `TELEGRAM_REVIEW_CHAT_ID` | Live yes | treat private | `Settings`, Telegram target | non-zero integer | configuration error; `-1001234567890` |
 | `X_COOKIE` | Live yes | yes | `Settings`, X collector | parser accepts supported formats and requires `auth_token` + `ct0` | configuration error; placeholder only |
 | `GEMINI_API_KEY` | no | yes | ChannelStyle/fic summary model | empty allowed | neutral/legacy/fallback behavior |
-| `GEMINI_MODEL` | no | no | Settings/benchmark/fic workflow | empty uses configured default | default `gemini-3.1-flash-lite` |
+| `GEMINI_MODEL` | no | no | Settings/benchmark/fic workflow | empty uses configured default | default `gemini-3.5-flash-lite` |
 | `STATE_BACKUP_KEY` | no | yes | `tools.state_backup`, main/fic workflows | strict base64, decoded length 32 | absent value is replaced by a masked stable key derived from the bot token; malformed configured key fails backup/restore |
 | `SENTRY_DSN` | no | yes-ish endpoint credential | `app.observability` / main workflow | empty disables | no observability; safe placeholder empty |
 | `Settings.state_path` | repository-derived | private path | `StateStore` and derived stores | canonical `.state/state.json` | runtime state path; private DB sibling |

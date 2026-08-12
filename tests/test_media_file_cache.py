@@ -65,6 +65,19 @@ class MediaFileCacheTests(unittest.TestCase):
             self.assertIsNone(store.get(item))
             store.close()
 
+    def test_old_unversioned_photo_file_id_remains_reusable(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = MediaFileCache(Path(temp) / "private.sqlite3")
+            item = self.item("photo", "old.jpg")
+            old_key = hashlib.sha256(f"{item.kind}\n{item.url}".encode("utf-8")).hexdigest()
+            with store.conn:
+                store.conn.execute(
+                    "INSERT INTO telegram_media_cache(media_key,kind,original_url,file_id) VALUES(?,?,?,?)",
+                    (old_key, item.kind, item.url, "valid-photo-file-id"),
+                )
+            self.assertEqual(store.get(item).file_id, "valid-photo-file-id")
+            store.close()
+
     def test_cached_single_and_group_use_private_review_chat(self):
         bot = PrivateReviewTelegramBot("token", 1, 99)
         bot.api = MagicMock(side_effect=[{"photo": [{"file_id": "p"}]}, [{"photo": []}, {"video": {}}]])

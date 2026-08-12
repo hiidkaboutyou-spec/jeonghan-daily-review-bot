@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -31,6 +32,14 @@ class MediaDeliveryLedgerTests(unittest.TestCase):
             self.assertTrue(ledger.any_recent(identities, now=now + timedelta(hours=71)))
             self.assertFalse(ledger.any_recent(identities, now=now + timedelta(hours=73)))
             ledger.close()
+
+    def test_video_migration_preserves_old_photo_receipts_only(self):
+        photo = MediaItem(kind="photo", url="https://media.example/one.jpg")
+        video = MediaItem(kind="video", url="https://media.example/one.mp4")
+        old_photo = "url:" + hashlib.sha256(f"photo\n{photo.url}".encode()).hexdigest()
+        old_video = "url:" + hashlib.sha256(f"video\n{video.url}".encode()).hexdigest()
+        self.assertEqual(MediaDeliveryLedger.url_identity(photo), old_photo)
+        self.assertNotEqual(MediaDeliveryLedger.url_identity(video), old_video)
 
     def test_content_hash_matches_same_bytes_from_different_paths(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -42,8 +42,14 @@ class MediaFileCache:
 
     @staticmethod
     def key_for(item: MediaItem) -> str:
-        version = VIDEO_CACHE_VERSION if item.kind == "video" else "photo-v1"
-        payload = f"{version}\n{item.kind}\n{item.url}".encode("utf-8")
+        # Only videos need invalidation: old Telegram video file_ids may point to
+        # uploads without an iOS-playable MP4 layout/preview. Keep the historical
+        # photo key byte-for-byte compatible so a video migration cannot evict the
+        # already-valid photo cache.
+        if item.kind == "video":
+            payload = f"{VIDEO_CACHE_VERSION}\n{item.kind}\n{item.url}".encode("utf-8")
+        else:
+            payload = f"{item.kind}\n{item.url}".encode("utf-8")
         return hashlib.sha256(payload).hexdigest()
 
     def get(self, item: MediaItem) -> CachedTelegramMedia | None:

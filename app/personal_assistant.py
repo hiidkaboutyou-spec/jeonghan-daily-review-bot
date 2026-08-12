@@ -255,6 +255,11 @@ class PersonalAssistantReviewApplication(ChannelStyleReviewApplication):
         queue = len(data.get("pending_delivery", []))
         sources = sum(bool(item.get("enabled", True)) for item in self.settings.sources)
         last_run = str(data.get("last_auto_run") or "").strip()
+        last_attempt = str(data.get("last_auto_attempt") or "").strip()
+        try:
+            scan_failures = max(0, int(data.get("x_scan_failure_streak", 0) or 0))
+        except (TypeError, ValueError):
+            scan_failures = 0
         style_ready = bool(getattr(self, "channel_style_enabled", False))
         if self.settings.gemini_api_key and style_ready:
             translation = "هوشمند + سبک چنل"
@@ -264,7 +269,9 @@ class PersonalAssistantReviewApplication(ChannelStyleReviewApplication):
             translation = "حالت امن جایگزین (Gemini تنظیم نشده)"
         indexed = int(getattr(self, "channel_style_indexed_examples", 0) or 0)
 
-        if pending:
+        if scan_failures:
+            next_action = "دریافت X در آخرین تلاش ناقص بود؛ بازهٔ جاافتاده محفوظ است و اجرای بعدی دوباره امتحان می‌کند."
+        elif pending:
             next_action = f"اول {pending} پیش‌نویس منتظر را مرور کن."
         elif queue:
             next_action = f"{queue} مورد در صف تحویل مانده؛ وضعیت اجرای بعدی را چک کن."
@@ -283,7 +290,13 @@ class PersonalAssistantReviewApplication(ChannelStyleReviewApplication):
             f"پیش‌نویس‌ها: {pending} منتظر · {ready} آماده · {rejected} ردشده\n"
             f"صف تحویل: {queue}\n"
             f"آخرین اسکن موفق: {self._friendly_last_run(last_run)}\n\n"
-            f"پیشنهاد من: {next_action}\n\n"
+            + (
+                f"وضعیت آخرین تلاش X: ناقص ({scan_failures} تلاش پیاپی) · "
+                f"{self._friendly_last_run(last_attempt)}\n\n"
+                if scan_failures
+                else "وضعیت دریافت X: کامل\n\n"
+            )
+            + f"پیشنهاد من: {next_action}\n\n"
             "از این به بعد می‌تونی عادی فارسی تایپ کنی؛ لازم نیست اسم commandها را یادت بماند."
         )
         self.telegram.send_message(ensure_rtl_line(text), reply_markup=assistant_main_keyboard())

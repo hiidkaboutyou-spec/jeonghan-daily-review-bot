@@ -79,7 +79,7 @@ python -c "import base64,secrets; print(base64.b64encode(secrets.token_bytes(32)
 - `GEMINI_API_KEY` — در نبود آن fallback فعال است
 - `STATE_BACKUP_KEY` — کلید اختصاصی encrypted recovery؛ نبود آن با مشتق‌سازی پایدار از bot token پوشش داده می‌شود
 - `SENTRY_DSN` — observability فنیِ scrubbed در main workflow
-- `GEMINI_MODEL` — env/Actions variable override؛ default کد `gemini-3.1-flash-lite`
+- `GEMINI_MODEL` — env/Actions variable override؛ default کد `gemini-3.5-flash-lite`
 
 هیچ secret واقعی نباید در tracked file، artifact plaintext، issue یا log نوشته شود.
 

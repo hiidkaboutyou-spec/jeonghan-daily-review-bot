@@ -11,13 +11,13 @@ from .style import StyleMemory
 
 logger = logging.getLogger(__name__)
 GEMINI_REQUEST_TIMEOUT_MS = 45_000
-# Keep production fallbacks current and deliberately small. Google documents 3.1
-# Flash-Lite specifically for fast, high-volume translation, and it has also shown
-# the steadier free-tier capacity in this bot's live runs. 3.5 remains the bounded
-# quality/service fallback. Retired 2.x/preview IDs are never retried.
+# Keep production fallbacks current and deliberately small. The 2026-08-12 live
+# run returned a model quota error for 3.1 and immediately succeeded on 3.5.
+# Prefer the model that is demonstrably available, while retaining 3.1 as one
+# bounded capacity fallback. Retired 2.x/preview IDs are never retried.
 GEMINI_FREE_FALLBACK_MODELS = (
-    "gemini-3.1-flash-lite",
     "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
 )
 
 
