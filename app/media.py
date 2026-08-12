@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import logging
+import math
 import mimetypes
 import re
 import shutil
@@ -21,6 +22,7 @@ from .models import MediaItem, Update
 logger = logging.getLogger(__name__)
 SAFE_VIDEO_BYTES = 44 * 1024 * 1024
 SAFE_PHOTO_BYTES = 9 * 1024 * 1024
+SAFE_THUMBNAIL_BYTES = 190 * 1024
 MAX_GALLERY_SECONDS = 120
 TRUSTED_X_HOSTS = {"x.com", "www.x.com", "twitter.com", "www.twitter.com", "mobile.twitter.com"}
 
@@ -31,6 +33,7 @@ class PreparedMedia:
     path: Path
     content_type: str
     metadata: dict[str, Any] = field(default_factory=dict)
+    thumbnail_path: Path | None = None
 
 
 class MediaManager:
@@ -125,27 +128,31 @@ class MediaManager:
 
     def _download_video(self, item: MediaItem, tweet_url: str, root: Path, index: int) -> PreparedMedia | None:
         direct = root / f"video-{index}.mp4"
+        downloaded: Path | None = None
+        method = "x-direct"
         try:
             self._stream_download(item.url, direct, SAFE_VIDEO_BYTES, attempts=2)
             if direct.exists() and 0 < direct.stat().st_size <= SAFE_VIDEO_BYTES:
-                return self._prepared("video", direct, "video/mp4", "x-direct")
+                downloaded = direct
         except Exception as exc:
             direct.unlink(missing_ok=True)
             logger.info("Direct X video fallback needed: %s", _safe_error(exc))
 
-        downloaded = self._download_with_ytdlp(tweet_url, root, index)
-        method = "yt-dlp"
         if downloaded is None:
-            downloaded = self._download_with_gallery_dl(tweet_url, root, index, kind="video")
-            method = "gallery-dl"
+            downloaded = self._download_with_ytdlp(tweet_url, root, index)
+            method = "yt-dlp"
+            if downloaded is None:
+                downloaded = self._download_with_gallery_dl(tweet_url, root, index, kind="video")
+                method = "gallery-dl"
         if downloaded is None:
             return None
 
-        if downloaded.suffix.lower() != ".mp4":
-            remuxed = root / f"video-{index}-remux.mp4"
-            if _run_ffmpeg(["-i", str(downloaded), "-c", "copy", "-movflags", "+faststart", str(remuxed)]):
-                downloaded = remuxed
-                method += "+remux"
+        finalized = self._finalize_video(downloaded, root / f"video-{index}-telegram.mp4")
+        if finalized is None:
+            logger.warning("Video could not be normalized into a playable Telegram MPEG-4 file.")
+            return None
+        downloaded, finalized_method = finalized
+        method += finalized_method
 
         if downloaded.stat().st_size > SAFE_VIDEO_BYTES:
             compressed = self._compress_video(downloaded, root / f"video-{index}-compressed.mp4")
@@ -155,13 +162,63 @@ class MediaManager:
         if downloaded.stat().st_size > SAFE_VIDEO_BYTES:
             logger.warning("Video remains above Telegram safety limit after bounded fallbacks.")
             return None
+        metadata = _probe_media(downloaded, kind="video")
+        if not _telegram_video_compatible(metadata):
+            logger.warning("Video normalization produced incomplete Telegram metadata.")
+            return None
         return self._prepared("video", downloaded, "video/mp4", method)
+
+    @staticmethod
+    def _finalize_video(source: Path, target: Path) -> tuple[Path, str] | None:
+        """Create a streamable MP4 whose timing and dimensions are probeable."""
+        remuxed = target.with_name(target.stem + "-remux.mp4")
+        remuxed.unlink(missing_ok=True)
+        if _run_ffmpeg(
+            [
+                "-i", str(source),
+                "-map", "0:v:0", "-map", "0:a?",
+                "-c", "copy",
+                "-movflags", "+faststart",
+                "-avoid_negative_ts", "make_zero",
+                str(remuxed),
+            ]
+        ):
+            metadata = _probe_media(remuxed, kind="video")
+            if _telegram_video_compatible(metadata):
+                return remuxed, "+remux"
+
+        target.unlink(missing_ok=True)
+        if not _run_ffmpeg(
+            [
+                "-i", str(source),
+                "-map", "0:v:0", "-map", "0:a?",
+                "-vf", r"scale=min(1280\,iw):-2,format=yuv420p",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
+                "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
+                "-movflags", "+faststart",
+                "-avoid_negative_ts", "make_zero",
+                str(target),
+            ]
+        ):
+            return None
+        metadata = _probe_media(target, kind="video")
+        if not _telegram_video_compatible(metadata):
+            target.unlink(missing_ok=True)
+            return None
+        return target, "+transcode"
 
     def _prepared(self, kind: str, path: Path, content_type: str, method: str) -> PreparedMedia:
         metadata = _probe_media(path, kind=kind)
         metadata["retrieval_method"] = method
         metadata["filesize"] = path.stat().st_size if path.exists() else 0
-        return PreparedMedia(kind=kind, path=path, content_type=content_type, metadata=metadata)
+        thumbnail = _make_video_thumbnail(path, metadata) if kind == "video" else None
+        return PreparedMedia(
+            kind=kind,
+            path=path,
+            content_type=content_type,
+            metadata=metadata,
+            thumbnail_path=thumbnail,
+        )
 
     def _stream_download(self, url: str, path: Path, max_bytes: int, *, attempts: int = 2) -> None:
         attempts = max(1, min(int(attempts), 3))
@@ -326,14 +383,20 @@ class MediaManager:
     @staticmethod
     def _compress_video(source: Path, target: Path) -> Path | None:
         attempts = [
-            ["-i", str(source), "-vf", r"scale=min(1280\,iw):-2", "-c:v", "libx264", "-preset", "veryfast", "-crf", "28", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", str(target)],
-            ["-i", str(source), "-vf", r"scale=min(960\,iw):-2", "-c:v", "libx264", "-preset", "veryfast", "-crf", "32", "-c:a", "aac", "-b:a", "80k", "-movflags", "+faststart", str(target)],
+            ["-i", str(source), "-map", "0:v:0", "-map", "0:a?", "-vf", r"scale=min(1280\,iw):-2,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "28", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", "-avoid_negative_ts", "make_zero", str(target)],
+            ["-i", str(source), "-map", "0:v:0", "-map", "0:a?", "-vf", r"scale=min(960\,iw):-2,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "32", "-c:a", "aac", "-b:a", "80k", "-movflags", "+faststart", "-avoid_negative_ts", "make_zero", str(target)],
         ]
         for command in attempts:
             target.unlink(missing_ok=True)
-            if _run_ffmpeg(command) and target.exists() and 0 < target.stat().st_size <= SAFE_VIDEO_BYTES:
+            if (
+                _run_ffmpeg(command)
+                and target.exists()
+                and 0 < target.stat().st_size <= SAFE_VIDEO_BYTES
+                and _telegram_video_compatible(_probe_media(target, kind="video"))
+            ):
                 return target
-        return target if target.exists() and target.stat().st_size > 0 else None
+        target.unlink(missing_ok=True)
+        return None
 
 
 def _photo_quality_candidates(url: str) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
@@ -436,6 +499,10 @@ def _probe_media(path: Path, *, kind: str) -> dict[str, Any]:
         streams = []
     video = next((s for s in streams if isinstance(s, dict) and s.get("codec_type") == "video"), None)
     if isinstance(video, dict):
+        if video.get("codec_name"):
+            metadata["video_codec"] = str(video["codec_name"]).lower()
+        if video.get("pix_fmt"):
+            metadata["pixel_format"] = str(video["pix_fmt"]).lower()
         if video.get("width") is not None:
             metadata["width"] = int(video["width"])
         if video.get("height") is not None:
@@ -445,9 +512,10 @@ def _probe_media(path: Path, *, kind: str) -> dict[str, Any]:
                 metadata["video_bitrate"] = int(video["bit_rate"])
             except (TypeError, ValueError):
                 pass
-    metadata["audio_present"] = any(
-        isinstance(stream, dict) and stream.get("codec_type") == "audio" for stream in streams
-    )
+    audio = next((s for s in streams if isinstance(s, dict) and s.get("codec_type") == "audio"), None)
+    metadata["audio_present"] = isinstance(audio, dict)
+    if isinstance(audio, dict) and audio.get("codec_name"):
+        metadata["audio_codec"] = str(audio["codec_name"]).lower()
     format_info = info.get("format") if isinstance(info, dict) else {}
     if isinstance(format_info, dict):
         if format_info.get("format_name"):
@@ -457,7 +525,56 @@ def _probe_media(path: Path, *, kind: str) -> dict[str, Any]:
                 metadata.setdefault("video_bitrate", int(format_info["bit_rate"]))
             except (TypeError, ValueError):
                 pass
+    duration_value = format_info.get("duration") if isinstance(format_info, dict) else None
+    if duration_value is None and isinstance(video, dict):
+        duration_value = video.get("duration")
+    try:
+        exact_duration = float(duration_value)
+    except (TypeError, ValueError):
+        exact_duration = 0.0
+    if math.isfinite(exact_duration) and exact_duration > 0:
+        metadata["duration_exact"] = exact_duration
+        metadata["duration"] = max(1, int(math.ceil(exact_duration)))
     return metadata
+
+
+def _telegram_video_compatible(metadata: dict[str, Any]) -> bool:
+    container = str(metadata.get("container") or "").lower()
+    video_codec = str(metadata.get("video_codec") or "").lower()
+    pixel_format = str(metadata.get("pixel_format") or "").lower()
+    audio_present = bool(metadata.get("audio_present"))
+    audio_codec = str(metadata.get("audio_codec") or "").lower()
+    return (
+        "mp4" in container
+        and video_codec == "h264"
+        and pixel_format in {"yuv420p", "yuvj420p"}
+        and int(metadata.get("width") or 0) > 0
+        and int(metadata.get("height") or 0) > 0
+        and int(metadata.get("duration") or 0) > 0
+        and (not audio_present or audio_codec == "aac")
+    )
+
+
+def _make_video_thumbnail(path: Path, metadata: dict[str, Any]) -> Path | None:
+    if shutil.which("ffmpeg") is None or not _telegram_video_compatible(metadata):
+        return None
+    target = path.with_name(path.stem + "-thumbnail.jpg")
+    duration = float(metadata.get("duration_exact") or metadata.get("duration") or 1)
+    seek = min(1.0, max(0.05, duration * 0.1))
+    for quality in (5, 8):
+        target.unlink(missing_ok=True)
+        if _run_ffmpeg(
+            [
+                "-ss", f"{seek:.3f}", "-i", str(path),
+                "-frames:v", "1",
+                "-vf", r"scale=min(320\,iw):-2",
+                "-q:v", str(quality),
+                str(target),
+            ]
+        ) and target.exists() and 0 < target.stat().st_size <= SAFE_THUMBNAIL_BYTES:
+            return target
+    target.unlink(missing_ok=True)
+    return None
 
 
 def _safe_error(exc: Exception) -> str:

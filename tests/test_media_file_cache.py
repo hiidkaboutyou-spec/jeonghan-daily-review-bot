@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -49,6 +50,19 @@ class MediaFileCacheTests(unittest.TestCase):
             store.put(two, "video-file")
             cached = store.get_all([one, two])
             self.assertEqual([item.file_id for item in cached], ["photo-file", "video-file"])
+            store.close()
+
+    def test_old_unversioned_video_file_id_is_not_reused(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = MediaFileCache(Path(temp) / "private.sqlite3")
+            item = self.item("video", "old.mp4")
+            old_key = hashlib.sha256(f"{item.kind}\n{item.url}".encode("utf-8")).hexdigest()
+            with store.conn:
+                store.conn.execute(
+                    "INSERT INTO telegram_media_cache(media_key,kind,original_url,file_id) VALUES(?,?,?,?)",
+                    (old_key, item.kind, item.url, "broken-file-id"),
+                )
+            self.assertIsNone(store.get(item))
             store.close()
 
     def test_cached_single_and_group_use_private_review_chat(self):

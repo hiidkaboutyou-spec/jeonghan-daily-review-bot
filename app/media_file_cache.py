@@ -7,6 +7,8 @@ from pathlib import Path
 
 from .models import MediaItem
 
+VIDEO_CACHE_VERSION = "telegram-ios-video-v2"
+
 
 @dataclass(frozen=True, slots=True)
 class CachedTelegramMedia:
@@ -40,7 +42,8 @@ class MediaFileCache:
 
     @staticmethod
     def key_for(item: MediaItem) -> str:
-        payload = f"{item.kind}\n{item.url}".encode("utf-8")
+        version = VIDEO_CACHE_VERSION if item.kind == "video" else "photo-v1"
+        payload = f"{version}\n{item.kind}\n{item.url}".encode("utf-8")
         return hashlib.sha256(payload).hexdigest()
 
     def get(self, item: MediaItem) -> CachedTelegramMedia | None:

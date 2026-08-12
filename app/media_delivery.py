@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable
 
+from .media_file_cache import VIDEO_CACHE_VERSION
 from .models import MediaItem
 
 
@@ -53,7 +54,8 @@ class MediaDeliveryLedger:
 
     @staticmethod
     def url_identity(item: MediaItem) -> str:
-        payload = f"{item.kind}\n{item.url}".encode("utf-8")
+        version = VIDEO_CACHE_VERSION if item.kind == "video" else "photo-v1"
+        payload = f"{version}\n{item.kind}\n{item.url}".encode("utf-8")
         return "url:" + hashlib.sha256(payload).hexdigest()
 
     @staticmethod

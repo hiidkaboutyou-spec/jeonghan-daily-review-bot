@@ -1,6 +1,6 @@
 # Production Launch Status
 
-آخرین به‌روزرسانی: 2026-08-11
+آخرین به‌روزرسانی: 2026-08-12
 
 ## وضعیت
 
@@ -23,6 +23,7 @@
 - اجرای موفق فیک همان روز مانع auto-dispatch تکراری بعد از commitهای مستنداتی می‌شود.
 - Telegram hard dependency است؛ X و Gemini در preflight به‌صورت صریح سالم یا degraded گزارش می‌شوند.
 - خطای quota ترجمه یک deadline تصاعدی و پایدار می‌سازد؛ آپدیت خام ارسال/seen نمی‌شود و تا بازشدن سهمیه در صف می‌ماند.
+- هر ویدیوی X پیش از ارسال با `ffprobe` اعتبارسنجی و به MP4 سازگار با Telegram/iOS و `faststart` نهایی می‌شود؛ duration، ابعاد و thumbnail صریح همراه `sendVideo` فرستاده می‌شوند و کش ویدیوهای ناسالم قدیمی versioned شده است.
 - کلید recovery در log mask می‌شود. اگر secret اختصاصی وجود نداشته باشد، workflow یک کلید پایدار از bot token مشتق می‌کند.
 - ciphertext artifact روی cadence محدود و با retention سه‌روزه ذخیره می‌شود؛ plaintext state آپلود نمی‌شود.
 

@@ -7,6 +7,7 @@ import random
 import re
 import threading
 import time
+from contextlib import ExitStack
 from typing import Any
 
 import requests
@@ -346,11 +347,20 @@ class TelegramBot:
     def _send_single_media(self, item: PreparedMedia) -> dict[str, Any]:
         method = "sendPhoto" if item.kind == "photo" else "sendVideo"
         field = "photo" if item.kind == "photo" else "video"
-        with item.path.open("rb") as handle:
+        with ExitStack() as stack:
+            handle = stack.enter_context(item.path.open("rb"))
             files = {field: (item.path.name, handle, item.content_type)}
             data: dict[str, Any] = {"chat_id": self.review_chat_id}
             if item.kind == "video":
                 data["supports_streaming"] = "true"
+                for key in ("duration", "width", "height"):
+                    value = int(item.metadata.get(key) or 0)
+                    if value > 0:
+                        data[key] = str(value)
+                if item.thumbnail_path is not None and item.thumbnail_path.exists():
+                    thumbnail = stack.enter_context(item.thumbnail_path.open("rb"))
+                    files["thumbnail"] = (item.thumbnail_path.name, thumbnail, "image/jpeg")
+                    data["thumbnail"] = "attach://thumbnail"
             return self.api(method, data=data, files=files, timeout=180)
 
     def _send_media_group(self, items: list[PreparedMedia]) -> list[dict[str, Any]]:
@@ -369,6 +379,16 @@ class TelegramBot:
                 }
                 if item.kind == "video":
                     descriptor["supports_streaming"] = True
+                    for metadata_key in ("duration", "width", "height"):
+                        value = int(item.metadata.get(metadata_key) or 0)
+                        if value > 0:
+                            descriptor[metadata_key] = value
+                    if item.thumbnail_path is not None and item.thumbnail_path.exists():
+                        thumbnail_key = f"thumbnail{index}"
+                        thumbnail = item.thumbnail_path.open("rb")
+                        handles.append(thumbnail)
+                        files[thumbnail_key] = (item.thumbnail_path.name, thumbnail, "image/jpeg")
+                        descriptor["thumbnail"] = f"attach://{thumbnail_key}"
                 descriptors.append(descriptor)
             return list(
                 self.api(

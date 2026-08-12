@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import shutil
+import subprocess
 import sys
 import tempfile
 import types
@@ -13,13 +16,16 @@ import requests
 
 from app.media import (
     MediaManager,
+    PreparedMedia,
     SAFE_VIDEO_BYTES,
     _photo_quality_candidates,
     _run_ffmpeg,
     _safe_error,
+    _telegram_video_compatible,
 )
 from app.models import MediaItem, Update
 from app.private_runtime import PrivateReviewApplication
+from app.telegram import TelegramBot
 
 
 class HighQualityMediaTests(unittest.TestCase):
@@ -138,11 +144,90 @@ class HighQualityMediaTests(unittest.TestCase):
             manager._stream_download = MagicMock(side_effect=requests.ConnectionError("direct fail"))
             manager._download_with_ytdlp = MagicMock(return_value=None)
             manager._download_with_gallery_dl = MagicMock(return_value=gallery)
-            with patch("app.media._probe_media", return_value={}):
+            with patch.object(manager, "_finalize_video", return_value=(gallery, "+remux")), \
+                 patch("app.media._probe_media", return_value={}), \
+                 patch("app.media._telegram_video_compatible", return_value=True):
                 result = manager._download_video(item, "https://x.com/a/status/1", root, 0)
             self.assertIsNotNone(result)
-            self.assertEqual(result.metadata["retrieval_method"], "gallery-dl")
+            self.assertEqual(result.metadata["retrieval_method"], "gallery-dl+remux")
             manager._download_with_gallery_dl.assert_called_once()
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg is required")
+    def test_direct_x_video_is_remuxed_probeable_and_has_thumbnail(self):
+        manager = MediaManager({})
+        item = MediaItem(kind="video", url="https://video.twimg.com/ext_tw_video/1/pu/vid/a.mp4")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "source.mp4"
+            subprocess.run(
+                [
+                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                    "-f", "lavfi", "-i", "testsrc=size=640x360:rate=25",
+                    "-t", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                    str(source),
+                ],
+                check=True,
+                timeout=30,
+            )
+
+            def download(url, path, limit, attempts=2):
+                shutil.copyfile(source, path)
+
+            manager._stream_download = MagicMock(side_effect=download)
+            result = manager._download_video(item, "https://x.com/a/status/1", root, 0)
+            self.assertIsNotNone(result)
+            self.assertNotEqual(result.path, root / "video-0.mp4")
+            self.assertIn("+remux", result.metadata["retrieval_method"])
+            self.assertTrue(_telegram_video_compatible(result.metadata))
+            self.assertGreaterEqual(result.metadata["duration"], 2)
+            self.assertEqual(result.metadata["width"], 640)
+            self.assertEqual(result.metadata["height"], 360)
+            self.assertIsNotNone(result.thumbnail_path)
+            self.assertLessEqual(result.thumbnail_path.stat().st_size, 190 * 1024)
+
+    def test_send_video_includes_probe_metadata_and_thumbnail(self):
+        bot = TelegramBot("token", 1, 99)
+        bot.api = MagicMock(return_value={"video": {"file_id": "ok"}})
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            video = root / "video.mp4"
+            thumbnail = root / "thumbnail.jpg"
+            video.write_bytes(b"video")
+            thumbnail.write_bytes(b"jpeg")
+            item = PreparedMedia(
+                "video", video, "video/mp4",
+                {"duration": 7, "width": 640, "height": 360}, thumbnail,
+            )
+            bot.send_media([item])
+        call = bot.api.call_args
+        self.assertEqual(call.args[0], "sendVideo")
+        self.assertEqual(call.kwargs["data"]["duration"], "7")
+        self.assertEqual(call.kwargs["data"]["width"], "640")
+        self.assertEqual(call.kwargs["data"]["height"], "360")
+        self.assertEqual(call.kwargs["data"]["thumbnail"], "attach://thumbnail")
+        self.assertIn("thumbnail", call.kwargs["files"])
+
+    def test_video_album_includes_probe_metadata_and_thumbnail(self):
+        bot = TelegramBot("token", 1, 99)
+        bot.api = MagicMock(return_value=[])
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            items = []
+            for index in range(2):
+                video = root / f"video-{index}.mp4"
+                thumbnail = root / f"thumbnail-{index}.jpg"
+                video.write_bytes(b"video")
+                thumbnail.write_bytes(b"jpeg")
+                items.append(PreparedMedia(
+                    "video", video, "video/mp4",
+                    {"duration": 7, "width": 640, "height": 360}, thumbnail,
+                ))
+            bot.send_media(items)
+        call = bot.api.call_args
+        descriptors = json.loads(call.kwargs["data"]["media"])
+        self.assertEqual(descriptors[0]["duration"], 7)
+        self.assertEqual(descriptors[0]["thumbnail"], "attach://thumbnail0")
+        self.assertIn("thumbnail0", call.kwargs["files"])
 
     def test_gallery_dl_unavailable_is_safe(self):
         manager = MediaManager({"auth_token": "secret"})
