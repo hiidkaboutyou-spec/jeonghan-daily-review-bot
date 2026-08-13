@@ -35,14 +35,16 @@ def fic_summary_quality_issues(source: str, candidate: str) -> list[str]:
 
     persian_chars = len(_PERSIAN_RE.findall(text))
     latin_words = _LATIN_WORD_RE.findall(text)
-    visible_letters = sum(ch.isalpha() for ch in text)
     if persian_chars < 4:
         issues.append("not_persian")
-    if visible_letters and persian_chars / max(visible_letters, 1) < 0.45 and len(latin_words) >= 3:
+
+    # A few English fandom terms, titles or proper names are normal in Persian.
+    # Reject only when Latin prose clearly dominates the output rather than using
+    # a fragile ratio over every Unicode alphabetic character.
+    if len(latin_words) >= 5 and len(latin_words) > max(3, persian_chars // 3):
         issues.append("mostly_untranslated")
 
-    # Exact or near-exact English source echoes are never acceptable as a
-    # successful translation result.
+    # Exact English source echoes are never acceptable as a successful translation.
     folded_source = re.sub(r"\s+", " ", source_text).casefold()
     folded_candidate = re.sub(r"\s+", " ", text).casefold()
     if folded_source and folded_candidate == folded_source:
