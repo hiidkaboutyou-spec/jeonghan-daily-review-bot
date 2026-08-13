@@ -29,7 +29,7 @@ from .ai import (
 from .telegram import TelegramBot
 from .x_client import XCollector
 from .gemini_structured import translation_safety_settings
-from .fic_summary_quality import fic_summary_is_publishable, fic_summary_quality_issues
+from .fic_summary_quality import fic_summary_quality_issues
 
 logger = logging.getLogger(__name__)
 AO3 = "https://archiveofourown.org"
@@ -159,6 +159,8 @@ def _get(url: str, *, timeout: int = 20, attempts: int = 3) -> requests.Response
                     continue
                 return None
             if 400 <= response.status_code < 500 and response.status_code not in {408, 425, 429}:
+                # Deleted/private AO3 works are common in old X recommendation
+                # posts. Retrying the same permanent response only delays /fic.
                 logger.info("AO3 request is no longer publicly available (HTTP %s)", response.status_code)
                 return None
             response.raise_for_status()
@@ -218,6 +220,8 @@ def search_ao3(
     if sort_column not in {"kudos_count", "revised_at", "created_at", "bookmarks_count", "hits"}:
         raise ValueError("unsupported AO3 sort column")
     base_params = {
+        # Use AO3's dedicated character filter instead of a broad full-text OR
+        # query, then retain the strict relationship-tag check below.
         "work_search[character_names]": "Yoon Jeonghan",
         "work_search[language_id]": "en",
         "work_search[sort_column]": sort_column,
@@ -235,6 +239,8 @@ def search_ao3(
         params["page"] = str(page)
         response = _get(AO3 + "/works/search?" + urlencode(params), timeout=25, attempts=2)
         if response is None:
+            # A failed page means completeness is unknown; do not skip ahead and
+            # present later pages as though the gap were complete.
             break
         soup = BeautifulSoup(response.text, "html.parser")
         works = soup.select("li.work.blurb")
@@ -248,20 +254,43 @@ def search_ao3(
             fics.append(fic)
             if len(fics) >= limit:
                 return fics
+        # A page can legitimately contain no qualifying Jeonghan relationship tags;
+        # that is not evidence that AO3 has no later search pages.
         if pace_seconds > 0 and page < max_pages:
             time.sleep(float(pace_seconds))
     return fics
 
 
-def search_ao3_balanced(limit: int = 48, *, max_pages_each: int = AO3_BALANCED_PAGE_LIMIT, pace_seconds: float = AO3_PACE_SECONDS) -> list[Fic]:
+def search_ao3_balanced(
+    limit: int = 48,
+    *,
+    max_pages_each: int = AO3_BALANCED_PAGE_LIMIT,
+    pace_seconds: float = AO3_PACE_SECONDS,
+) -> list[Fic]:
+    """Blend recently updated works with established popular works.
+
+    The two searches share the old 25-page safety budget (12 pages each by
+    default), so discovery improves without increasing the worst-case request
+    pressure on AO3.
+    """
     if limit <= 0:
         return []
     recent_quota = max(1, (limit * 2) // 3)
     popular_quota = max(1, limit - recent_quota)
-    recent = search_ao3(recent_quota, max_pages=max_pages_each, pace_seconds=pace_seconds, sort_column="revised_at")
+    recent = search_ao3(
+        recent_quota,
+        max_pages=max_pages_each,
+        pace_seconds=pace_seconds,
+        sort_column="revised_at",
+    )
     if pace_seconds > 0:
         time.sleep(float(pace_seconds))
-    popular = search_ao3(popular_quota + max(4, limit // 6), max_pages=max_pages_each, pace_seconds=pace_seconds, sort_column="kudos_count")
+    popular = search_ao3(
+        popular_quota + max(4, limit // 6),
+        max_pages=max_pages_each,
+        pace_seconds=pace_seconds,
+        sort_column="kudos_count",
+    )
     merged: list[Fic] = []
     seen: set[str] = set()
     for fic in [*recent, *popular]:
@@ -280,6 +309,8 @@ def fetch_ao3_work(url: str) -> Fic | None:
     if not match:
         return None
     canonical = f"{AO3}/works/{match.group(1)}"
+    # X recommendation links are supplemental and frequently stale. One bounded
+    # lookup keeps them from blocking the stronger AO3 search for many minutes.
     response = _get(canonical + "?view_adult=true", timeout=10, attempts=1)
     if response is None:
         return None
@@ -333,7 +364,12 @@ def _extract_ao3_urls(tweet: Any) -> list[str]:
     return list(dict.fromkeys(resolved))
 
 
-async def search_x_recommendations(settings: Settings, limit: int = 24, *, known_fics: list[Fic] | None = None) -> list[Fic]:
+async def search_x_recommendations(
+    settings: Settings,
+    limit: int = 24,
+    *,
+    known_fics: list[Fic] | None = None,
+) -> list[Fic]:
     collector = XCollector(settings.x_cookies, settings.sources, settings.keyword_groups)
     api = await collector._get_api()
     queries = [
@@ -365,8 +401,12 @@ async def search_x_recommendations(settings: Settings, limit: int = 24, *, known
         await asyncio.sleep(0.5)
 
     ranked = sorted(candidates.values(), key=lambda item: item[1], reverse=True)[: limit + 8]
-    known_by_id = {fic.work_id: fic for fic in (known_fics or []) if fic.work_id}
+    known_by_id = {
+        fic.work_id: fic for fic in (known_fics or []) if fic.work_id
+    }
     found: list[Fic] = []
+    # AO3 has no supported public API. Fetch detail pages serially and paced instead
+    # of opening four simultaneous requests against a volunteer-run service.
     lookup_started = time.monotonic()
     for index, (url, score, note) in enumerate(ranked):
         work_id_match = re.search(r"/works/(\d+)", url)
@@ -401,6 +441,9 @@ def _translate_summary(summary: str) -> str:
         return "خلاصهٔ عمومی برای این فیک ثبت نشده."
     if re.search(r"[\u0600-\u06ff]", summary):
         return summary
+    # The old unofficial Google Translate fallback produced misleading literal
+    # Persian in real digests. Preserve the AO3 source honestly instead. Adult
+    # fiction is allowed; this warning concerns model availability, not content.
     return "⚠️ ترجمهٔ خلاصه در دسترس نبود؛ متن اصلی AO3:\n" + summary
 
 
@@ -456,19 +499,15 @@ def _fic_block_reason(response: object) -> str:
 
 def _fic_prompt_prefix() -> str:
     return (
-        "برای هر آیتم، summary رسمی AO3 را به فارسی طبیعی بازنویسی کن؛ هدف ترجمهٔ کلمه‌به‌کلمه نیست، بلکه همان معنا با نثر فارسی واقعی است. "
-        "قبل از نوشتن، کل summary را بفهم و بعد جمله‌ها را با ترتیب طبیعی فارسی از نو بساز. "
-        "از ساختار انگلیسی، نثر کتابی، فعل‌های مصنوعی مثل «می‌باشد/می‌نماید/درصدد» و ترجمهٔ تحت‌اللفظی دوری کن. "
-        "لحن باید امروزی، روان و مناسب معرفی فن‌فیک باشد؛ می‌تواند کمی محاوره‌ای باشد اما نه بچگانه یا لوس. "
-        "طول را فقط وقتی کوتاه کن که چیزی از premise، رابطه، تنش یا punchline از بین نرود؛ برای summary بلند 2 تا 4 جمله هم مجاز است. "
-        "شوخی، angst، yearning، awkwardness، romance و صراحت جنسی را با همان شدت متن منبع نگه دار. "
-        "دیالوگ، نقل‌قول، POV و اینکه چه کسی چه کاری می‌کند را عوض نکن. ضمیر یا نقش شخصیت‌ها را حدس نزن. "
-        "هیچ trope، پایان، انگیزه، رابطه یا جزئیاتی که در summary نیست اضافه نکن. "
-        "محتوای بزرگسالانه را سانسور، ملایم یا حذف نکن. اگر متن صریح است، ترجمه هم باید صریح و طبیعی بماند. "
-        "نام‌ها: Yoon Jeonghan/Jeonghan=جونگهان، Choi Seungcheol/S.Coups=سونگچول، Joshua/Hong Jisoo=جاشوآ، "
-        "Mingyu=مینگیو، Wonwoo=ونوو، Hoshi/Soonyoung=هوشی، Jun/Junhui=جون، DK/Seokmin=دوکیوم، "
-        "The8/Minghao=مینگ‌هائو، Woozi/Jihoon=ووزی، Seungkwan=سونگکوان، Dino/Chan=دینو، Vernon/Hansol=ورنون. "
-        "فقط JSON مطابق schema برگردان؛ summary_fa باید خود متن نهایی فارسی باشد و توضیح اضافه نداشته باشد. "
+        "برای هر آیتم، summary رسمی AO3 را به فارسی طبیعی و خوش‌خوان بازنویسی کن. هدف ترجمهٔ کلمه‌به‌کلمه نیست؛ همان معنا را با جمله‌بندی واقعی فارسی منتقل کن. "
+        "اول کل summary را بفهم، بعد جمله‌ها را با ترتیب طبیعی فارسی از نو بساز. ساختار انگلیسی، نثر کتابی و عبارت‌های ماشینی مثل «می‌باشد»، «می‌نماید» و «درصدد» ممنوع‌اند. "
+        "لحن باید امروزی و مناسب معرفی فن‌فیک باشد؛ کمی محاوره‌ای و صمیمی اشکالی ندارد، اما معنی را عوض نکن و متن را لوس یا اغراق‌آمیز نکن. "
+        "اگر summary کوتاه است معمولاً 1 تا 3 جمله کافی است؛ اگر بلند است می‌توانی 2 تا 4 جمله بنویسی. فقط وقتی کوتاه کن که premise، رابطه، تنش، شوخی یا نکتهٔ اصلی از بین نرود. "
+        "شوخی، angst، yearning، awkwardness، romance، tension و صراحت جنسی را با همان شدت متن اصلی حفظ کن. محتوای بزرگسالانه را سانسور، ملایم یا حذف نکن. "
+        "دیالوگ، نقل‌قول، POV و اینکه چه کسی چه کاری می‌کند باید دقیق بماند. نقش شخصیت‌ها، ضمیرها، رابطه، trope، انگیزه یا پایان را حدس نزن و هیچ جزئیات تازه‌ای اختراع نکن. "
+        "نام‌ها: Yoon Jeonghan/Jeonghan = جونگهان، Choi Seungcheol/S.Coups = سونگچول، Joshua/Hong Jisoo = جاشوآ، Mingyu = مینگیو، Wonwoo = ونوو، Hoshi/Soonyoung = هوشی، "
+        "Jun/Junhui = جون، DK/Seokmin = دوکیوم، The8/Minghao = مینگ‌هائو، Woozi/Jihoon = ووزی، Seungkwan = سونگکوان، Dino/Chan = دینو، Vernon/Hansol = ورنون. "
+        "فقط JSON مطابق schema برگردان؛ summary_fa باید خود متن نهایی فارسی باشد و هیچ توضیح اضافی نداشته باشد. "
     )
 
 
@@ -481,15 +520,38 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
         from google import genai
         from google.genai import types
 
-        client = genai.Client(api_key=settings.gemini_api_key, http_options=types.HttpOptions(timeout=GEMINI_REQUEST_TIMEOUT_MS))
+        client = genai.Client(
+            api_key=settings.gemini_api_key,
+            http_options=types.HttpOptions(timeout=GEMINI_REQUEST_TIMEOUT_MS),
+        )
         prompt_prefix = _fic_prompt_prefix()
-        candidates = [model for model in dict.fromkeys([settings.gemini_model, *GEMINI_FREE_FALLBACK_MODELS]) if model]
+        candidates = [
+            model
+            for model in dict.fromkeys([settings.gemini_model, *GEMINI_FREE_FALLBACK_MODELS])
+            if model
+        ]
         schema = {
             "type": "object",
             "required": ["items"],
-            "properties": {"items": {"type": "array", "items": {"type": "object", "required": ["url", "summary_fa"], "properties": {"url": {"type": "string"}, "summary_fa": {"type": "string"}}}}},
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["url", "summary_fa"],
+                        "properties": {
+                            "url": {"type": "string"},
+                            "summary_fa": {"type": "string"},
+                        },
+                    },
+                },
+            },
         }
-        request_state = {"calls": 0, "max_calls": max(8, (len(fics) + FIC_SUMMARY_BATCH_SIZE - 1) // FIC_SUMMARY_BATCH_SIZE + 8), "next_at": 0.0}
+        request_state = {
+            "calls": 0,
+            "max_calls": max(8, (len(fics) + FIC_SUMMARY_BATCH_SIZE - 1) // FIC_SUMMARY_BATCH_SIZE + 8),
+            "next_at": 0.0,
+        }
         unavailable_models: set[str] = set()
 
         def pace_request() -> bool:
@@ -503,9 +565,18 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
             return True
 
         def translate_subset(subset: list[Fic]) -> tuple[dict[str, str], bool]:
+            """Translate a batch; isolate blocked items instead of losing all eight.
+
+            The boolean asks the outer loop to stop after project-wide auth,
+            transport, or all-model quota failure. Empty/blocked content is split
+            recursively within the bounded request budget.
+            """
             if not subset or request_state["calls"] >= request_state["max_calls"]:
                 return {}, False
-            payload = [{"url": fic.url, "title": fic.title, "summary": fic.summary} for fic in subset]
+            payload = [
+                {"url": fic.url, "title": fic.title, "summary": fic.summary}
+                for fic in subset
+            ]
             prompt = prompt_prefix + json.dumps(payload, ensure_ascii=False)
             quota_models = 0
             active_candidates = [model for model in candidates if model not in unavailable_models]
@@ -530,7 +601,10 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
                         break
                     except Exception as exc:
                         if attempt == 0 and gemini_retryable_provider_failure(exc):
-                            logger.warning("Fic Gemini model %s was temporarily unavailable; retrying once", model)
+                            logger.warning(
+                                "Fic Gemini model %s was temporarily unavailable; retrying once",
+                                model,
+                            )
                             continue
                         final_error = exc
                         break
@@ -539,10 +613,19 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
                     shared_failure = gemini_shared_failure_kind(final_error)
                     if shared_failure == "quota":
                         quota_models += 1
+                        # A model-level quota does not recover between adjacent
+                        # batches. Retire it for this digest instead of producing
+                        # the same 429 for every group before using the fallback.
                         unavailable_models.add(model)
-                    logger.warning("Fic Gemini model %s failed; trying bounded fallback when available: %s", model, type(final_error).__name__)
+                    logger.warning(
+                        "Fic Gemini model %s failed; trying bounded fallback when available: %s",
+                        model,
+                        type(final_error).__name__,
+                    )
                     if shared_failure in {"authentication", "transport"}:
                         return {}, True
+                    # Quota is model-specific in Gemini; a supported fallback may
+                    # still have capacity. Removed endpoints also fall through.
                     continue
 
                 parsed = _fic_response_object(response) if response is not None else {}
@@ -551,17 +634,21 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
                     if not isinstance(item, dict):
                         continue
                     url = str(item.get("url", ""))
-                    if url not in by_url:
+                    fic = by_url.get(url)
+                    if fic is None:
                         continue
                     candidate = _normalize_fic_summary_names(str(item.get("summary_fa", "")))
                     if not candidate:
                         continue
-                    issues = fic_summary_quality_issues(by_url[url].summary, candidate)
+                    issues = fic_summary_quality_issues(fic.summary, candidate)
                     if issues:
-                        logger.warning("Fic summary quality gate rejected model output for %s: %s", by_url[url].work_id or "unknown", ",".join(issues))
+                        logger.warning(
+                            "Fic summary quality gate rejected generated output for work %s: %s",
+                            fic.work_id or "unknown",
+                            ",".join(issues),
+                        )
                         continue
                     result[url] = candidate
-
                 if result:
                     missing = [fic for fic in subset if fic.url not in result]
                     if missing and request_state["calls"] < request_state["max_calls"]:
@@ -572,9 +659,16 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
 
                 block_reason = _fic_block_reason(response) if response is not None else ""
                 if block_reason:
-                    logger.warning("Fic translation batch was blocked (%s); isolating affected summaries", block_reason)
+                    logger.warning(
+                        "Fic translation batch was blocked (%s); isolating affected summaries",
+                        block_reason,
+                    )
+                # A different supported model can handle a content-specific false
+                # positive without changing or censoring the AO3 source.
 
-            if active_candidates and quota_models == len(active_candidates) and not [model for model in candidates if model not in unavailable_models]:
+            if active_candidates and quota_models == len(active_candidates) and not [
+                model for model in candidates if model not in unavailable_models
+            ]:
                 return {}, True
             if len(subset) > 1 and request_state["calls"] < request_state["max_calls"]:
                 middle = len(subset) // 2
@@ -594,8 +688,9 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
             translated.update(batch_result)
             translated.update(_fallback_summaries(missing))
             if stop_all_batches:
-                translated.update(_fallback_summaries(fics[offset + len(batch):]))
+                translated.update(_fallback_summaries(fics[offset + len(batch) :]))
                 break
+
         return {fic.url: translated.get(fic.url, _translate_summary(fic.summary)) for fic in fics}
     except Exception as exc:
         logger.warning("Gemini summary layer unavailable: %s", type(exc).__name__)
@@ -607,11 +702,13 @@ def _chunks(text: str, max_len: int = 3800) -> list[str]:
         raise ValueError("max_len must be positive")
     chunks: list[str] = []
     current = ""
+
     def flush() -> None:
         nonlocal current
         if current:
             chunks.append(current)
             current = ""
+
     for block in text.split("\n\n"):
         pieces: list[str] = []
         remaining = block
@@ -637,17 +734,41 @@ def _chunks(text: str, max_len: int = 3800) -> list[str]:
     return chunks
 
 
-_RATING_FA = {"General Audiences": "مناسب همه", "Teen And Up Audiences": "نوجوان به بالا", "Mature": "بزرگسال", "Explicit": "صریح / بزرگسال", "Not Rated": "رده‌بندی نشده"}
-_WARNING_FA = {"No Archive Warnings Apply": "هشدار اصلی ندارد", "Creator Chose Not To Use Archive Warnings": "نویسنده هشدارهای آرشیو را مشخص نکرده", "Graphic Depictions Of Violence": "خشونت با توصیف صریح", "Major Character Death": "مرگ شخصیت اصلی", "Rape/Non-Con": "تجاوز / رابطه بدون رضایت", "Underage": "رابطه با فرد زیر سن قانونی"}
-_STATUS_FA = {"new": "🆕 تازه پیدا شده", "updated": "🔄 تازه آپدیت شده", "unchanged": "⭐ انتخاب ثابت"}
+_RATING_FA = {
+    "General Audiences": "مناسب همه",
+    "Teen And Up Audiences": "نوجوان به بالا",
+    "Mature": "بزرگسال",
+    "Explicit": "صریح / بزرگسال",
+    "Not Rated": "رده‌بندی نشده",
+}
+
+_WARNING_FA = {
+    "No Archive Warnings Apply": "هشدار اصلی ندارد",
+    "Creator Chose Not To Use Archive Warnings": "نویسنده هشدارهای آرشیو را مشخص نکرده",
+    "Graphic Depictions Of Violence": "خشونت با توصیف صریح",
+    "Major Character Death": "مرگ شخصیت اصلی",
+    "Rape/Non-Con": "تجاوز / رابطه بدون رضایت",
+    "Underage": "رابطه با فرد زیر سن قانونی",
+}
+
+_STATUS_FA = {
+    "new": "🆕 تازه پیدا شده",
+    "updated": "🔄 تازه آپدیت شده",
+    "unchanged": "⭐ انتخاب ثابت",
+}
 
 
 def _rank_digest_fics(fics: list[Fic], source: str) -> list[Fic]:
     status_priority = {"updated": 0, "new": 1, "unchanged": 2, "": 3}
+
     def quality(fic: Fic) -> tuple[int, int, int, int]:
         primary = fic.x_score if source == "x" else fic.kudos
         return primary, fic.bookmarks, fic.kudos, fic.hits
-    return sorted(fics, key=lambda fic: (status_priority.get(fic.observation_status, 3), *(-x for x in quality(fic))))
+
+    return sorted(
+        fics,
+        key=lambda fic: (status_priority.get(fic.observation_status, 3), *(-x for x in quality(fic))),
+    )
 
 
 def _status_counts(fics: list[Fic]) -> str:
@@ -682,29 +803,49 @@ def format_digest(title: str, fics: list[Fic], summaries: dict[str, str], source
                 stats += f" · امتیاز X: {fic.x_score:,}"
             if fic.chapters:
                 progress = ""
-                if fic.completion_status == "complete": progress = " (✅ کامل)"
-                elif fic.completion_status == "in_progress": progress = " (✍️ درحال انتشار)"
+                if fic.completion_status == "complete":
+                    progress = " (✅ کامل)"
+                elif fic.completion_status == "in_progress":
+                    progress = " (✍️ درحال انتشار)"
                 stats += f" · فصل {fic.chapters}{progress}"
             jh_relationships = _jeonghan_relationships(fic.relationships)
             rel = "; ".join(jh_relationships[:3]) or ship
             heading = f"{number}) {status + ' · ' if status else ''}{fic.title}"
             lines += [heading, f"نویسنده: {fic.author}", f"رابطه: {rel}"]
-            if fic.rating: lines.append("رده‌بندی: " + _RATING_FA.get(fic.rating, fic.rating))
+            if fic.rating:
+                lines.append("رده‌بندی: " + _RATING_FA.get(fic.rating, fic.rating))
             warnings = [_WARNING_FA.get(value, value) for value in (fic.warnings or [])]
-            if warnings: lines.append("هشدار AO3: " + "؛ ".join(warnings[:3]))
-            if fic.freeforms: lines.append("تگ‌ها: " + "؛ ".join(fic.freeforms[:3]))
-            lines += [stats + (f" · کلمه {fic.words}" if fic.words else ""), fic.url, "خلاصه: " + summaries.get(fic.url, fic.summary), ""]
+            if warnings:
+                lines.append("هشدار AO3: " + "؛ ".join(warnings[:3]))
+            if fic.freeforms:
+                lines.append("تگ‌ها: " + "؛ ".join(fic.freeforms[:3]))
+            lines += [
+                stats + (f" · کلمه {fic.words}" if fic.words else ""),
+                fic.url,
+                "خلاصه: " + summaries.get(fic.url, fic.summary),
+                "",
+            ]
             number += 1
     return "\n".join(lines).strip()
 
 
 def observe_fics(store: FicStateStore, fics: list[Fic]) -> None:
     for fic in fics:
-        if fic.work_id:
-            fic.observation_status = store.classify(FicObservation(work_id=fic.work_id, chapters=fic.chapters, updated=fic.updated))
+        if not fic.work_id:
+            continue
+        fic.observation_status = store.classify(
+            FicObservation(work_id=fic.work_id, chapters=fic.chapters, updated=fic.updated)
+        )
 
 
 def _delivery_run_scope(day: str, *, manual_request: bool) -> str:
+    """Return an idempotency scope that is stable per deployed revision.
+
+    A new main revision deliberately triggers a fresh validation digest. Reusing
+    only the calendar day made Telegram's durable receipt store silently accept
+    the previous revision's message as the new delivery. Include GitHub's immutable
+    revision so retries of one deployment deduplicate while a real fix is sent once.
+    """
     if manual_request:
         return datetime.now(timezone.utc).strftime("manual:%Y%m%dT%H%M%S%fZ")
     revision = re.sub(r"[^0-9a-f]", "", os.getenv("GITHUB_SHA", "").casefold())[:12]
@@ -712,19 +853,31 @@ def _delivery_run_scope(day: str, *, manual_request: bool) -> str:
 
 
 async def build_digests(settings: Settings, *, fic_store: FicStateStore | None = None) -> tuple[str, str]:
+    # Build the authoritative AO3 pool once, then reuse its parsed work metadata
+    # for X recommendations. The old order reopened every recommended work page
+    # before doing the AO3 search, so a handful of stale/slow links could consume
+    # two minutes and still leave the X list empty.
     ao3_candidates = await asyncio.to_thread(search_ao3_balanced, 48)
     x_fics = await search_x_recommendations(settings, known_fics=ao3_candidates)
-    if fic_store is not None: observe_fics(fic_store, x_fics)
+    if fic_store is not None:
+        observe_fics(fic_store, x_fics)
     x_fics = _rank_digest_fics(x_fics, "x")
     x_summaries = await asyncio.to_thread(summarize_fics_persian, settings, x_fics)
     x_text = format_digest("🌙 فن‌فیک‌های پیشنهادی از X", x_fics, x_summaries, "x")
+
     x_ids = {fic.work_id for fic in x_fics if fic.work_id}
     ao3_fics = [fic for fic in ao3_candidates if not fic.work_id or fic.work_id not in x_ids][:36]
-    if fic_store is not None: observe_fics(fic_store, ao3_fics)
+    if fic_store is not None:
+        observe_fics(fic_store, ao3_fics)
     ao3_fics = _rank_digest_fics(ao3_fics, "ao3")
     ao3_summaries = await asyncio.to_thread(summarize_fics_persian, settings, ao3_fics)
     ao3_text = format_digest("📚 تازه‌ها و انتخاب‌های محبوب AO3", ao3_fics, ao3_summaries, "ao3")
-    logger.info("Fanfic digest built successfully (x=%s ao3_pool=%s ao3_list=%s)", len(x_fics), len(ao3_candidates), len(ao3_fics))
+    logger.info(
+        "Fanfic digest built successfully (x=%s ao3_pool=%s ao3_list=%s)",
+        len(x_fics),
+        len(ao3_candidates),
+        len(ao3_fics),
+    )
     return x_text, ao3_text
 
 
@@ -735,7 +888,12 @@ async def send_digests(settings: Settings, bot: TelegramBot | None = None) -> No
     owned_message_store: MessageDeliveryStore | None = None
     if bot is None:
         owned_message_store = MessageDeliveryStore(db_path)
-        bot = TelegramBot(settings.telegram_token, settings.admin_user_id, settings.review_chat_id, message_delivery_store=owned_message_store)
+        bot = TelegramBot(
+            settings.telegram_token,
+            settings.admin_user_id,
+            settings.review_chat_id,
+            message_delivery_store=owned_message_store,
+        )
     elif getattr(bot, "message_delivery_store", None) is None:
         owned_message_store = MessageDeliveryStore(db_path)
         bot.message_delivery_store = owned_message_store
@@ -760,7 +918,10 @@ async def main_async() -> int:
 
 
 def main() -> int:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     return asyncio.run(main_async())
 
 
