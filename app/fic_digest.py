@@ -29,6 +29,7 @@ from .ai import (
 from .telegram import TelegramBot
 from .x_client import XCollector
 from .gemini_structured import translation_safety_settings
+from .fic_summary_quality import fic_summary_quality_issues
 
 logger = logging.getLogger(__name__)
 AO3 = "https://archiveofourown.org"
@@ -496,6 +497,20 @@ def _fic_block_reason(response: object) -> str:
         return ""
 
 
+def _fic_prompt_prefix() -> str:
+    return (
+        "برای هر آیتم، summary رسمی AO3 را به فارسی طبیعی و خوش‌خوان بازنویسی کن. هدف ترجمهٔ کلمه‌به‌کلمه نیست؛ همان معنا را با جمله‌بندی واقعی فارسی منتقل کن. "
+        "اول کل summary را بفهم، بعد جمله‌ها را با ترتیب طبیعی فارسی از نو بساز. ساختار انگلیسی، نثر کتابی و عبارت‌های ماشینی مثل «می‌باشد»، «می‌نماید» و «درصدد» ممنوع‌اند. "
+        "لحن باید امروزی و مناسب معرفی فن‌فیک باشد؛ کمی محاوره‌ای و صمیمی اشکالی ندارد، اما معنی را عوض نکن و متن را لوس یا اغراق‌آمیز نکن. "
+        "اگر summary کوتاه است معمولاً 1 تا 3 جمله کافی است؛ اگر بلند است می‌توانی 2 تا 4 جمله بنویسی. فقط وقتی کوتاه کن که premise، رابطه، تنش، شوخی یا نکتهٔ اصلی از بین نرود. "
+        "شوخی، angst، yearning، awkwardness، romance، tension و صراحت جنسی را با همان شدت متن اصلی حفظ کن. محتوای بزرگسالانه را سانسور، ملایم یا حذف نکن. "
+        "دیالوگ، نقل‌قول، POV و اینکه چه کسی چه کاری می‌کند باید دقیق بماند. نقش شخصیت‌ها، ضمیرها، رابطه، trope، انگیزه یا پایان را حدس نزن و هیچ جزئیات تازه‌ای اختراع نکن. "
+        "نام‌ها: Yoon Jeonghan/Jeonghan = جونگهان، Choi Seungcheol/S.Coups = سونگچول، Joshua/Hong Jisoo = جاشوآ، Mingyu = مینگیو، Wonwoo = ونوو، Hoshi/Soonyoung = هوشی، "
+        "Jun/Junhui = جون، DK/Seokmin = دوکیوم، The8/Minghao = مینگ‌هائو، Woozi/Jihoon = ووزی، Seungkwan = سونگکوان، Dino/Chan = دینو، Vernon/Hansol = ورنون. "
+        "فقط JSON مطابق schema برگردان؛ summary_fa باید خود متن نهایی فارسی باشد و هیچ توضیح اضافی نداشته باشد. "
+    )
+
+
 def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str]:
     if not fics:
         return {}
@@ -509,17 +524,7 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
             api_key=settings.gemini_api_key,
             http_options=types.HttpOptions(timeout=GEMINI_REQUEST_TIMEOUT_MS),
         )
-        prompt_prefix = (
-            "برای هر فن‌فیک فقط بر اساس summary رسمی AO3 یک ترجمه/خلاصهٔ فارسی روان، امروزی و طبیعی 1 تا 3 جمله‌ای بنویس. "
-            "لحن می‌تواند محاوره‌ای و خوش‌خوان باشد، اما معنا، شدت احساس و زاویهٔ دید نویسنده باید دقیق بماند. "
-            "محتوای بزرگسالانه و جنسی مجاز است: سانسور، حذف، ملایم‌سازی یا تغییرش نده. "
-            "هیچ جزئیات، پایان یا trope جدیدی اختراع نکن. فارسی تحت‌اللفظی و ساختار انگلیسی ممنوع است. "
-            "املای ثابت نام‌ها: Yoon Jeonghan/Jeonghan = جونگهان، Choi Seungcheol/S.Coups = سونگچول، "
-            "Joshua/Hong Jisoo = جاشوآ، Mingyu = مینگیو، Wonwoo = ونوو، Hoshi/Soonyoung = هوشی، "
-            "Jun/Junhui = جون، DK/Seokmin = دوکیوم، The8/Minghao = مینگ‌هائو، Woozi/Jihoon = ووزی، "
-            "Seungkwan = سونگکوان، Dino/Chan = دینو، Vernon/Hansol = ورنون. "
-            "خروجی JSON با items شامل url و summary_fa باشد. "
-        )
+        prompt_prefix = _fic_prompt_prefix()
         candidates = [
             model
             for model in dict.fromkeys([settings.gemini_model, *GEMINI_FREE_FALLBACK_MODELS])
@@ -575,6 +580,7 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
             prompt = prompt_prefix + json.dumps(payload, ensure_ascii=False)
             quota_models = 0
             active_candidates = [model for model in candidates if model not in unavailable_models]
+            by_url = {fic.url: fic for fic in subset}
             for model in active_candidates:
                 response = None
                 final_error: Exception | None = None
@@ -623,16 +629,26 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
                     continue
 
                 parsed = _fic_response_object(response) if response is not None else {}
-                subset_urls = {fic.url for fic in subset}
-                result = {
-                    str(item.get("url")): _normalize_fic_summary_names(
-                        str(item.get("summary_fa", ""))
-                    )
-                    for item in parsed.get("items", [])
-                    if isinstance(item, dict)
-                    and str(item.get("url", "")) in subset_urls
-                    and str(item.get("summary_fa", "")).strip()
-                }
+                result: dict[str, str] = {}
+                for item in parsed.get("items", []):
+                    if not isinstance(item, dict):
+                        continue
+                    url = str(item.get("url", ""))
+                    fic = by_url.get(url)
+                    if fic is None:
+                        continue
+                    candidate = _normalize_fic_summary_names(str(item.get("summary_fa", "")))
+                    if not candidate:
+                        continue
+                    issues = fic_summary_quality_issues(fic.summary, candidate)
+                    if issues:
+                        logger.warning(
+                            "Fic summary quality gate rejected generated output for work %s: %s",
+                            fic.work_id or "unknown",
+                            ",".join(issues),
+                        )
+                        continue
+                    result[url] = candidate
                 if result:
                     missing = [fic for fic in subset if fic.url not in result]
                     if missing and request_state["calls"] < request_state["max_calls"]:
