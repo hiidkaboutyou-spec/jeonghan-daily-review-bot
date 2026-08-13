@@ -5,18 +5,15 @@ import re
 _PERSIAN_RE = re.compile(r"[\u0600-\u06ff]")
 _LATIN_WORD_RE = re.compile(r"\b[A-Za-z][A-Za-z'-]{2,}\b")
 
-# Common literal / bookish constructions that repeatedly make short AO3 blurbs
-# sound machine-translated in Persian. This is deliberately conservative: it is
-# a quality gate, not an automatic rewriter.
-_BOOKISH_MARKERS = (
-    "می‌باشد",
-    "می باشد",
-    "نمود",
-    "می‌نماید",
-    "می نماید",
-    "درصدد",
-    "بدین ترتیب",
-    "وی ",
+# Conservative whole-word / phrase detectors for stiff machine-register Persian.
+# Keep these boundary-aware: e.g. the pronoun «وی» must never match inside «جلوی».
+_BOOKISH_PATTERNS = (
+    re.compile(r"(?<!\S)می(?:‌|\s)?باشد(?=\s|[،؛,.!?؟]|$)"),
+    re.compile(r"(?<!\S)نمود(?=\s|[،؛,.!?؟]|$)"),
+    re.compile(r"(?<!\S)می(?:‌|\s)?نماید(?=\s|[،؛,.!?؟]|$)"),
+    re.compile(r"(?<!\S)درصدد(?=\s|[،؛,.!?؟]|$)"),
+    re.compile(r"(?<!\S)بدین\s+ترتیب(?=\s|[،؛,.!?؟]|$)"),
+    re.compile(r"(?<!\S)وی(?=\s|[،؛,.!?؟]|$)"),
 )
 
 
@@ -39,21 +36,17 @@ def fic_summary_quality_issues(source: str, candidate: str) -> list[str]:
         issues.append("not_persian")
 
     # A few English fandom terms, titles or proper names are normal in Persian.
-    # Reject only when Latin prose clearly dominates the output rather than using
-    # a fragile ratio over every Unicode alphabetic character.
+    # Reject only when Latin prose clearly dominates the output.
     if len(latin_words) >= 5 and len(latin_words) > max(3, persian_chars // 3):
         issues.append("mostly_untranslated")
 
-    # Exact English source echoes are never acceptable as a successful translation.
     folded_source = re.sub(r"\s+", " ", source_text).casefold()
     folded_candidate = re.sub(r"\s+", " ", text).casefold()
     if folded_source and folded_candidate == folded_source:
         issues.append("source_echo")
 
-    for marker in _BOOKISH_MARKERS:
-        if marker in text:
-            issues.append("bookish_register")
-            break
+    if any(pattern.search(text) for pattern in _BOOKISH_PATTERNS):
+        issues.append("bookish_register")
 
     # Long source summaries should not collapse into a tiny generic sentence;
     # that usually means important setup was lost. Short blurbs remain allowed.
