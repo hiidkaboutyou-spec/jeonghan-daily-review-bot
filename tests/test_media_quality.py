@@ -18,10 +18,12 @@ from app.media import (
     MediaManager,
     PreparedMedia,
     SAFE_VIDEO_BYTES,
+    _normalize_social_url,
     _photo_quality_candidates,
     _run_ffmpeg,
     _safe_error,
     _telegram_video_compatible,
+    _trusted_ytdlp_url,
 )
 from app.models import MediaItem, Update
 from app.private_runtime import PrivateReviewApplication
@@ -46,9 +48,6 @@ class HighQualityMediaTests(unittest.TestCase):
     def test_photo_quality_order_preserves_unique_direct_and_size_fallbacks(self):
         high, low = _photo_quality_candidates(self.photo().url)
         self.assertEqual([name for name, _ in high], ["x-direct", "x-orig", "x-4096"])
-        # The direct URL is already the medium variant, so retrying the exact same
-        # URL later would waste a request. The remaining unique lower fallbacks are
-        # therefore large -> small; medium has already been attempted as x-direct.
         self.assertEqual([name for name, _ in low], ["x-large", "x-small"])
         urls = [url for _, url in high + low]
         self.assertEqual(len(urls), len(set(urls)))
@@ -111,7 +110,39 @@ class HighQualityMediaTests(unittest.TestCase):
         self.assertEqual(manager._stream_download.call_count, 1)
         manager._download_with_gallery_dl.assert_called_once()
 
-    def test_ytdlp_uses_best_video_audio_with_combined_fallback(self):
+    def test_trusted_social_extractor_urls_cover_supported_sources(self):
+        allowed = [
+            "https://x.com/a/status/1",
+            "https://twitter.com/a/status/1",
+            "https://www.youtube.com/watch?v=abc123",
+            "https://youtu.be/abc123",
+            "https://www.youtube.com/shorts/abc123",
+            "https://www.instagram.com/reel/ABC123/",
+            "https://www.instagram.com/p/ABC123/",
+            "https://www.reddit.com/r/test/comments/abc123/title/",
+            "https://v.redd.it/abc123/",
+        ]
+        for url in allowed:
+            with self.subTest(url=url):
+                self.assertTrue(_trusted_ytdlp_url(url))
+        for url in (
+            "http://www.youtube.com/watch?v=abc123",
+            "https://youtube.evil.example/watch?v=abc123",
+            "https://www.instagram.com/accounts/login/",
+            "https://www.reddit.com/user/example/",
+            "https://example.com/video.mp4",
+        ):
+            with self.subTest(url=url):
+                self.assertFalse(_trusted_ytdlp_url(url))
+
+    def test_social_url_normalization_strips_caption_punctuation(self):
+        self.assertEqual(
+            _normalize_social_url("https://youtu.be/abc123)."),
+            "https://youtu.be/abc123",
+        )
+        self.assertTrue(_trusted_ytdlp_url("https://www.instagram.com/reel/ABC123/،"))
+
+    def test_ytdlp_prefers_telegram_ios_compatible_streams(self):
         captured = {}
         class FakeYDL:
             def __init__(self, options):
@@ -121,7 +152,7 @@ class HighQualityMediaTests(unittest.TestCase):
             def extract_info(self, url, download=True):
                 out = Path(captured["outtmpl"].replace("%(ext)s", "mp4"))
                 out.write_bytes(b"video")
-                return {"id": "123"}
+                return {"id": "123", "requested_downloads": [{"filepath": str(out)}]}
             def prepare_filename(self, info):
                 return captured["outtmpl"].replace("%(ext)s", "mp4")
         fake_module = types.ModuleType("yt_dlp")
@@ -130,9 +161,29 @@ class HighQualityMediaTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp, patch.dict(sys.modules, {"yt_dlp": fake_module}):
             result = manager._download_with_ytdlp("https://x.com/a/status/1", Path(temp), 0)
         self.assertIsNotNone(result)
-        self.assertIn("bestvideo[ext=mp4]+bestaudio[ext=m4a]", captured["format"])
-        self.assertIn("/best[ext=mp4]/best", captured["format"])
+        self.assertIn("bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[acodec^=mp4a]", captured["format"])
+        self.assertIn("/best[ext=mp4]/", captured["format"])
         self.assertEqual(captured["merge_output_format"], "mp4")
+        self.assertEqual(captured["extractor_retries"], 3)
+
+    def test_ytdlp_non_x_source_never_receives_x_cookie_file(self):
+        captured = {}
+        class FakeYDL:
+            def __init__(self, options): captured.update(options)
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+            def extract_info(self, url, download=True):
+                out = Path(captured["outtmpl"].replace("%(ext)s", "mp4"))
+                out.write_bytes(b"video")
+                return {"id": "123", "requested_downloads": [{"filepath": str(out)}]}
+            def prepare_filename(self, info): return captured["outtmpl"].replace("%(ext)s", "mp4")
+        fake_module = types.ModuleType("yt_dlp")
+        fake_module.YoutubeDL = FakeYDL
+        manager = MediaManager({"auth_token": "secret", "ct0": "secret2"})
+        with tempfile.TemporaryDirectory() as temp, patch.dict(sys.modules, {"yt_dlp": fake_module}):
+            result = manager._download_with_ytdlp("https://youtu.be/abc123", Path(temp), 0)
+        self.assertIsNotNone(result)
+        self.assertIsNone(captured["cookiefile"])
 
     def test_ytdlp_failure_uses_gallery_video_fallback(self):
         manager = MediaManager({})
@@ -151,6 +202,23 @@ class HighQualityMediaTests(unittest.TestCase):
             self.assertIsNotNone(result)
             self.assertEqual(result.metadata["retrieval_method"], "gallery-dl+remux")
             manager._download_with_gallery_dl.assert_called_once()
+
+    def test_webpage_video_skips_direct_binary_download_and_uses_ytdlp(self):
+        manager = MediaManager({})
+        item = MediaItem(kind="video", url="https://www.instagram.com/reel/ABC123/")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            extracted = root / "ig.mp4"
+            extracted.write_bytes(b"video")
+            manager._stream_download = MagicMock()
+            manager._download_with_ytdlp = MagicMock(return_value=extracted)
+            with patch.object(manager, "_finalize_video", return_value=(extracted, "+remux")), \
+                 patch("app.media._probe_media", return_value={}), \
+                 patch("app.media._telegram_video_compatible", return_value=True):
+                result = manager._download_video(item, item.url, root, 0)
+            self.assertIsNotNone(result)
+            manager._stream_download.assert_not_called()
+            manager._download_with_ytdlp.assert_called_once_with(item.url, root, 0)
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg is required")
     def test_direct_x_video_is_remuxed_probeable_and_has_thumbnail(self):
@@ -185,7 +253,7 @@ class HighQualityMediaTests(unittest.TestCase):
             self.assertIsNotNone(result.thumbnail_path)
             self.assertLessEqual(result.thumbnail_path.stat().st_size, 190 * 1024)
 
-    def test_send_video_includes_probe_metadata_and_thumbnail(self):
+    def test_send_video_includes_probe_metadata_thumbnail_and_streaming_flag(self):
         bot = TelegramBot("token", 1, 99)
         bot.api = MagicMock(return_value={"video": {"file_id": "ok"}})
         with tempfile.TemporaryDirectory() as temp:
@@ -201,6 +269,7 @@ class HighQualityMediaTests(unittest.TestCase):
             bot.send_media([item])
         call = bot.api.call_args
         self.assertEqual(call.args[0], "sendVideo")
+        self.assertEqual(call.kwargs["data"]["supports_streaming"], "true")
         self.assertEqual(call.kwargs["data"]["duration"], "7")
         self.assertEqual(call.kwargs["data"]["width"], "640")
         self.assertEqual(call.kwargs["data"]["height"], "360")
@@ -225,6 +294,7 @@ class HighQualityMediaTests(unittest.TestCase):
             bot.send_media(items)
         call = bot.api.call_args
         descriptors = json.loads(call.kwargs["data"]["media"])
+        self.assertTrue(descriptors[0]["supports_streaming"])
         self.assertEqual(descriptors[0]["duration"], 7)
         self.assertEqual(descriptors[0]["thumbnail"], "attach://thumbnail0")
         self.assertIn("thumbnail0", call.kwargs["files"])
@@ -277,7 +347,6 @@ class HighQualityMediaTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             with self.assertRaises(requests.ConnectionError):
                 manager._download_photo(self.photo(), "https://x.com/a/status/1", Path(temp), 0)
-        # medium was already attempted as the direct URL, so it is not retried later.
         self.assertEqual(manager._stream_download.call_count, 5)
         attempted = [call.args[0] for call in manager._stream_download.call_args_list]
         self.assertEqual(len(attempted), len(set(attempted)))

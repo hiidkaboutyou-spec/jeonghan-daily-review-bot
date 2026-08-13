@@ -25,6 +25,12 @@ SAFE_PHOTO_BYTES = 9 * 1024 * 1024
 SAFE_THUMBNAIL_BYTES = 190 * 1024
 MAX_GALLERY_SECONDS = 120
 TRUSTED_X_HOSTS = {"x.com", "www.x.com", "twitter.com", "www.twitter.com", "mobile.twitter.com"}
+TRUSTED_YTDLP_HOSTS = {
+    *TRUSTED_X_HOSTS,
+    "youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be",
+    "instagram.com", "www.instagram.com",
+    "reddit.com", "www.reddit.com", "old.reddit.com", "redd.it", "v.redd.it",
+}
 
 
 @dataclass(slots=True)
@@ -37,7 +43,7 @@ class PreparedMedia:
 
 
 class MediaManager:
-    """Existing direct X pipeline strengthened with bounded optional fallbacks."""
+    """Bounded media retrieval with X direct paths and trusted social extractors."""
 
     def __init__(self, x_cookies: dict[str, str]):
         self.x_cookies = x_cookies
@@ -75,31 +81,37 @@ class MediaManager:
                 logger.warning("Media %s/%s failed: %s", update.id, index, _safe_error(exc))
         return temp, prepared
 
-    def _download_photo(self, item: MediaItem, tweet_url: str, root: Path, index: int) -> PreparedMedia | None:
+    def _download_photo(self, item: MediaItem, post_url: str, root: Path, index: int) -> PreparedMedia | None:
         path = root / f"photo-{index}.jpg"
         last_error: Exception | None = None
         origin_missing = False
-        high, lower = _photo_quality_candidates(item.url)
+        # The X image CDN has useful explicit size variants. For other sources,
+        # try the supplied media URL once and avoid mutating arbitrary query strings.
+        if _is_x_media_url(item.url):
+            high, lower = _photo_quality_candidates(item.url)
+        else:
+            high, lower = [("direct", item.url)], []
 
         for method, url in high:
             path.unlink(missing_ok=True)
             try:
                 self._stream_download(url, path, SAFE_PHOTO_BYTES, attempts=2)
                 if path.exists() and 0 < path.stat().st_size <= SAFE_PHOTO_BYTES:
-                    return self._prepared("photo", path, "image/jpeg", method)
+                    content_type = mimetypes.guess_type(urlsplit(url).path)[0] or "image/jpeg"
+                    if content_type not in {"image/jpeg", "image/png"}:
+                        content_type = "image/jpeg"
+                    return self._prepared("photo", path, content_type, method)
             except Exception as exc:
                 last_error = exc
                 logger.info("High-quality photo fallback needed (%s): %s", method, _safe_error(exc))
                 if _missing_remote_media(exc):
-                    # Every X size uses the same media path. If the origin itself
-                    # is gone, changing only name=orig/large/small cannot revive it.
-                    # Give gallery-dl one chance to refresh the Tweet metadata,
-                    # then stop instead of making ten more doomed HTTP requests.
                     origin_missing = True
                     break
 
+        # gallery-dl remains an X-only metadata refresh. It is deliberately not
+        # invoked for arbitrary user-controlled URLs.
         gallery = self._download_with_gallery_dl(
-            tweet_url,
+            post_url,
             root,
             index,
             kind="photo",
@@ -126,23 +138,27 @@ class MediaManager:
             raise last_error
         return None
 
-    def _download_video(self, item: MediaItem, tweet_url: str, root: Path, index: int) -> PreparedMedia | None:
+    def _download_video(self, item: MediaItem, post_url: str, root: Path, index: int) -> PreparedMedia | None:
         direct = root / f"video-{index}.mp4"
         downloaded: Path | None = None
-        method = "x-direct"
+        method = "direct"
         try:
-            self._stream_download(item.url, direct, SAFE_VIDEO_BYTES, attempts=2)
-            if direct.exists() and 0 < direct.stat().st_size <= SAFE_VIDEO_BYTES:
-                downloaded = direct
+            # Direct CDN media is cheapest and most deterministic. A webpage URL is
+            # not a video file, so skip this attempt when the URL is clearly a page.
+            if _looks_like_direct_media_url(item.url):
+                self._stream_download(item.url, direct, SAFE_VIDEO_BYTES, attempts=2)
+                if direct.exists() and 0 < direct.stat().st_size <= SAFE_VIDEO_BYTES:
+                    downloaded = direct
         except Exception as exc:
             direct.unlink(missing_ok=True)
-            logger.info("Direct X video fallback needed: %s", _safe_error(exc))
+            logger.info("Direct video fallback needed: %s", _safe_error(exc))
 
         if downloaded is None:
-            downloaded = self._download_with_ytdlp(tweet_url, root, index)
+            source_url = post_url if _trusted_ytdlp_url(post_url) else item.url
+            downloaded = self._download_with_ytdlp(source_url, root, index)
             method = "yt-dlp"
             if downloaded is None:
-                downloaded = self._download_with_gallery_dl(tweet_url, root, index, kind="video")
+                downloaded = self._download_with_gallery_dl(post_url, root, index, kind="video")
                 method = "gallery-dl"
         if downloaded is None:
             return None
@@ -248,15 +264,18 @@ class MediaManager:
         if last_error is not None:
             raise last_error
 
-    def _download_with_ytdlp(self, tweet_url: str, root: Path, index: int) -> Path | None:
-        if not _trusted_x_status_url(tweet_url):
+    def _download_with_ytdlp(self, source_url: str, root: Path, index: int) -> Path | None:
+        source_url = _normalize_social_url(source_url)
+        if not _trusted_ytdlp_url(source_url):
             return None
         try:
             from yt_dlp import YoutubeDL
         except ImportError:
             return None
         cookie_file = root / "cookies.txt"
-        _write_netscape_cookies(cookie_file, self.x_cookies)
+        use_x_cookies = _trusted_x_status_url(source_url) and bool(self.x_cookies)
+        if use_x_cookies:
+            _write_netscape_cookies(cookie_file, self.x_cookies)
         output = str(root / f"ytdlp-{index}.%(ext)s")
         options = {
             "quiet": True,
@@ -264,21 +283,46 @@ class MediaManager:
             "noplaylist": True,
             "outtmpl": output,
             "merge_output_format": "mp4",
-            # Highest practical streams first, then a compatible combined-file fallback.
-            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best",
+            # Prefer H.264/AAC MP4 streams that Telegram/iOS can play directly,
+            # then widen progressively instead of failing on one unavailable format.
+            "format": (
+                "bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[acodec^=mp4a]/"
+                "bestvideo[vcodec^=h264][ext=mp4]+bestaudio[ext=m4a]/"
+                "bestvideo[ext=mp4]+bestaudio[ext=m4a]/"
+                "best[ext=mp4]/bestvideo+bestaudio/best"
+            ),
             "socket_timeout": 45,
             "retries": 3,
             "fragment_retries": 3,
-            "cookiefile": str(cookie_file) if self.x_cookies else None,
+            "extractor_retries": 3,
+            "file_access_retries": 3,
+            "cookiefile": str(cookie_file) if use_x_cookies else None,
         }
         try:
             with YoutubeDL(options) as ydl:
-                info = ydl.extract_info(tweet_url, download=True)
+                info = ydl.extract_info(source_url, download=True)
                 filename = Path(ydl.prepare_filename(info))
+                requested = info.get("requested_downloads") if isinstance(info, dict) else None
         except Exception as exc:
-            logger.warning("yt-dlp failed for trusted X video: %s", _safe_error(exc))
+            logger.warning("yt-dlp failed for trusted social video: %s", _safe_error(exc))
             return None
-        candidates = [filename, filename.with_suffix(".mp4")] + sorted(root.glob(f"ytdlp-{index}.*"))
+
+        candidates: list[Path] = []
+        if isinstance(requested, list):
+            for entry in requested:
+                if not isinstance(entry, dict):
+                    continue
+                filepath = entry.get("filepath") or entry.get("filename")
+                if filepath:
+                    candidates.append(Path(str(filepath)))
+        candidates.extend([filename, filename.with_suffix(".mp4")])
+        candidates.extend(sorted(root.glob(f"ytdlp-{index}.*")))
+        # Post-processed/merged MP4 should win over stale component streams.
+        candidates = sorted(
+            dict.fromkeys(candidates),
+            key=lambda path: (path.suffix.lower() == ".mp4", path.stat().st_mtime if path.exists() else 0),
+            reverse=True,
+        )
         for candidate in candidates:
             if candidate.exists() and candidate.is_file() and candidate.stat().st_size > 0:
                 if candidate.suffix.lower() != ".mp4":
@@ -372,7 +416,6 @@ class MediaManager:
                 return max(matching, key=lambda path: path.stat().st_size)
             if len(photos) == 1:
                 return photos[0]
-            # Avoid returning the wrong photo from a multi-image Tweet.
             return None
 
         videos = [path for path in files if path.suffix.lower() in {".mp4", ".mov", ".mkv", ".webm"}]
@@ -438,9 +481,40 @@ def _photo_variants(url: str) -> list[str]:
     return [candidate for _, candidate in high + lower]
 
 
+def _normalize_social_url(url: str) -> str:
+    value = str(url or "").strip()
+    # Telegram text and copied captions often leave punctuation attached to URLs.
+    # Strip only characters that cannot be part of the intended social URL ending.
+    return value.rstrip(".,;:!?،؛؟)]}>\"'\u200f\u200e")
+
+
+def _trusted_ytdlp_url(url: str) -> bool:
+    try:
+        parts = urlsplit(_normalize_social_url(url))
+    except ValueError:
+        return False
+    host = (parts.hostname or "").lower()
+    if parts.scheme != "https" or host not in TRUSTED_YTDLP_HOSTS:
+        return False
+    path = parts.path.lower()
+    if host in TRUSTED_X_HOSTS:
+        return "/status/" in path or "/i/web/status/" in path
+    if host in {"youtube.com", "www.youtube.com", "m.youtube.com"}:
+        return path in {"/watch", "/shorts", "/live"} or path.startswith(("/shorts/", "/live/"))
+    if host == "youtu.be":
+        return bool(path.strip("/"))
+    if host in {"instagram.com", "www.instagram.com"}:
+        return path.startswith(("/p/", "/reel/", "/reels/", "/tv/"))
+    if host in {"reddit.com", "www.reddit.com", "old.reddit.com"}:
+        return "/comments/" in path
+    if host in {"redd.it", "v.redd.it"}:
+        return bool(path.strip("/"))
+    return False
+
+
 def _trusted_x_status_url(url: str) -> bool:
     try:
-        parts = urlsplit(url)
+        parts = urlsplit(_normalize_social_url(url))
     except ValueError:
         return False
     host = (parts.hostname or "").lower()
@@ -448,6 +522,25 @@ def _trusted_x_status_url(url: str) -> bool:
         return False
     path = parts.path.lower()
     return "/status/" in path or "/i/web/status/" in path
+
+
+def _is_x_media_url(url: str) -> bool:
+    try:
+        host = (urlsplit(url).hostname or "").lower()
+    except ValueError:
+        return False
+    return host.endswith("twimg.com")
+
+
+def _looks_like_direct_media_url(url: str) -> bool:
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return False
+    if parts.scheme != "https" or not parts.hostname:
+        return False
+    path = parts.path.lower()
+    return path.endswith((".mp4", ".mov", ".m4v", ".webm", ".mkv")) or "video.twimg.com" in (parts.hostname or "").lower()
 
 
 def _write_netscape_cookies(path: Path, cookies: dict[str, str]) -> None:
