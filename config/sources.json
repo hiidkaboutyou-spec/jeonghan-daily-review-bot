@@ -1,6 +1,8 @@
 {
   "sources": [
     {"handle":"hani_berry_1004","label":"hani_berry_1004","enabled":true,"priority":10,"include_replies":true,"jeonghan_only":true},
+    {"handle":"honeyya_hanihae","label":"honeyya_hanihae","enabled":true,"priority":10,"include_replies":true,"jeonghan_only":true},
+    {"handle":"yoon_1004_hani","label":"yoon_1004_hani","enabled":true,"priority":10,"include_replies":true,"jeonghan_only":true},
     {"handle":"flamehanie","label":"flamehanie","enabled":true,"priority":10,"include_replies":true,"jeonghan_only":true},
     {"handle":"honey_haniyoo_n","label":"honey_haniyoo_n","enabled":true,"priority":10,"include_replies":true,"jeonghan_only":true},
     {"handle":"wonupogialways","label":"wonupogialways","enabled":true,"priority":10,"include_replies":true,"jeonghan_only":false},
