@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 from urllib import request
@@ -32,10 +33,7 @@ def load_due_interval_minutes(path: Path = Path("config/settings.json")) -> int:
 
 
 def base_live_event(run: dict[str, Any]) -> bool:
-    return (
-        str(run.get("head_branch") or "") == MAIN_BRANCH
-        and str(run.get("event") or "") in LIVE_EVENTS
-    )
+    return str(run.get("head_branch") or "") == MAIN_BRANCH and str(run.get("event") or "") in LIVE_EVENTS
 
 
 class GitHubActionsClient:
@@ -68,10 +66,7 @@ class GitHubActionsClient:
             return json.loads(raw.decode("utf-8"))
 
     def list_daily_runs(self) -> list[dict[str, Any]]:
-        url = (
-            f"{self.base}/actions/workflows/{MAIN_WORKFLOW_FILE}/runs"
-            f"?branch={MAIN_BRANCH}&per_page=100"
-        )
+        url = f"{self.base}/actions/workflows/{MAIN_WORKFLOW_FILE}/runs?branch={MAIN_BRANCH}&per_page=100"
         payload = self._request("GET", url)
         runs = payload.get("workflow_runs") if isinstance(payload, dict) else None
         if not isinstance(runs, list):
@@ -91,18 +86,13 @@ class GitHubActionsClient:
             if not isinstance(steps, list):
                 continue
             for step in steps:
-                if not isinstance(step, dict) or step.get("name") != LIVE_MONITOR_STEP:
-                    continue
-                return str(step.get("conclusion") or "") != "skipped"
+                if isinstance(step, dict) and step.get("name") == LIVE_MONITOR_STEP:
+                    return str(step.get("conclusion") or "") != "skipped"
         return False
 
     def dispatch_live(self) -> None:
         url = f"{self.base}/actions/workflows/{MAIN_WORKFLOW_FILE}/dispatches"
-        self._request(
-            "POST",
-            url,
-            {"ref": MAIN_BRANCH, "inputs": {"mode": "live"}},
-        )
+        self._request("POST", url, {"ref": MAIN_BRANCH, "inputs": {"mode": "live"}})
 
 
 def source_is_live(client: Any, *, run_id: int, event: str) -> bool:
@@ -113,12 +103,7 @@ def source_is_live(client: Any, *, run_id: int, event: str) -> bool:
     return bool(client.run_executed_live_monitor(run_id))
 
 
-def newer_covering_run(
-    client: Any,
-    runs: list[dict[str, Any]],
-    *,
-    source_run_number: int,
-) -> dict[str, Any] | None:
+def newer_covering_run(client: Any, runs: list[dict[str, Any]], *, source_run_number: int) -> dict[str, Any] | None:
     candidates: list[dict[str, Any]] = []
     for run in runs:
         try:
@@ -144,6 +129,64 @@ def newer_covering_run(
     return max(candidates, key=lambda item: int(item.get("run_number") or 0))
 
 
+def _parse_github_time(value: object) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def run_periodic_watchdog(client: Any, *, interval_minutes: int, now: datetime | None = None) -> int:
+    if interval_minutes < 1:
+        log_decision("guard_blocked", reason="invalid_interval")
+        return 1
+    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    try:
+        runs = client.list_daily_runs()
+    except Exception as exc:
+        log_decision("lookup_failed", error=type(exc).__name__, phase="periodic_run_check")
+        return 1
+
+    live_runs = [run for run in runs if base_live_event(run)]
+    live_runs.sort(key=lambda item: int(item.get("run_number") or 0), reverse=True)
+    for run in live_runs:
+        status = str(run.get("status") or "")
+        if status in ACTIVE_STATUSES:
+            log_decision("newer_run_exists", run_id=run.get("id", ""), run_number=run.get("run_number", ""), status=status)
+            log_decision("successor_not_needed", reason="active_daily")
+            return 0
+
+    latest = live_runs[0] if live_runs else None
+    if latest is not None:
+        event = str(latest.get("event") or "")
+        actor = str((latest.get("actor") or {}).get("login") or latest.get("actor_login") or "")
+        status = str(latest.get("status") or "")
+        conclusion = str(latest.get("conclusion") or "")
+        if event == "workflow_dispatch" and actor == AUTOMATION_ACTOR and status == "completed" and conclusion != "success":
+            log_decision("guard_blocked", reason="failed_automated_recovery", source_run_id=latest.get("id", ""))
+            return 0
+
+        stamp = _parse_github_time(latest.get("updated_at") or latest.get("created_at"))
+        if stamp is None:
+            log_decision("lookup_failed", phase="periodic_timestamp", source_run_id=latest.get("id", ""))
+            return 1
+        age_seconds = (now - stamp).total_seconds()
+        if age_seconds < interval_minutes * 60:
+            log_decision("successor_not_needed", reason="recent_daily", source_run_id=latest.get("id", ""))
+            return 0
+
+    try:
+        client.dispatch_live()
+    except Exception as exc:
+        log_decision("dispatch_failed", error=type(exc).__name__, trigger="schedule")
+        return 1
+    log_decision("successor_dispatched", trigger="schedule")
+    return 0
+
+
 def run_watchdog(
     client: Any,
     *,
@@ -161,12 +204,7 @@ def run_watchdog(
     try:
         live_source = source_is_live(client, run_id=source_run_id, event=source_event)
     except Exception as exc:
-        log_decision(
-            "lookup_failed",
-            error=type(exc).__name__,
-            phase="source_live_check",
-            source_run_id=source_run_id,
-        )
+        log_decision("lookup_failed", error=type(exc).__name__, phase="source_live_check", source_run_id=source_run_id)
         return 1
     if not live_source:
         log_decision("guard_blocked", reason="source_not_live", source_run_id=source_run_id)
@@ -174,58 +212,27 @@ def run_watchdog(
     if interval_minutes < 1:
         log_decision("guard_blocked", reason="invalid_interval", source_run_id=source_run_id)
         return 1
-    if (
-        source_event == "workflow_dispatch"
-        and source_actor == AUTOMATION_ACTOR
-        and source_conclusion != "success"
-    ):
-        log_decision(
-            "guard_blocked",
-            reason="failed_automated_recovery",
-            source_run_id=source_run_id,
-        )
+    if source_event == "workflow_dispatch" and source_actor == AUTOMATION_ACTOR and source_conclusion != "success":
+        log_decision("guard_blocked", reason="failed_automated_recovery", source_run_id=source_run_id)
         return 0
 
-    log_decision(
-        "armed",
-        interval_minutes=interval_minutes,
-        source_run_id=source_run_id,
-        source_run_number=source_run_number,
-    )
+    log_decision("armed", interval_minutes=interval_minutes, source_run_id=source_run_id, source_run_number=source_run_number)
     sleep_fn(interval_minutes * 60)
-
     try:
         runs = client.list_daily_runs()
         newer = newer_covering_run(client, runs, source_run_number=source_run_number)
     except Exception as exc:
-        log_decision(
-            "lookup_failed",
-            error=type(exc).__name__,
-            phase="newer_run_check",
-            source_run_id=source_run_id,
-        )
+        log_decision("lookup_failed", error=type(exc).__name__, phase="newer_run_check", source_run_id=source_run_id)
         return 1
-
     if newer is not None:
-        log_decision(
-            "newer_run_exists",
-            run_id=newer.get("id", ""),
-            run_number=newer.get("run_number", ""),
-            status=newer.get("status", ""),
-        )
+        log_decision("newer_run_exists", run_id=newer.get("id", ""), run_number=newer.get("run_number", ""), status=newer.get("status", ""))
         log_decision("successor_not_needed", source_run_id=source_run_id)
         return 0
-
     try:
         client.dispatch_live()
     except Exception as exc:
-        log_decision(
-            "dispatch_failed",
-            error=type(exc).__name__,
-            source_run_id=source_run_id,
-        )
+        log_decision("dispatch_failed", error=type(exc).__name__, source_run_id=source_run_id)
         return 1
-
     log_decision("successor_dispatched", source_run_id=source_run_id)
     return 0
 
@@ -234,17 +241,19 @@ def main() -> int:
     try:
         repository = os.environ["GITHUB_REPOSITORY"]
         token = os.environ["GITHUB_TOKEN"]
+        interval = load_due_interval_minutes()
+        client = GitHubActionsClient(repository, token)
+        trigger = os.environ.get("WATCHDOG_TRIGGER", "workflow_run")
+        if trigger == "schedule":
+            return run_periodic_watchdog(client, interval_minutes=interval)
         source_run_id = int(os.environ["SOURCE_RUN_ID"])
         source_run_number = int(os.environ["SOURCE_RUN_NUMBER"])
         source_event = os.environ.get("SOURCE_EVENT", "")
         source_conclusion = os.environ.get("SOURCE_CONCLUSION", "")
         source_actor = os.environ.get("SOURCE_ACTOR", "")
-        interval = load_due_interval_minutes()
-        client = GitHubActionsClient(repository, token)
     except (KeyError, ValueError, json.JSONDecodeError, OSError) as exc:
         log_decision("guard_blocked", reason=type(exc).__name__)
         return 1
-
     return run_watchdog(
         client,
         source_run_id=source_run_id,

@@ -6,6 +6,11 @@ on:
       - Jeonghan Daily Review Bot
     types:
       - completed
+  schedule:
+    # Independent heartbeat: workflow_run events from GITHUB_TOKEN-created
+    # recovery runs do not reliably chain into another workflow_run. Keep this
+    # off minute 0 and let the Python guard decide whether recovery is needed.
+    - cron: "4,16,28,40,52 * * * *"
 
 permissions:
   contents: read
@@ -14,10 +19,12 @@ permissions:
 jobs:
   watchdog:
     if: >-
-      github.event.workflow_run.head_branch == 'main' &&
-      (github.event.workflow_run.event == 'schedule' ||
-       github.event.workflow_run.event == 'push' ||
-       github.event.workflow_run.event == 'workflow_dispatch')
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       (github.event.workflow_run.event == 'schedule' ||
+        github.event.workflow_run.event == 'push' ||
+        github.event.workflow_run.event == 'workflow_dispatch'))
     runs-on: ubuntu-latest
     timeout-minutes: 18
     concurrency:
@@ -32,9 +39,10 @@ jobs:
       - name: Run bounded Daily watchdog
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
-          SOURCE_RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
-          SOURCE_EVENT: ${{ github.event.workflow_run.event }}
-          SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
-          SOURCE_ACTOR: ${{ github.event.workflow_run.actor.login }}
+          WATCHDOG_TRIGGER: ${{ github.event_name }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id || 0 }}
+          SOURCE_RUN_NUMBER: ${{ github.event.workflow_run.run_number || 0 }}
+          SOURCE_EVENT: ${{ github.event.workflow_run.event || '' }}
+          SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion || '' }}
+          SOURCE_ACTOR: ${{ github.event.workflow_run.actor.login || '' }}
         run: python tools/daily_watchdog.py
