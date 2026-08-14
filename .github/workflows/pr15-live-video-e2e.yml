@@ -1,0 +1,82 @@
+name: PR 15 Live Video Delivery E2E
+
+on:
+  push:
+    branches:
+      - fix/daily-video-delivery-v3
+    paths:
+      - tools/run_video_delivery_live_smoke.py
+      - .github/workflows/pr15-live-video-e2e.yml
+
+permissions:
+  contents: read
+
+jobs:
+  live-video-delivery:
+    if: github.repository == 'hiidkaboutyou-spec/jeonghan-daily-review-bot' && github.ref == 'refs/heads/fix/daily-video-delivery-v3'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: FFmpeg
+        timeout-minutes: 8
+        shell: bash
+        run: |
+          set -euo pipefail
+          verify_ffmpeg() {
+            command -v ffmpeg >/dev/null 2>&1 &&
+            command -v ffprobe >/dev/null 2>&1 &&
+            ffmpeg -version | head -n 1 &&
+            ffprobe -version | head -n 1
+          }
+          if verify_ffmpeg; then
+            exit 0
+          fi
+          for attempt in 1 2; do
+            if timeout 90s sudo apt-get \
+                 -o Acquire::Retries=2 \
+                 -o Acquire::ForceIPv4=true \
+                 -o Acquire::http::Timeout=15 \
+                 -o Acquire::https::Timeout=15 \
+                 update -qq && \
+               timeout 90s sudo apt-get \
+                 -o Dpkg::Use-Pty=0 \
+                 install -y -qq --no-install-recommends ffmpeg && \
+               verify_ffmpeg; then
+              exit 0
+            fi
+            sleep 3
+          done
+          BREW_BIN="/home/linuxbrew/.linuxbrew/bin/brew"
+          if [ -x "$BREW_BIN" ]; then
+            eval "$("$BREW_BIN" shellenv)"
+            export HOMEBREW_NO_AUTO_UPDATE=1
+            export HOMEBREW_NO_INSTALL_CLEANUP=1
+            timeout 240s brew install ffmpeg
+            verify_ffmpeg
+            echo "$(dirname "$(command -v ffmpeg)")" >> "$GITHUB_PATH"
+            exit 0
+          fi
+          echo "::error::Could not bootstrap FFmpeg for isolated PR #15 live smoke."
+          exit 1
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade "pip>=26.1.2"
+          python -m pip install -r requirements.txt
+          python -m pip check
+
+      - name: Isolated live video delivery smoke
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ADMIN_USER_ID: ${{ secrets.TELEGRAM_ADMIN_USER_ID }}
+          TELEGRAM_REVIEW_CHAT_ID: ${{ secrets.TELEGRAM_REVIEW_CHAT_ID }}
+        run: python -m tools.run_video_delivery_live_smoke
