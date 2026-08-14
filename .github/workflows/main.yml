@@ -50,8 +50,8 @@ on:
 
 permissions:
   contents: read
-  # Daily successor recovery lives in daily-watchdog.yml. This workflow still
-  # needs Actions write access only for its existing due Fanfic dispatch path.
+  # Actions write is required for the existing due Fanfic dispatch and for the
+  # automated-recovery-only watchdog re-arm after a successful live recovery.
   actions: write
 
 concurrency:
@@ -432,3 +432,24 @@ jobs:
 
           gh_workflow_retry fic-digest.yml --ref main
           echo "Queued today's missing nightly fanfic digest."
+
+      - name: Re-arm Daily watchdog after automated recovery
+        if: >-
+          success() &&
+          env.LIVE_RUN == 'true' &&
+          github.ref == 'refs/heads/main' &&
+          github.event_name == 'workflow_dispatch' &&
+          github.actor == 'github-actions[bot]'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run daily-watchdog.yml \
+            --ref main \
+            -f source_run_id="${GITHUB_RUN_ID}" \
+            -f source_run_number="${GITHUB_RUN_NUMBER}" \
+            -f source_event="${GITHUB_EVENT_NAME}" \
+            -f source_conclusion="success" \
+            -f source_actor="${GITHUB_ACTOR}"
+          echo "Re-armed bounded Daily watchdog after successful automated recovery."
