@@ -9,6 +9,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
+from app.models import Update
+from app.state import StateStore
 from app.telegram import TelegramTransientError
 from app.telegram_cloud_state import backup_fingerprint, ensure_process_backup_key
 from app.webhook_runtime_utils import derive_runtime_secret, maintenance_url_from_webhook
@@ -41,6 +43,17 @@ class _FakeApp:
 
 
 class WebhookRuntimeTests(unittest.TestCase):
+    @staticmethod
+    def _update(id_: str, minutes_ago: int) -> Update:
+        return Update(
+            id=id_,
+            url=f"https://x.com/trustedsource/status/{id_}",
+            author="trustedsource",
+            author_name="Trusted Source",
+            text=f"update {id_}",
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=minutes_ago),
+        )
+
     def test_github_actions_only_mode_is_explicit(self):
         with patch.dict(os.environ, {"ASSISTANT_RUNTIME_MODE": "github_actions_polling"}, clear=False):
             self.assertTrue(github_actions_polling_only())
@@ -64,6 +77,84 @@ class WebhookRuntimeTests(unittest.TestCase):
         asyncio.run(app.run_scheduled_scan())
 
         app.collector.collect_window.assert_not_awaited()
+
+    def test_partial_source_fetch_queues_recovery_but_does_not_advance_success_cursor(self):
+        now = datetime.now(timezone.utc)
+        previous_cursor = (now - timedelta(hours=1)).isoformat()
+        recovered = self._update("recovered", 10)
+        app = object.__new__(WebhookAwarePersonalAssistant)
+        app.state = SimpleNamespace(
+            data={
+                "last_auto_run": previous_cursor,
+                "last_auto_attempt": (now - timedelta(minutes=30)).isoformat(),
+            },
+            is_seen=Mock(return_value=False),
+            queue_updates=Mock(),
+        )
+        app.settings = SimpleNamespace(
+            runtime={
+                "scheduled_min_interval_minutes": 12,
+                "scheduled_lookback_hours": 24,
+                "max_collection_items": 1,
+            }
+        )
+        app.collector = SimpleNamespace(
+            collect_window=AsyncMock(return_value=[recovered]),
+            last_errors=["@trustedsource timeline incomplete"],
+        )
+
+        asyncio.run(app.run_scheduled_scan())
+
+        app.state.queue_updates.assert_called_once_with([recovered], force=False)
+        self.assertEqual(app.state.data["last_auto_run"], previous_cursor)
+        self.assertEqual(app.state.data["x_scan_failure_streak"], 1)
+
+    def test_complete_scheduled_scan_queues_every_item_oldest_to_newest_without_legacy_cap(self):
+        now = datetime.now(timezone.utc)
+        previous_cursor = (now - timedelta(hours=1)).isoformat()
+        newest = self._update("newest", 5)
+        oldest = self._update("oldest", 20)
+        middle = self._update("middle", 10)
+        app = object.__new__(WebhookAwarePersonalAssistant)
+        app.state = SimpleNamespace(
+            data={
+                "last_auto_run": previous_cursor,
+                "last_auto_attempt": (now - timedelta(minutes=30)).isoformat(),
+            },
+            is_seen=Mock(return_value=False),
+            queue_updates=Mock(),
+        )
+        app.settings = SimpleNamespace(
+            runtime={
+                "scheduled_min_interval_minutes": 12,
+                "scheduled_lookback_hours": 24,
+                "max_collection_items": 1,
+            }
+        )
+        app.collector = SimpleNamespace(
+            collect_window=AsyncMock(return_value=[newest, oldest, middle]),
+            last_errors=[],
+        )
+
+        asyncio.run(app.run_scheduled_scan())
+
+        queued = app.state.queue_updates.call_args.args[0]
+        self.assertEqual([item.id for item in queued], ["oldest", "middle", "newest"])
+        self.assertEqual(len(queued), 3)
+        self.assertNotEqual(app.state.data["last_auto_run"], previous_cursor)
+        self.assertEqual(app.state.data["x_scan_failure_streak"], 0)
+
+    def test_duplicate_recovery_identity_is_queued_once_for_telegram_delivery(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = StateStore(Path(temp) / "state.json")
+            first = self._update("same-post", 10)
+            duplicate = self._update("same-post", 10)
+
+            store.queue_updates([first, duplicate], force=False)
+
+            pending = store.data["pending_delivery"]
+            self.assertEqual(len(pending), 1)
+            self.assertEqual(pending[0]["id"], "same-post")
 
     def test_x_warning_requires_three_consecutive_failed_scans(self):
         now = datetime.now(timezone.utc)
