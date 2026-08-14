@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
 from app.models import MediaItem, Update
-from app.x_client import XCollector
+from app.x_client import XCollectionError, XCollector
 from app.x_completeness import CompleteWindowXCollector
 
 
@@ -27,14 +27,31 @@ class SourceAuthorityHardeningTests(unittest.TestCase):
             [{"name": "english", "terms": ["JEONGHAN"]}],
         )
 
-    def _update(self, id_: str, author: str, text: str, *, video: bool = False) -> Update:
+    def _update(
+        self,
+        id_: str,
+        author: str,
+        text: str,
+        *,
+        media_kind: str = "",
+        minutes_ago: int = 10,
+        reply: bool = False,
+    ) -> Update:
         media = []
-        if video:
+        if media_kind == "video":
             media = [
                 MediaItem(
                     kind="video",
                     url=f"https://video.example/{id_}.mp4",
                     content_type="video/mp4",
+                )
+            ]
+        elif media_kind == "photo":
+            media = [
+                MediaItem(
+                    kind="photo",
+                    url=f"https://img.example/{id_}.jpg",
+                    content_type="image/jpeg",
                 )
             ]
         return Update(
@@ -43,33 +60,80 @@ class SourceAuthorityHardeningTests(unittest.TestCase):
             author=author,
             author_name=author,
             text=text,
-            created_at=self.now - timedelta(minutes=10),
+            created_at=self.now - timedelta(minutes=minutes_ago),
+            conversation_id="thread" if reply else id_,
+            reply_to_id="root" if reply else "",
+            is_reply=reply,
             media=media,
         )
 
     def test_configured_source_video_survives_without_jeonghan_keyword(self):
-        update = self._update("video", "trustedsource", "new clip ✨", video=True)
+        update = self._update(
+            "video",
+            "trustedsource",
+            "new clip ✨",
+            media_kind="video",
+        )
         kept = self.collector._filter_relevant([update])
         self.assertEqual([item.id for item in kept], ["video"])
+        self.assertEqual(kept[0].media[0].kind, "video")
 
-    def test_configured_source_post_survives_even_if_caption_names_another_member(self):
-        update = self._update("other-member", "trustedsource", "MINGYU new clip", video=True)
+    def test_configured_source_photo_survives_without_jeonghan_keyword(self):
+        update = self._update(
+            "photo",
+            "trustedsource",
+            "",
+            media_kind="photo",
+        )
+        kept = self.collector._filter_relevant([update])
+        self.assertEqual([item.id for item in kept], ["photo"])
+        self.assertEqual(kept[0].media[0].kind, "photo")
+
+    def test_configured_source_text_post_about_another_member_survives(self):
+        update = self._update("other-member", "trustedsource", "MINGYU at the airport")
         kept = self.collector._filter_relevant([update])
         self.assertEqual([item.id for item in kept], ["other-member"])
 
-    def test_automatic_window_emits_only_configured_sources(self):
-        configured = self._update("source-video", "trustedsource", "new clip", video=True)
-        external = self._update("external", "randomfan", "JEONGHAN update", video=True)
-        self.collector._collect_source_timeline = AsyncMock(return_value=[configured])
-        self.collector._run_queries = AsyncMock(return_value=[external])
+    def test_configured_source_reply_survives_when_include_replies_is_true(self):
+        reply = self._update("reply", "trustedsource", "thanks!", reply=True)
+        self.collector._collect_source_timeline = AsyncMock(return_value=[reply])
+        self.collector._run_queries = AsyncMock()
 
-        result = asyncio.run(self.collector.collect_window(self.start, self.now, max_per_query=20))
+        result = asyncio.run(
+            self.collector.collect_window(self.start, self.now, max_per_query=20)
+        )
 
-        self.assertEqual([item.id for item in result], ["source-video"])
-        self.collector._run_queries.assert_awaited_once()
+        self.assertEqual([item.id for item in result], ["reply"])
+        self.assertTrue(result[0].is_reply)
+        self.collector._collect_source_timeline.assert_awaited_once_with(
+            "trustedsource",
+            self.start,
+            self.now,
+            limit=200,
+            include_replies=True,
+        )
+        self.collector._run_queries.assert_not_awaited()
+
+    def test_automatic_recovery_is_source_scoped_and_external_hits_do_not_leak(self):
+        recovered = self._update("recovered", "trustedsource", "plain source update")
+        external = self._update("external", "randomfan", "JEONGHAN update")
+        self.collector._collect_source_timeline = AsyncMock(
+            side_effect=XCollectionError("timeline failed")
+        )
+        self.collector._run_queries = AsyncMock(return_value=[external, recovered])
+
+        result = asyncio.run(
+            self.collector.collect_window(self.start, self.now, max_per_query=20)
+        )
+
+        self.assertEqual([item.id for item in result], ["recovered"])
+        self.assertTrue(self.collector.last_errors)
+        query = self.collector._run_queries.await_args.args[0][0]
+        self.assertIn("from:trustedsource", query)
+        self.assertNotIn("JEONGHAN", query)
 
     def test_manual_archive_search_still_allows_relevant_external_discovery(self):
-        external = self._update("external", "randomfan", "JEONGHAN update", video=True)
+        external = self._update("external", "randomfan", "JEONGHAN update")
         self.collector._run_queries = AsyncMock(return_value=[external])
 
         result = asyncio.run(
@@ -83,12 +147,48 @@ class SourceAuthorityHardeningTests(unittest.TestCase):
 
         self.assertEqual([item.id for item in result], ["external"])
 
-    def test_runtime_xcollector_uses_existing_completeness_methods(self):
+    def test_duplicate_source_recovery_results_are_deduplicated_by_post_id(self):
+        recovered = self._update("same-id", "trustedsource", "plain source update")
+        duplicate = self._update(
+            "same-id",
+            "trustedsource",
+            "plain source update",
+            media_kind="video",
+        )
+        self.collector._collect_source_timeline = AsyncMock(
+            side_effect=XCollectionError("timeline failed")
+        )
+        self.collector._run_queries = AsyncMock(return_value=[recovered, duplicate])
+
+        result = asyncio.run(
+            self.collector.collect_window(self.start, self.now, max_per_query=20)
+        )
+
+        self.assertEqual([item.id for item in result], ["same-id"])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].media[0].kind, "video")
+
+    def test_complete_source_24h_respects_configured_reply_policy(self):
+        self.collector.sources[0]["include_replies"] = False
+        post = self._update("original", "trustedsource", "plain post")
+        self.collector._collect_source_timeline = AsyncMock(return_value=[post])
+
+        result = asyncio.run(
+            self.collector.collect_source(
+                "trustedsource",
+                self.now - timedelta(hours=24),
+                self.now,
+            )
+        )
+
+        self.assertEqual([item.id for item in result], ["original"])
+        self.assertFalse(self.collector._collect_source_timeline.await_args.kwargs["include_replies"])
+
+    def test_runtime_xcollector_reuses_completeness_aware_timeline_method(self):
         self.assertIs(
             XCollector._collect_source_timeline,
             CompleteWindowXCollector._collect_source_timeline,
         )
-        self.assertIs(XCollector.collect_source, CompleteWindowXCollector.collect_source)
 
 
 if __name__ == "__main__":
