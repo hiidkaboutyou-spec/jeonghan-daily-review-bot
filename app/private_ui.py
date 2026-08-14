@@ -8,6 +8,11 @@ from .telegram import inline_keyboard
 
 
 def source_page_keyboard(sources: list[dict[str, Any]], page: int, page_size: int = 6):
+    """Show only enabled configured sources for 24-hour retrieval.
+
+    Phase 1 source authority deliberately removes the old custom-source escape hatch:
+    normal non-Fanfic retrieval may never fetch an arbitrary X account.
+    """
     enabled = [source for source in sources if source.get("enabled", True)]
     page_size = max(1, min(int(page_size), 10))
     pages = max(1, ceil(len(enabled) / page_size))
@@ -22,7 +27,6 @@ def source_page_keyboard(sources: list[dict[str, Any]], page: int, page_size: in
     if page + 1 < pages:
         nav.append(("بعدی ▶️", f"srcpage:{page + 1}"))
     rows.append(nav)
-    rows.append([("➕ وارد کردن منبع دیگر", "source:24:custom")])
     return inline_keyboard(rows), page, pages
 
 

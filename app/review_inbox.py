@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from .models import Draft, Update
 
@@ -80,8 +80,15 @@ class ReviewInboxStore:
         ).fetchone()
         return _row_to_item(row) if row is not None else None
 
-    def count(self, status: str = "all", *, category: str = "", source: str = "") -> int:
-        where, params = _filters(status, category, source)
+    def count(
+        self,
+        status: str = "all",
+        *,
+        category: str = "",
+        source: str = "",
+        allowed_sources: Iterable[str] | None = None,
+    ) -> int:
+        where, params = _filters(status, category, source, allowed_sources)
         sql = "SELECT count(*) FROM review_inbox"
         if where:
             sql += " WHERE " + " AND ".join(where)
@@ -93,14 +100,20 @@ class ReviewInboxStore:
         status: str = "pending",
         category: str = "",
         source: str = "",
+        allowed_sources: Iterable[str] | None = None,
         page: int = 0,
         page_size: int = 5,
     ) -> tuple[list[ReviewItem], int, int]:
         page_size = max(1, min(int(page_size), 10))
-        total = self.count(status, category=category, source=source)
+        total = self.count(
+            status,
+            category=category,
+            source=source,
+            allowed_sources=allowed_sources,
+        )
         pages = max(1, (total + page_size - 1) // page_size)
         page = max(0, min(int(page), pages - 1))
-        where, params = _filters(status, category, source)
+        where, params = _filters(status, category, source, allowed_sources)
         sql = "SELECT draft_id,update_id,status,category,source,created_at FROM review_inbox"
         if where:
             sql += " WHERE " + " AND ".join(where)
@@ -137,7 +150,12 @@ class ReviewInboxStore:
         self.conn.close()
 
 
-def _filters(status: str, category: str, source: str) -> tuple[list[str], list[Any]]:
+def _filters(
+    status: str,
+    category: str,
+    source: str,
+    allowed_sources: Iterable[str] | None = None,
+) -> tuple[list[str], list[Any]]:
     where: list[str] = []
     params: list[Any] = []
     if status in VALID_STATUSES:
@@ -149,6 +167,14 @@ def _filters(status: str, category: str, source: str) -> tuple[list[str], list[A
     if source:
         where.append("source=?")
         params.append(source)
+    if allowed_sources is not None:
+        allowed = sorted({str(item).lstrip("@").strip().casefold() for item in allowed_sources if str(item).strip()})
+        if not allowed:
+            where.append("1=0")
+        else:
+            placeholders = ",".join("?" for _ in allowed)
+            where.append(f"lower(source) IN ({placeholders})")
+            params.extend(allowed)
     return where, params
 
 
