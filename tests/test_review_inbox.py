@@ -32,6 +32,31 @@ class ReviewInboxTests(unittest.TestCase):
             self.assertEqual([item.draft_id for item in items], ["d1"])
             second.close()
 
+    def test_allowed_source_filter_hides_legacy_external_drafts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ReviewInboxStore(Path(temp) / "private.sqlite3")
+            store.upsert(self.make_draft("allowed", "u1"), self.make_update("u1", "trustedsource"))
+            store.upsert(self.make_draft("external", "u2"), self.make_update("u2", "randomfan"))
+
+            items, page, pages = store.list_items(
+                status="pending",
+                allowed_sources={"TRUSTEDSOURCE"},
+            )
+
+            self.assertEqual((page, pages), (0, 1))
+            self.assertEqual([item.draft_id for item in items], ["allowed"])
+            self.assertEqual(store.count("pending", allowed_sources={"trustedsource"}), 1)
+            store.close()
+
+    def test_empty_allowed_source_filter_returns_no_items(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ReviewInboxStore(Path(temp) / "private.sqlite3")
+            store.upsert(self.make_draft("d1", "u1"), self.make_update("u1", "alpha"))
+            items, _, _ = store.list_items(status="pending", allowed_sources=set())
+            self.assertEqual(items, [])
+            self.assertEqual(store.count("pending", allowed_sources=set()), 0)
+            store.close()
+
     def test_pagination(self):
         with tempfile.TemporaryDirectory() as temp:
             store = ReviewInboxStore(Path(temp) / "private.sqlite3")
