@@ -167,14 +167,14 @@ class XAuditTests(unittest.TestCase):
         self.assertEqual(normalize_handle("name from:other"), "")
         self.assertEqual(normalize_handle("bad/extra"), "")
 
-    def test_partial_source_failure_is_recorded_even_when_other_results_exist(self):
+    def test_partial_source_failure_is_recorded_without_leaking_external_keyword_results(self):
         collector = XCollector(
             {},
             [{"handle": "source", "enabled": True, "include_replies": True}],
             [{"name": "en", "terms": ["JEONGHAN"]}],
         )
         collector._collect_source_timeline = AsyncMock(side_effect=XCollectionError("timeline failed"))
-        good = Update(
+        external = Update(
             id="1",
             url="https://x.com/fan/status/1",
             author="fan",
@@ -182,14 +182,14 @@ class XAuditTests(unittest.TestCase):
             text="JEONGHAN update",
             created_at=datetime(2026, 8, 7, 10, 0, tzinfo=timezone.utc),
         )
-        collector._run_queries = AsyncMock(return_value=[good])
+        collector._run_queries = AsyncMock(return_value=[external])
         result = asyncio.run(
             collector.collect_window(
                 datetime(2026, 8, 7, 9, 0, tzinfo=timezone.utc),
                 datetime(2026, 8, 7, 11, 0, tzinfo=timezone.utc),
             )
         )
-        self.assertEqual([item.id for item in result], ["1"])
+        self.assertEqual(result, [])
         self.assertTrue(collector.last_errors)
 
 
