@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .models import Update, ensure_utc
+from .observability import current_retrieval_attempt_id, new_attempt_id, observe
 from .x_client import XCollectionError, XCollector, _dedupe, _safe_error, normalize_handle
 
 
@@ -60,6 +61,18 @@ class CompleteWindowXCollector(XCollector):
         limit = max(1, int(limit))
         raw_seen = 0
         crossed_lower_boundary = False
+        attempt_id = current_retrieval_attempt_id() or new_attempt_id()
+        observe(
+            "source_fetch_start",
+            stage="retrieval",
+            status="started",
+            source=handle,
+            retrieval_attempt_id=attempt_id,
+            include_replies=include_replies,
+            pagination="provider_managed",
+            pages_requested="provider_managed",
+            cursor_requested="provider_managed",
+        )
         try:
             user = await api.user_by_login(handle)
             if user is None:
@@ -84,16 +97,69 @@ class CompleteWindowXCollector(XCollector):
                     updates.append(update)
 
             if raw_seen >= limit and not crossed_lower_boundary:
+                observe(
+                    "source_fetch_end",
+                    level="warning",
+                    stage="retrieval",
+                    status="partial_source_window",
+                    source=handle,
+                    retrieval_attempt_id=attempt_id,
+                    raw_seen=raw_seen,
+                    retained=len(updates),
+                    cutoff_crossed=False,
+                    provider_exhausted=False,
+                    complete=False,
+                    partial=True,
+                    error_class="XCompletenessError",
+                )
                 raise XCompletenessError(
                     f"X timeline completeness is unproven for @{handle}: "
                     f"the {limit}-item safety limit was reached before the requested start time."
                 )
-            return _dedupe(updates)
+            deduped = _dedupe(updates)
+            observe(
+                "source_fetch_end",
+                stage="retrieval",
+                status="complete",
+                source=handle,
+                retrieval_attempt_id=attempt_id,
+                raw_seen=raw_seen,
+                retained=len(deduped),
+                cutoff_crossed=crossed_lower_boundary,
+                provider_exhausted=not crossed_lower_boundary and raw_seen < limit,
+                complete=True,
+                partial=False,
+            )
+            return deduped
         except XCompletenessError:
             raise
-        except XCollectionError:
+        except XCollectionError as exc:
+            observe(
+                "source_fetch_end",
+                level="error",
+                stage="retrieval",
+                status="failed",
+                source=handle,
+                retrieval_attempt_id=attempt_id,
+                raw_seen=raw_seen,
+                cutoff_crossed=crossed_lower_boundary,
+                complete=False,
+                error_class=type(exc).__name__,
+            )
             raise
         except Exception as exc:
+            observe(
+                "source_fetch_end",
+                level="error",
+                stage="retrieval",
+                status="failed",
+                source=handle,
+                retrieval_attempt_id=attempt_id,
+                raw_seen=raw_seen,
+                cutoff_crossed=crossed_lower_boundary,
+                complete=False,
+                error_class=type(exc).__name__,
+            )
             raise XCollectionError(
                 f"X profile timeline failed for @{handle}: {_safe_error(exc)}"
             ) from exc

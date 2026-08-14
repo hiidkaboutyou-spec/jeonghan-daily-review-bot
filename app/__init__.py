@@ -18,3 +18,11 @@ from . import configured_source_subclasses as _configured_source_subclasses  # n
 # external historical rows/queued items must not bypass the collector policy.
 from . import configured_source_runtime as _configured_source_runtime  # noqa: F401,E402
 from . import configured_source_complete_windows as _configured_source_complete_windows  # noqa: F401,E402
+
+# Phase 2 is intentionally installed last so it observes the exact Phase 1 source
+# authority/runtime behavior rather than replacing it. It adds lifecycle/correlation,
+# failure visibility, quarantine records and privacy-safe telemetry only.
+from . import zero_silent_miss as _zero_silent_miss  # noqa: F401,E402
+from . import phase2_runtime_compat as _phase2_runtime_compat  # noqa: F401,E402
+from . import phase2_final_visibility as _phase2_final_visibility  # noqa: F401,E402
+from . import phase2_correlation_stability as _phase2_correlation_stability  # noqa: F401,E402
