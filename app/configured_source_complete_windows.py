@@ -29,7 +29,7 @@ async def _complete_configured_source24(self: Application, value: str) -> None:
     updates = await self.collector.collect_source(handle, start, end)
     updates = _configured_updates(
         self,
-        item for item in updates if start <= item.created_at < end,
+        [item for item in updates if start <= item.created_at < end],
     )
     if not updates:
         self.telegram.send_message(
