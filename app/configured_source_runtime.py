@@ -105,7 +105,7 @@ def _install_application_guards() -> None:
         updates = await self.collector.collect_window(start, end, max_per_query=200)
         updates = _configured_updates(
             self,
-            item for item in updates if start <= item.created_at < end,
+            [item for item in updates if start <= item.created_at < end],
         )
         if getattr(self.collector, "last_errors", []):
             self.telegram.send_message(
@@ -136,7 +136,7 @@ def _install_application_guards() -> None:
 
         fresh = _configured_updates(
             self,
-            (item for item in updates if not self.state.is_seen(item.id)),
+            [item for item in updates if not self.state.is_seen(item.id)],
         )
         # Queue the entire collected window. Delivery is separately bounded by
         # max_auto_items_per_run; retrieval completeness must never be defined by a
