@@ -94,6 +94,10 @@ class SourceAuthorityHardeningTests(unittest.TestCase):
         kept = self.collector._filter_relevant([update])
         self.assertEqual([item.id for item in kept], ["other-member"])
 
+    def test_external_keyword_hit_is_never_relevant_output(self):
+        external = self._update("external", "randomfan", "JEONGHAN update")
+        self.assertEqual(self.collector._filter_relevant([external]), [])
+
     def test_configured_source_reply_survives_when_include_replies_is_true(self):
         reply = self._update("reply", "trustedsource", "thanks!", reply=True)
         self.collector._collect_source_timeline = AsyncMock(return_value=[reply])
@@ -132,20 +136,45 @@ class SourceAuthorityHardeningTests(unittest.TestCase):
         self.assertIn("from:trustedsource", query)
         self.assertNotIn("JEONGHAN", query)
 
-    def test_manual_archive_search_still_allows_relevant_external_discovery(self):
+    def test_keyword_only_window_is_still_source_scoped(self):
+        recovered = self._update("recovered", "trustedsource", "plain source update")
         external = self._update("external", "randomfan", "JEONGHAN update")
-        self.collector._run_queries = AsyncMock(return_value=[external])
+        self.collector._run_queries = AsyncMock(return_value=[external, recovered])
+
+        result = asyncio.run(
+            self.collector.collect_window(
+                self.start,
+                self.now,
+                include_sources=False,
+                include_keywords=True,
+                max_per_query=20,
+            )
+        )
+
+        self.assertEqual([item.id for item in result], ["recovered"])
+        query = self.collector._run_queries.await_args.args[0][0]
+        self.assertIn("from:trustedsource", query)
+
+    def test_manual_archive_search_is_source_only_and_queries_are_author_scoped(self):
+        external = self._update("external", "randomfan", "JEONGHAN update")
+        trusted = self._update("trusted", "trustedsource", "JEONGHAN update")
+        self.collector._run_queries = AsyncMock(return_value=[external, trusted])
 
         result = asyncio.run(
             self.collector.search_archive(
-                ["JEONGHAN"],
+                ["from:randomfan JEONGHAN"],
                 start=self.start,
                 end=self.now,
                 max_per_query=20,
             )
         )
 
-        self.assertEqual([item.id for item in result], ["external"])
+        self.assertEqual([item.id for item in result], ["trusted"])
+        self.assertGreaterEqual(self.collector._run_queries.await_count, 1)
+        for call in self.collector._run_queries.await_args_list:
+            for query in call.args[0]:
+                self.assertIn("from:trustedsource", query)
+                self.assertNotIn("from:randomfan", query)
 
     def test_duplicate_source_recovery_results_are_deduplicated_by_post_id(self):
         recovered = self._update("same-id", "trustedsource", "plain source update")
@@ -168,6 +197,15 @@ class SourceAuthorityHardeningTests(unittest.TestCase):
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].media[0].kind, "video")
 
+    def test_source_results_are_deterministically_oldest_to_newest(self):
+        newer = self._update("20", "trustedsource", "later", minutes_ago=5)
+        older = self._update("10", "trustedsource", "earlier", minutes_ago=30)
+        self.collector._collect_source_timeline = AsyncMock(return_value=[newer, older])
+
+        result = asyncio.run(self.collector.collect_window(self.start, self.now))
+
+        self.assertEqual([item.id for item in result], ["10", "20"])
+
     def test_complete_source_24h_respects_configured_reply_policy(self):
         self.collector.sources[0]["include_replies"] = False
         post = self._update("original", "trustedsource", "plain post")
@@ -183,6 +221,46 @@ class SourceAuthorityHardeningTests(unittest.TestCase):
 
         self.assertEqual([item.id for item in result], ["original"])
         self.assertFalse(self.collector._collect_source_timeline.await_args.kwargs["include_replies"])
+
+    def test_complete_source_24h_rejects_unconfigured_handle_before_network(self):
+        self.collector._collect_source_timeline = AsyncMock()
+
+        with self.assertRaises(XCollectionError):
+            asyncio.run(
+                self.collector.collect_source(
+                    "randomfan",
+                    self.now - timedelta(hours=24),
+                    self.now,
+                )
+            )
+
+        self.collector._collect_source_timeline.assert_not_awaited()
+
+    def test_event_recovery_rejects_unconfigured_selected_post(self):
+        selected = self._update("outside", "randomfan", "JEONGHAN live")
+        self.collector._get_api = AsyncMock()
+        self.collector._run_queries = AsyncMock()
+
+        with self.assertRaises(XCollectionError):
+            asyncio.run(self.collector.collect_event(selected))
+
+        self.collector._get_api.assert_not_awaited()
+        self.collector._run_queries.assert_not_awaited()
+
+    def test_event_recovery_queries_only_selected_configured_author(self):
+        selected = self._update("selected", "trustedsource", "JEONGHAN live part 1")
+        selected.conversation_id = "synthetic-thread"
+        external = self._update("outside", "randomfan", "JEONGHAN live part 2")
+        trusted = self._update("trusted", "trustedsource", "JEONGHAN live part 2")
+        self.collector._get_api = AsyncMock(return_value=object())
+        self.collector._run_queries = AsyncMock(return_value=[external, trusted])
+
+        result = asyncio.run(self.collector.collect_event(selected))
+
+        self.assertEqual({item.author for item in result}, {"trustedsource"})
+        for query in self.collector._run_queries.await_args.args[0]:
+            self.assertIn("from:trustedsource", query)
+            self.assertNotIn("from:randomfan", query)
 
     def test_runtime_xcollector_reuses_completeness_aware_timeline_method(self):
         self.assertIs(
