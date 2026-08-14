@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 from app.models import MediaItem, Update
 from app.x_client import XCollector
+from app.x_completeness import CompleteWindowXCollector
 
 
 class SourceAuthorityHardeningTests(unittest.TestCase):
@@ -81,6 +82,13 @@ class SourceAuthorityHardeningTests(unittest.TestCase):
         )
 
         self.assertEqual([item.id for item in result], ["external"])
+
+    def test_runtime_xcollector_uses_existing_completeness_methods(self):
+        self.assertIs(
+            XCollector._collect_source_timeline,
+            CompleteWindowXCollector._collect_source_timeline,
+        )
+        self.assertIs(XCollector.collect_source, CompleteWindowXCollector.collect_source)
 
 
 if __name__ == "__main__":
