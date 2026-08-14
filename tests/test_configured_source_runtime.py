@@ -60,6 +60,24 @@ class ConfiguredSourceRuntimeTests(unittest.TestCase):
         self.assertEqual([item.id for item in delivered], ["1", "2"])
         app.deliver_updates.assert_awaited_once_with(delivered, force=True)
 
+    def test_legacy_source24_delivers_entire_complete_window_without_legacy_cap(self):
+        items = [self._update(str(i), "trustedsource", minutes_ago=5) for i in range(1005)]
+        app = object.__new__(Application)
+        app.collector = SimpleNamespace(
+            is_configured_source=lambda handle: str(handle).casefold() == "trustedsource",
+            collect_source=AsyncMock(return_value=items),
+            filter_configured_updates=self._filter,
+        )
+        app.settings = SimpleNamespace(runtime={"max_collection_items": 1})
+        app.telegram = SimpleNamespace(send_message=Mock())
+        app.deliver_updates = AsyncMock()
+
+        asyncio.run(app.run_source24("trustedsource"))
+
+        delivered = app.deliver_updates.await_args.args[0]
+        self.assertEqual(len(delivered), 1005)
+        app.deliver_updates.assert_awaited_once_with(delivered, force=True)
+
     def test_legacy_scheduled_partial_queues_all_safe_items_but_keeps_cursor(self):
         now = datetime.now(timezone.utc)
         previous = (now - timedelta(hours=1)).isoformat()
