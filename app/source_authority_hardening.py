@@ -1,11 +1,14 @@
-"""Keep automatic Daily collection faithful to the configured X sources.
+"""Enforce configured-source authority for every non-Fanfic X retrieval path.
 
-The user-curated source list is authoritative for automatic Daily/recent-window
-collection: every original post/reply/media item returned from those accounts must
-survive relevance filtering, even when the caption does not spell out Jeonghan.
-Keyword search is recovery-only for automatic windows and is always scoped back to
-the configured source whose timeline failed. Manual archive search keeps its wider
-historical discovery behavior.
+The user-curated source list is authoritative for all normal Jeonghan update
+collection. Every original post/reply/media item returned from an enabled configured
+account must survive relevance filtering even when the caption does not spell out
+Jeonghan. Keyword/search queries are discovery or recovery only and may never emit
+content authored by an unconfigured account.
+
+Fanfic/AO3 is intentionally outside this policy. Its X recommendation collector uses
+the low-level X API directly and does not call the normal update retrieval methods
+patched here.
 
 Configured-source timelines use the repository's completeness-aware collector: a
 bounded window is complete only after the lower time boundary is crossed or the
@@ -26,9 +29,11 @@ from .x_completeness import CompleteWindowXCollector, XCompletenessError
 logger = logging.getLogger(__name__)
 
 _original_collect_window = _x_client.XCollector.collect_window
+_original_collect_event = _x_client.XCollector.collect_event
 
 
-def _configured_handles(collector: _x_client.XCollector) -> set[str]:
+def configured_handles(collector: _x_client.XCollector) -> set[str]:
+    """Return normalized enabled source handles for this collector."""
     handles: set[str] = set()
     for source in collector.sources:
         if not source.get("enabled", True):
@@ -37,6 +42,25 @@ def _configured_handles(collector: _x_client.XCollector) -> set[str]:
         if handle:
             handles.add(handle.casefold())
     return handles
+
+
+def is_configured_author(collector: _x_client.XCollector, author: str) -> bool:
+    return _x_client.normalize_handle(author).casefold() in configured_handles(collector)
+
+
+def filter_configured_updates(
+    collector: _x_client.XCollector,
+    updates: list[Update],
+) -> list[Update]:
+    """Keep only enabled configured-source authors and preserve deterministic order.
+
+    This helper is also used by the private-review runtime as a final defense against
+    stale pre-policy queue/session/archive rows.
+    """
+    allowed = configured_handles(collector)
+    kept = [item for item in _x_client._dedupe(updates) if item.author.casefold() in allowed]
+    kept.sort(key=lambda item: (item.created_at, item.id))
+    return kept
 
 
 def _source_config(collector: _x_client.XCollector, handle: str) -> dict | None:
@@ -56,27 +80,19 @@ def _source_authoritative_filter(
     self: _x_client.XCollector,
     updates: list[Update],
 ) -> list[Update]:
-    """Never silently discard a post authored by a configured source.
-
-    Non-source results keep the existing Jeonghan/noise rules so manual archive
-    discovery does not become an unrestricted X firehose.
-    """
-    configured = _configured_handles(self)
+    """Normal update retrieval must never emit an unconfigured author."""
+    allowed = configured_handles(self)
     kept: list[Update] = []
     for item in updates:
-        author = item.author.casefold()
-        if author in configured:
-            kept.append(item)
-            continue
-        if _x_client.is_relevant_jeonghan_update(item, trusted_source=False):
+        if item.author.casefold() in allowed:
             kept.append(item)
         else:
             logger.info(
-                "Filtered non-source/non-Jeonghan post %s from @%s",
+                "Filtered non-configured X author for normal update flow: post=%s author=@%s",
                 item.id,
                 item.author,
             )
-    return kept
+    return _x_client._dedupe(kept)
 
 
 async def _sources_only_collect_window(
@@ -97,7 +113,10 @@ async def _sources_only_collect_window(
     a later complete retry.
     """
     if not include_sources:
-        return await _original_collect_window(
+        # This compatibility mode is still source-authoritative. Some tests/tools can
+        # request search-only collection, but external authors must not enter the
+        # normal update flow.
+        updates = await _original_collect_window(
             self,
             start,
             end,
@@ -105,6 +124,7 @@ async def _sources_only_collect_window(
             include_keywords=include_keywords,
             max_per_query=max_per_query,
         )
+        return filter_configured_updates(self, updates)
 
     self.last_errors = []
     results: list[Update] = []
@@ -149,14 +169,7 @@ async def _sources_only_collect_window(
             await asyncio.sleep(_x_client.X_SOURCE_PACE_SECONDS)
 
     self.last_errors = _x_client._unique(self.last_errors + errors)
-    configured = _configured_handles(self)
-    results = [
-        item
-        for item in _x_client._dedupe(results)
-        if item.author.casefold() in configured
-    ]
-    results.sort(key=lambda item: (item.created_at, item.id))
-    return results
+    return filter_configured_updates(self, results)
 
 
 async def _configured_collect_source(
@@ -165,21 +178,26 @@ async def _configured_collect_source(
     start,
     end,
 ) -> list[Update]:
-    """Return a proven-complete 24h source window using that source's reply policy."""
+    """Return a proven-complete configured-source window using its reply policy."""
     handle = _x_client.normalize_handle(handle)
     if not handle:
         raise _x_client.XCollectionError("Source handle is invalid.")
 
     source = _source_config(self, handle)
-    include_replies = bool(source.get("include_replies", True)) if source else True
+    if source is None:
+        raise _x_client.XCollectionError(
+            f"@{handle} is not in the configured source list; normal update retrieval is source-only."
+        )
+    include_replies = bool(source.get("include_replies", True))
     try:
-        return await self._collect_source_timeline(
+        updates = await self._collect_source_timeline(
             handle,
             start,
             end,
             limit=1000,
             include_replies=include_replies,
         )
+        return filter_configured_updates(self, updates)
     except XCompletenessError:
         raise
     except _x_client.XCollectionError as exc:
@@ -189,7 +207,21 @@ async def _configured_collect_source(
         ) from exc
 
 
+async def _configured_collect_event(
+    self: _x_client.XCollector,
+    selected: Update,
+) -> list[Update]:
+    """Reconstruct an event only when its selected author is configured."""
+    if not is_configured_author(self, selected.author):
+        raise _x_client.XCollectionError(
+            f"@{selected.author} is not in the configured source list; event replay was blocked."
+        )
+    updates = await _original_collect_event(self, selected)
+    return filter_configured_updates(self, updates)
+
+
 _x_client.XCollector._filter_relevant = _source_authoritative_filter
 _x_client.XCollector._collect_source_timeline = CompleteWindowXCollector._collect_source_timeline
 _x_client.XCollector.collect_source = _configured_collect_source
 _x_client.XCollector.collect_window = _sources_only_collect_window
+_x_client.XCollector.collect_event = _configured_collect_event
