@@ -184,6 +184,16 @@ def observe(event: str, *, level: str = "info", **metadata: Any) -> dict[str, st
     transitions are also sent to Sentry when the optional integration is enabled.
     """
     values = safe_metadata({"event": event, **metadata})
+    # `pending_translation` is a normal in-flight lifecycle state. Provider failures
+    # emit a separate `translation_deferred` warning, so do not flood Sentry merely
+    # because an item has entered the translation stage.
+    if (
+        level == "warning"
+        and values.get("event") == "update_lifecycle"
+        and values.get("status") == "pending_translation"
+        and not values.get("error_class")
+    ):
+        level = "info"
     log_level = logging.WARNING if level == "warning" else logging.ERROR if level == "error" else logging.INFO
     logger.log(log_level, "OBS %s", json.dumps(values, sort_keys=True, separators=(",", ":")))
     if _INITIALIZED and level in {"warning", "error"}:
