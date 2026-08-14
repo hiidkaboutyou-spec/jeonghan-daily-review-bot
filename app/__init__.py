@@ -17,3 +17,4 @@ from . import configured_source_subclasses as _configured_source_subclasses  # n
 # Protect runnable legacy/private/webhook boundaries and stale durable state too:
 # external historical rows/queued items must not bypass the collector policy.
 from . import configured_source_runtime as _configured_source_runtime  # noqa: F401,E402
+from . import configured_source_complete_windows as _configured_source_complete_windows  # noqa: F401,E402
