@@ -6,6 +6,28 @@ on:
       - Jeonghan Daily Review Bot
     types:
       - completed
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Daily run id that completed successfully"
+        required: true
+        type: string
+      source_run_number:
+        description: "Daily run number that completed successfully"
+        required: true
+        type: string
+      source_event:
+        description: "Original Daily trigger event"
+        required: true
+        type: string
+      source_conclusion:
+        description: "Original Daily conclusion"
+        required: true
+        type: string
+      source_actor:
+        description: "Original Daily actor"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -14,10 +36,15 @@ permissions:
 jobs:
   watchdog:
     if: >-
-      github.event.workflow_run.head_branch == 'main' &&
-      (github.event.workflow_run.event == 'schedule' ||
-       github.event.workflow_run.event == 'push' ||
-       github.event.workflow_run.event == 'workflow_dispatch')
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       (github.event.workflow_run.event == 'schedule' ||
+        github.event.workflow_run.event == 'push' ||
+        github.event.workflow_run.event == 'workflow_dispatch') &&
+       !(github.event.workflow_run.event == 'workflow_dispatch' &&
+         github.event.workflow_run.actor.login == 'github-actions[bot]')) ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     timeout-minutes: 18
     concurrency:
@@ -32,9 +59,9 @@ jobs:
       - name: Run bounded Daily watchdog
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
-          SOURCE_RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
-          SOURCE_EVENT: ${{ github.event.workflow_run.event }}
-          SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
-          SOURCE_ACTOR: ${{ github.event.workflow_run.actor.login }}
+          SOURCE_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.source_run_id }}
+          SOURCE_RUN_NUMBER: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.run_number || inputs.source_run_number }}
+          SOURCE_EVENT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event || inputs.source_event }}
+          SOURCE_CONCLUSION: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion || inputs.source_conclusion }}
+          SOURCE_ACTOR: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.actor.login || inputs.source_actor }}
         run: python tools/daily_watchdog.py
