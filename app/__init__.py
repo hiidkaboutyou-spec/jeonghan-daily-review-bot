@@ -19,9 +19,15 @@ from . import configured_source_subclasses as _configured_source_subclasses  # n
 from . import configured_source_runtime as _configured_source_runtime  # noqa: F401,E402
 from . import configured_source_complete_windows as _configured_source_complete_windows  # noqa: F401,E402
 
-# Phase 2 is intentionally installed last so it observes the exact Phase 1 source
-# authority/runtime behavior rather than replacing it. It adds lifecycle/correlation,
-# failure visibility, quarantine records and privacy-safe telemetry only.
+# Phase 3 extends the already-authoritative source collector with bounded retries and
+# durable provider-cursor checkpoints. Install/harden it before Phase 2 so lifecycle
+# and Zero-Silent-Miss observability wrap the final resumable retrieval behavior.
+from . import phase3_recovery as _phase3_recovery  # noqa: F401,E402
+from . import phase3_recovery_hardening as _phase3_recovery_hardening  # noqa: F401,E402
+
+# Phase 2 is intentionally installed last so it observes the exact Phase 1/Phase 3
+# source-authority/runtime behavior rather than replacing it. It adds lifecycle,
+# correlation, failure visibility, quarantine records and privacy-safe telemetry only.
 from . import zero_silent_miss as _zero_silent_miss  # noqa: F401,E402
 from . import phase2_runtime_compat as _phase2_runtime_compat  # noqa: F401,E402
 from . import phase2_final_visibility as _phase2_final_visibility  # noqa: F401,E402
