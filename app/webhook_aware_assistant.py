@@ -4,9 +4,9 @@ import logging
 import os
 from datetime import datetime, timedelta, timezone
 
-from .personal_assistant import PersonalAssistantReviewApplication
+from .personal_assistant import PersonalAssistantReviewApplication, assistant_main_keyboard
 from .webhook_runtime_utils import derive_runtime_secret, maintenance_url_from_webhook
-from .x_client import XCollectionError
+from .x_client import XCollectionError, normalize_handle
 
 logger = logging.getLogger(__name__)
 WEBHOOK_DELEGATED_EXIT_CODE = 3
@@ -90,6 +90,67 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
         await super().run()
         return 0
 
+    async def run_recent2h(self) -> None:
+        """Replay a complete two-hour configured-source window without truncation."""
+        self.telegram.send_message(
+            "🕑 دارم تمام آپدیت‌های دو ساعت اخیر را دوباره جمع می‌کنم…",
+            reply_markup=assistant_main_keyboard(),
+        )
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(hours=2)
+        updates = await self.collector.collect_window(start, end, max_per_query=200)
+        updates = sorted(
+            (item for item in updates if start <= item.created_at < end),
+            key=lambda item: (item.created_at, item.id),
+        )
+        if getattr(self.collector, "last_errors", []):
+            self.telegram.send_message(
+                "⚠️ این بازه از X کامل تأیید نشد؛ موارد بازیابی‌شده را می‌فرستم، اما نتیجه را کامل حساب نمی‌کنم.",
+                reply_markup=assistant_main_keyboard(),
+            )
+        if not updates:
+            self.telegram.send_message(
+                "در دو ساعت اخیر چیزی پیدا نشد.",
+                reply_markup=assistant_main_keyboard(),
+            )
+            return
+        await self.deliver_updates(updates, force=True)
+
+    async def run_source24(self, value: str) -> None:
+        """Replay a proven-complete 24h source window without a post-delivery cap."""
+        if value == "custom":
+            self.state.set_awaiting(self.settings.admin_user_id, "source")
+            self.telegram.send_message(
+                "لینک X یا یوزرنیم منبع را بفرست.",
+                reply_markup=assistant_main_keyboard(),
+            )
+            return
+        handle = normalize_handle(value)
+        if not handle:
+            self.telegram.send_message(
+                "یوزرنیم منبع درست نیست.",
+                reply_markup=assistant_main_keyboard(),
+            )
+            return
+        self.telegram.send_message(
+            f"🗂 دارم ۲۴ ساعت کامل @{handle} را از قدیمی به جدید می‌گیرم…",
+            reply_markup=assistant_main_keyboard(),
+        )
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(hours=24)
+        updates = await self.collector.collect_source(handle, start, end)
+        updates = sorted(
+            (item for item in updates if start <= item.created_at < end),
+            key=lambda item: (item.created_at, item.id),
+        )
+        if not updates:
+            self.telegram.send_message(
+                f"برای @{handle} در ۲۴ ساعت گذشته چیزی پیدا نشد.",
+                reply_markup=assistant_main_keyboard(),
+            )
+            return
+        await self.deliver_updates(updates, force=True)
+
     async def run_scheduled_scan(self) -> None:
         """Run the production scan at the configured near-real-time cadence."""
         now = datetime.now(timezone.utc)
@@ -116,8 +177,10 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
 
         fresh = [item for item in updates if not self.state.is_seen(item.id)]
         fresh.sort(key=lambda item: (item.created_at, item.id))
-        ceiling = max(1, int(self.settings.runtime.get("max_collection_items", 1000)))
-        self.state.queue_updates(fresh[:ceiling], force=False)
+        # Retrieval completeness is determined by the source collector, not by a
+        # delivery cap. Queue every fresh item from a complete/partial collection;
+        # max_auto_items_per_run can still drain the durable queue in bounded batches.
+        self.state.queue_updates(fresh, force=False)
 
         if getattr(self.collector, "last_errors", []):
             logger.warning(
