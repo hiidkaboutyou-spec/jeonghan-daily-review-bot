@@ -44,7 +44,14 @@ def _purge_external_pending(app: Application) -> int:
     if not isinstance(queue, list):
         app.state.data["pending_delivery"] = []
         return 0
-    checker = getattr(app.collector, "is_configured_source", None)
+    # Some unit-level callers construct a partial Application solely to exercise
+    # queue backoff behavior. Production applications always own a collector; when
+    # the collector is intentionally absent there is no retrieval boundary to
+    # validate and the legacy queue behavior must remain testable in isolation.
+    collector = getattr(app, "collector", None)
+    if collector is None:
+        return 0
+    checker = getattr(collector, "is_configured_source", None)
     if not callable(checker):
         raise RuntimeError("configured-source collector policy is not installed")
     kept: list[dict[str, Any]] = []
@@ -65,7 +72,7 @@ def _purge_external_pending(app: Application) -> int:
 
 
 def _install_application_guards() -> None:
-    if getattr(Application, "_configured_source_runtime_guarded", False):
+    if Application.__dict__.get("_configured_source_runtime_guarded", False):
         return
 
     original_deliver_updates = Application.deliver_updates
@@ -163,7 +170,9 @@ def _install_application_guards() -> None:
 
 
 def _install_private_guards() -> None:
-    if getattr(PrivateReviewApplication, "_configured_source_runtime_guarded", False):
+    # Use the class' own marker, not getattr(): Application's marker is inherited
+    # and previously made this subclass guard silently skip installation.
+    if PrivateReviewApplication.__dict__.get("_configured_source_runtime_guarded", False):
         return
 
     original_deliver_updates = PrivateReviewApplication.deliver_updates
@@ -201,7 +210,7 @@ def _install_webhook_source24_guard() -> None:
     # the conversational/custom 24h path used by production.
     from .webhook_aware_assistant import WebhookAwarePersonalAssistant
 
-    if getattr(WebhookAwarePersonalAssistant, "_configured_source24_guarded", False):
+    if WebhookAwarePersonalAssistant.__dict__.get("_configured_source24_guarded", False):
         return
     original_source24 = WebhookAwarePersonalAssistant.run_source24
 
