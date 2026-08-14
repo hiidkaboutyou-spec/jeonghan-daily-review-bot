@@ -156,12 +156,6 @@ async def _sources_only_collect_window(
         if item.author.casefold() in configured
     ]
     results.sort(key=lambda item: (item.created_at, item.id))
-
-    if not results and self.last_errors:
-        raise _x_client.XCollectionError(
-            "X returned no usable configured-source result. "
-            + " | ".join(self.last_errors[:3])
-        )
     return results
 
 
