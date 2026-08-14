@@ -8,3 +8,7 @@ from . import channel_part4_finalfix as _channel_part4_finalfix  # noqa: F401,E4
 from . import channel_part4_humanfix as _channel_part4_humanfix  # noqa: F401,E402
 from . import channel_part4_qualityfix as _channel_part4_qualityfix  # noqa: F401,E402
 from . import channel_part4_benchmark_hook as _channel_part4_benchmark_hook  # noqa: F401,E402
+
+# Automatic Daily collection is source-authoritative: configured source accounts
+# must not lose posts merely because a caption omits an explicit Jeonghan keyword.
+from . import source_authority_hardening as _source_authority_hardening  # noqa: F401,E402
