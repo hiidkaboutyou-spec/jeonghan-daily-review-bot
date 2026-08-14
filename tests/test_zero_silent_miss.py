@@ -61,7 +61,7 @@ class ZeroSilentMissTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             app = WebhookAwarePersonalAssistant.__new__(WebhookAwarePersonalAssistant)
             app.state = StateStore(Path(temp) / "state.json")
-            old = datetime(2026, 8, 14, 10, 0, tzinfo=timezone.utc)
+            old = datetime.now(timezone.utc) - timedelta(hours=2)
             app.state.data["last_auto_run"] = old.isoformat()
             app.state.data["last_auto_attempt"] = ""
             app.settings = SimpleNamespace(runtime={"scheduled_lookback_hours": 24, "scheduled_min_interval_minutes": 1})
@@ -73,10 +73,7 @@ class ZeroSilentMissTests(unittest.TestCase):
             )
             app._record_x_scan_failure = Mock()
 
-            with patch("app.webhook_aware_assistant.datetime") as clock:
-                clock.now.return_value = datetime(2026, 8, 14, 12, 0, tzinfo=timezone.utc)
-                clock.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
-                asyncio.run(app.run_scheduled_scan())
+            asyncio.run(app.run_scheduled_scan())
 
             self.assertEqual(app.state.data["last_auto_run"], old.isoformat())
             app._record_x_scan_failure.assert_called_once()
