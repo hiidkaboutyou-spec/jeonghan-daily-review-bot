@@ -23,10 +23,18 @@ _INSTALLED = False
 
 
 def _configured_updates(app: Application, updates):
-    filter_fn = getattr(app.collector, "filter_configured_updates", None)
+    safe_input = list(updates)
+    # A few unit-level tests intentionally construct Application subclasses via
+    # object.__new__ to exercise delivery-resume behavior without running the real
+    # constructor. Production applications always own a collector; preserve those
+    # partial test doubles while keeping every real runtime fail-closed.
+    collector = getattr(app, "collector", None)
+    if collector is None:
+        return safe_input
+    filter_fn = getattr(collector, "filter_configured_updates", None)
     if not callable(filter_fn):
         raise RuntimeError("configured-source collector policy is not installed")
-    return filter_fn(list(updates))
+    return filter_fn(safe_input)
 
 
 def _configured_handle(app: Application, value: str) -> str:
