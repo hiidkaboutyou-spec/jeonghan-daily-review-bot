@@ -6,6 +6,10 @@ survive relevance filtering, even when the caption does not spell out Jeonghan.
 Keyword search remains useful as a recovery/discovery path, but automatic windows
 must not emit posts from accounts outside the configured source list.
 
+Configured-source timelines also use the repository's existing completeness-aware
+collector methods so hitting a hard result cap before the requested lower time
+boundary is treated as incomplete instead of silently successful.
+
 Explicit archive search keeps its historical broader discovery behavior.
 """
 
@@ -15,6 +19,7 @@ import logging
 
 from . import x_client as _x_client
 from .models import Update
+from .x_completeness import CompleteWindowXCollector
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +95,9 @@ async def _sources_only_collect_window(
 
 # This repository already installs small deterministic runtime hardening layers from
 # app.__init__. Keep this patch equally narrow and explicit instead of duplicating the
-# X client implementation.
+# X client implementation. The completeness methods are reused directly so production
+# XCollector instances get the same cutoff/cap guarantees without changing main.py.
 _x_client.XCollector._filter_relevant = _source_authoritative_filter
+_x_client.XCollector._collect_source_timeline = CompleteWindowXCollector._collect_source_timeline
+_x_client.XCollector.collect_source = CompleteWindowXCollector.collect_source
 _x_client.XCollector.collect_window = _sources_only_collect_window
