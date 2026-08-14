@@ -25,3 +25,4 @@ from . import configured_source_complete_windows as _configured_source_complete_
 from . import zero_silent_miss as _zero_silent_miss  # noqa: F401,E402
 from . import phase2_runtime_compat as _phase2_runtime_compat  # noqa: F401,E402
 from . import phase2_final_visibility as _phase2_final_visibility  # noqa: F401,E402
+from . import phase2_correlation_stability as _phase2_correlation_stability  # noqa: F401,E402
