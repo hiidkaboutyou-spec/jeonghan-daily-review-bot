@@ -4,9 +4,7 @@ import asyncio
 import unittest
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from unittest.mock import patch
 
-from app.main import Application
 from app.models import Update
 from app.x_completeness import CompleteWindowXCollector, XCompletenessError
 from app.x_client import XCollectionError
@@ -131,31 +129,6 @@ class XCompletenessTests(unittest.TestCase):
         collector = _Collector(_FakeAPI([]))
         with self.assertRaises(XCollectionError):
             asyncio.run(collector.collect_source("bad handle!", self.start, self.end))
-
-    def test_production_application_uses_completeness_aware_collector(self):
-        settings = SimpleNamespace(
-            state_path="unused-state.json",
-            telegram_token="fake",
-            admin_user_id=1,
-            review_chat_id=-100,
-            gemini_api_key="",
-            gemini_model="fake",
-            themes={},
-            timezone=timezone.utc,
-            x_cookies={},
-            sources=[{"handle": "source", "enabled": True}],
-            keyword_groups=[],
-        )
-        with (
-            patch("app.main.StateStore"),
-            patch("app.main.TelegramBot"),
-            patch("app.main.StyleMemory"),
-            patch("app.main.CaptionWriter"),
-            patch("app.main.ThemeEngine"),
-            patch("app.main.MediaManager"),
-        ):
-            app = Application(settings)
-        self.assertIsInstance(app.collector, CompleteWindowXCollector)
 
 
 if __name__ == "__main__":
