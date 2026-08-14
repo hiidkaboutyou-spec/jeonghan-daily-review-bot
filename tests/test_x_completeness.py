@@ -36,7 +36,11 @@ class _FakeAPI:
 
 class _Collector(CompleteWindowXCollector):
     def __init__(self, api):
-        super().__init__({}, [], [])
+        super().__init__(
+            {},
+            [{"handle": "source", "enabled": True, "include_replies": True}],
+            [],
+        )
         self.fake_api = api
 
     async def _get_api(self):
