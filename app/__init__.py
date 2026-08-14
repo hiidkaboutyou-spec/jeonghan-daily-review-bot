@@ -20,9 +20,10 @@ from . import configured_source_runtime as _configured_source_runtime  # noqa: F
 from . import configured_source_complete_windows as _configured_source_complete_windows  # noqa: F401,E402
 
 # Phase 3 extends the already-authoritative source collector with bounded retries and
-# durable provider-cursor checkpoints. Install it before Phase 2 so lifecycle and
-# Zero-Silent-Miss observability wrap the final resumable retrieval behavior.
+# durable provider-cursor checkpoints. Install/harden it before Phase 2 so lifecycle
+# and Zero-Silent-Miss observability wrap the final resumable retrieval behavior.
 from . import phase3_recovery as _phase3_recovery  # noqa: F401,E402
+from . import phase3_recovery_hardening as _phase3_recovery_hardening  # noqa: F401,E402
 
 # Phase 2 is intentionally installed last so it observes the exact Phase 1/Phase 3
 # source-authority/runtime behavior rather than replacing it. It adds lifecycle,
