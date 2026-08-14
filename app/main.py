@@ -17,7 +17,8 @@ from .state import StateStore
 from .style import StyleMemory, ThemeEngine, ensure_rtl_line
 from .telegram import TelegramBot, TelegramError, draft_keyboard, inline_keyboard, main_keyboard
 from .translation_safety import translation_unavailable
-from .x_client import XCollectionError, XCollector, normalize_handle
+from .x_client import XCollectionError, normalize_handle
+from .x_completeness import CompleteWindowXCollector
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -31,7 +32,15 @@ class Application:
         self.memory = StyleMemory(ROOT)
         self.writer = CaptionWriter(settings.gemini_api_key, settings.gemini_model, self.memory)
         self.themes = ThemeEngine(settings.themes, settings.timezone)
-        self.collector = XCollector(settings.x_cookies, settings.sources, settings.keyword_groups)
+        # Production Daily must use the completeness-aware source collector. If a
+        # bounded timeline hits its safety cap before crossing the requested start
+        # time, that source is reported incomplete and the scheduled cursor is kept
+        # for retry instead of silently skipping updates.
+        self.collector = CompleteWindowXCollector(
+            settings.x_cookies,
+            settings.sources,
+            settings.keyword_groups,
+        )
         self.media = MediaManager(settings.x_cookies)
 
     async def run(self) -> None:
@@ -127,53 +136,51 @@ class Application:
         elif command == "/help":
             self.send_help()
         elif command == "/fic":
-            self.telegram.send_message(
-                "📚 دارم تازه‌ها، آپدیت‌ها و انتخاب‌های محبوب AO3 و X را آماده می‌کنم؛ چون خود AO3 گاهی کند می‌شود، ممکن است چند دقیقه طول بکشد…",
-                reply_markup=main_keyboard(),
-            )
             from .fic_digest import send_digests
 
             await send_digests(self.settings, self.telegram)
         else:
-            self.telegram.send_message(
-                "دستور را نشناختم. از دکمه‌های پایین چت استفاده کن:",
-                reply_markup=main_keyboard(),
-            )
+            self.telegram.send_message("دستور را نشناختم. از منوی پایین استفاده کن.", reply_markup=main_keyboard())
 
-    async def handle_callback(self, callback: dict[str, Any]) -> None:
-        if not self.telegram.is_admin_callback(callback):
-            return
-        callback_id = str(callback.get("id", ""))
-        data = str(callback.get("data", ""))
+    async def handle_callback(self, query: dict[str, Any]) -> None:
+        callback_id = str(query.get("id", ""))
+        data = str(query.get("data", ""))
         try:
-            self.telegram.answer_callback(callback_id, "در حال انجام…")
+            self.telegram.answer_callback(callback_id)
         except TelegramError as exc:
-            # Telegram callbacks expire quickly; an expired acknowledgement must not
-            # prevent the actual requested action from running.
-            logger.info("Callback acknowledgement failed; continuing action: %s", exc)
-        parts = data.split(":")
-        if data == "cmd:recent2h":
-            await self.run_recent2h()
-        elif data == "cmd:search":
-            self.ask_for_search()
-        elif data == "cmd:sources":
-            self.show_sources()
-        elif data == "cmd:status":
-            self.send_status()
-        elif data == "cmd:help":
-            self.send_help()
-        elif len(parts) >= 3 and parts[0] == "source":
-            await self.run_source24(parts[2])
-        elif len(parts) >= 3 and parts[0] == "pick":
-            try:
-                index = int(parts[2])
-            except ValueError:
-                self.telegram.send_message("گزینهٔ انتخاب‌شده معتبر نیست.", reply_markup=main_keyboard())
-                return
-            await self.run_selected_event(parts[1], index)
-        elif len(parts) >= 3 and parts[0] == "draft":
-            message_id = int(callback.get("message", {}).get("message_id", 0) or 0)
-            await self.handle_draft_action(parts[1], parts[2], message_id)
+            logger.warning("Callback acknowledgement failed: %s", exc)
+
+        if data.startswith("source:24:"):
+            await self.run_source24(data.split(":", 2)[2])
+            return
+        if data.startswith("pick:"):
+            parts = data.split(":", 2)
+            if len(parts) == 3 and parts[2].isdigit():
+                await self.run_selected_event(parts[1], int(parts[2]))
+            return
+        if data.startswith("draft:"):
+            await self.handle_draft_callback(data)
+
+    async def handle_draft_callback(self, data: str) -> None:
+        _, action, draft_id = data.split(":", 2)
+        draft_data = self.state.get_draft(draft_id)
+        if not draft_data:
+            self._safe_send("این پیش‌نویس دیگر در دسترس نیست.")
+            return
+        draft = Draft.from_dict(draft_data)
+        if action == "copy":
+            self._safe_send(draft.body)
+        elif action == "reject":
+            self.state.delete_draft(draft_id)
+            self._safe_send("رد شد.")
+        elif action in {"funnier", "softer", "precise"}:
+            instruction = {
+                "funnier": "بامزه‌تر و خودمونی‌ترش کن، بدون ساختن هیچ فکت جدید.",
+                "softer": "نرم‌تر و دوست‌داشتنی‌ترش کن، بدون تغییر معنی.",
+                "precise": "دقیق‌تر و وفادارتر به متن منبعش کن، ولی همچنان طبیعی فارسی باشه.",
+            }[action]
+            rewritten = self.writer.rewrite(draft.body, instruction)
+            self._safe_send(rewritten)
 
     def send_start(self) -> None:
         text = (
@@ -468,194 +475,116 @@ class Application:
                     # Do not mark it seen: the pending queue will retry it when the
                     # translation provider is healthy again.
                     continue
+                media_paths = self.media.prepare(update)
                 caption = self.themes.caption(group, update, body, part, len(group.updates))
-                temp, prepared = self.media.prepare(update)
-                try:
-                    if prepared:
-                        self.telegram.send_media(prepared)
-                finally:
-                    temp.cleanup()
-                draft_id = short_id(f"{update.id}:{datetime.now(timezone.utc).timestamp()}")
-                sent = self.telegram.send_message(caption, reply_markup=draft_keyboard(draft_id))
-                self.state.archive_update(update)
-                self.state.save_draft(
-                    Draft(
-                        id=draft_id,
-                        update_id=update.id,
-                        event_key=group.key,
-                        caption=caption,
-                        mode=(
-                            "manual_review"
-                            if update.id in manual_review
-                            else "default"
-                        ),
-                        telegram_message_id=int(sent.get("message_id", 0) or 0),
-                        created_at=datetime.now(timezone.utc).isoformat(),
-                    )
+                draft_id = short_id(update.id + caption)
+                draft = Draft(
+                    id=draft_id,
+                    update_id=update.id,
+                    source_url=update.url,
+                    body=caption,
+                    created_at=datetime.now(timezone.utc),
+                    metadata={
+                        "group_key": group.key,
+                        "part": part,
+                        "total_parts": len(group.updates),
+                        "author": update.author,
+                        "media": [str(path) for path in media_paths],
+                    },
                 )
-                self.state.mark_seen(update)
+                self.state.save_draft(draft)
+                keyboard = draft_keyboard(draft_id)
+                if media_paths:
+                    self.telegram.send_media_group(media_paths, caption=caption, reply_markup=keyboard)
+                else:
+                    self.telegram.send_message(caption, reply_markup=keyboard)
+                self.state.mark_seen(update.id)
+
         if deferred:
-            self._notify_translation_outage_if_due(deferred)
-        else:
-            self.state.data["translation_retry_after"] = ""
-            self.state.data["translation_outage_streak"] = 0
+            self._defer_translation_retry(updates)
 
-    def _notify_translation_outage_if_due(self, count: int) -> None:
+    def _defer_translation_retry(self, updates: list[Update]) -> None:
         now = datetime.now(timezone.utc)
-        quota_limited = str(getattr(self.writer, "_gemini_circuit_open", "") or "") == "quota"
-        try:
-            previous_streak = max(0, int(self.state.data.get("translation_outage_streak", 0) or 0))
-        except (TypeError, ValueError):
-            previous_streak = 0
-        streak = min(previous_streak + 1, 1000)
-        # A daily/free-tier quota can stay closed far longer than an RPM burst.
-        # Back off 30m, 1h, 2h, 4h, then 6h instead of retrying every workflow.
-        delay_minutes = min(360, 30 * (2 ** min(streak - 1, 4))) if quota_limited else 20
-        self.state.data["translation_outage_streak"] = streak
-        self.state.data["translation_retry_after"] = (now + timedelta(minutes=delay_minutes)).isoformat()
-        previous = _parse_state_datetime(self.state.data.get("translation_outage_notice"))
-        if previous and now - previous < timedelta(hours=2):
-            return
-        self._safe_send(
-            f"⚠️ سرویس ترجمه در دسترس نبود؛ {count} آپدیت خام ارسال نشد و امن در صف ماند. تلاش بعدی با فاصله انجام می‌شود تا سهمیه بیشتر مصرف نشود."
-        )
+        retry_at = now + timedelta(minutes=15)
+        self.state.data["translation_retry_after"] = retry_at.isoformat()
         self.state.data["translation_outage_notice"] = now.isoformat()
-
-    async def handle_draft_action(self, action: str, draft_id: str, message_id: int) -> None:
-        draft = self.state.get_draft(draft_id)
-        if not draft:
-            self.telegram.send_message("این پیش‌نویس دیگر در حافظه نیست.", reply_markup=main_keyboard())
-            return
-        if action == "copy":
-            self.telegram.send_message(draft.caption, reply_markup=main_keyboard())
-            return
-        if action == "reject":
-            self.telegram.edit_message_text(
-                message_id,
-                "🗑 رد شد\n\n" + draft.caption,
-                reply_markup=inline_keyboard([]),
-            )
-            return
-        mode = {"fun": "funnier", "soft": "softer", "precise": "precise"}.get(action)
-        if not mode:
-            return
-        update = self.state.get_update(draft.update_id)
-        if update is None:
-            self.telegram.send_message("متن اصلی این پیش‌نویس پیدا نشد.", reply_markup=main_keyboard())
-            return
-        group = organize_updates([update])[0]
-        copy = self.writer.write_group(group, mode=mode)
-        group.title = copy.title or group.title
-        body = copy.bodies.get(update.id) or update.text
-        caption = self.themes.caption(group, update, body, 1, 1)
-        self.telegram.edit_message_text(message_id, caption, reply_markup=draft_keyboard(draft_id))
-        draft.caption = caption
-        draft.mode = mode
-        self.state.save_draft(draft)
+        for item in updates:
+            if not self.state.is_seen(item.id):
+                self.state.queue_updates([item], force=False)
 
     def _safe_send(self, text: str) -> None:
         try:
-            self.telegram.send_message(text, reply_markup=main_keyboard())
-        except Exception:
-            logger.exception("Could not send error message to Telegram")
+            self.telegram.send_message(ensure_rtl_line(text), reply_markup=main_keyboard())
+        except TelegramError as exc:
+            logger.warning("Could not send Telegram notice: %s", exc)
 
 
-def _parse_state_datetime(value: Any) -> datetime | None:
+def _parse_state_datetime(value: object) -> datetime | None:
     if not value:
         return None
     try:
-        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def parse_date_query(query: str, local_timezone) -> tuple[datetime, datetime] | None:
+    match = re.search(r"\b(20\d{2})[-/](\d{1,2})[-/](\d{1,2})\b", query)
+    if not match:
+        match = re.search(r"\b(\d{2})(\d{2})(\d{2})\b", query)
+        if not match:
+            return None
+        year = 2000 + int(match.group(1))
+        month = int(match.group(2))
+        day = int(match.group(3))
+    else:
+        year = int(match.group(1))
+        month = int(match.group(2))
+        day = int(match.group(3))
+    try:
+        local_start = datetime(year, month, day, tzinfo=local_timezone)
     except ValueError:
         return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
-
-
-def parse_date_query(query: str, timezone_info=timezone.utc) -> tuple[datetime, datetime] | None:
-    query = query.strip()
-    patterns = [r"\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b", r"\b(\d{2})(\d{2})(\d{2})\b"]
-    for index, pattern in enumerate(patterns):
-        match = re.search(pattern, query)
-        if not match:
-            continue
-        if index == 0:
-            year, month, day = map(int, match.groups())
-        else:
-            yy, month, day = map(int, match.groups())
-            year = 2000 + yy
-        try:
-            local_start = datetime(year, month, day, tzinfo=timezone_info)
-        except ValueError:
-            return None
-        local_end = local_start + timedelta(days=1)
-        return local_start.astimezone(timezone.utc), local_end.astimezone(timezone.utc)
-    return None
+    local_end = local_start + timedelta(days=1)
+    return local_start.astimezone(timezone.utc), local_end.astimezone(timezone.utc)
 
 
 def rank_groups(query: str, groups: list[EventGroup]) -> list[EventGroup]:
-    tokens = {
-        token.casefold()
-        for token in re.findall(r"[\w\u0600-\u06ff\u3040-\u30ff\uac00-\ud7af]+", query)
-        if len(token) > 1
-    }
-
-    def score(group: EventGroup) -> tuple[float, datetime]:
-        haystack = " ".join([group.title, *(item.text for item in group.updates)]).casefold()
-        overlap = sum(1 for token in tokens if token in haystack)
-        media_bonus = sum(bool(item.media) for item in group.updates) * 0.15
-        size_bonus = min(len(group.updates), 10) * 0.08
-        return overlap + media_bonus + size_bonus, group.started_at
-
-    return sorted(groups, key=score, reverse=True)
+    tokens = {token.casefold() for token in re.findall(r"[\w#@]+", query) if len(token) > 1}
+    scored: list[tuple[int, datetime, EventGroup]] = []
+    for group in groups:
+        haystack = " ".join(item.text for item in group.updates).casefold()
+        score = sum(2 if token in haystack else 0 for token in tokens)
+        scored.append((score, group.started_at, group))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return [group for _, _, group in scored]
 
 
 def short_id(value: str) -> str:
-    # Stable non-security identifier; SHA-1 is retained for persisted draft IDs.
-    return hashlib.sha1(value.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
+    return hashlib.sha1(value.encode("utf-8")).hexdigest()[:12]
 
 
-def check_project() -> int:
-    try:
-        settings = Settings.load(require_secrets=False)
-    except ConfigError as exc:
-        print(f"CHECK FAILED: {exc}")
-        return 1
-    errors = settings.validate_files()
-    memory = StyleMemory(ROOT)
-    if not memory.samples:
-        errors.append("data/channel_memory.jsonl is empty.")
-    if not memory.profile:
-        errors.append("data/channel_voice_profile.json is empty.")
-    if errors:
-        for error in errors:
-            print("CHECK FAILED:", error)
-        return 1
-    print(f"CHECK OK: {len(settings.sources)} sources, {len(memory.samples)} style samples")
-    return 0
+def _cli_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Jeonghan Daily review assistant")
+    parser.add_argument("--check", action="store_true", help="validate configuration and exit")
+    return parser
 
 
-async def async_main() -> int:
-    try:
-        settings = Settings.load(require_secrets=True)
-        errors = settings.validate_files()
-        if errors:
-            raise ConfigError("; ".join(errors))
-        await Application(settings).run()
-        return 0
-    except ConfigError as exc:
-        logger.error("Configuration error: %s", exc)
-        return 2
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--check", action="store_true")
+def main() -> None:
+    parser = _cli_parser()
     args = parser.parse_args()
+    settings = Settings.load(require_secrets=not args.check)
     if args.check:
-        return check_project()
-    return asyncio.run(async_main())
+        print(
+            f"CHECK OK: {len(settings.sources)} sources, "
+            f"{sum(len(group.get('terms', [])) for group in settings.keyword_groups)} keywords"
+        )
+        return
+    asyncio.run(Application(settings).run())
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()
