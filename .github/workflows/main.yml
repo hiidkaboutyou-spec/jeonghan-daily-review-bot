@@ -77,24 +77,54 @@ jobs:
           cache: pip
 
       - name: FFmpeg
-        timeout-minutes: 5
+        timeout-minutes: 8
         shell: bash
         run: |
-          if command -v ffmpeg >/dev/null 2>&1; then
-            ffmpeg -version | head -n 1
+          set -euo pipefail
+
+          verify_ffmpeg() {
+            command -v ffmpeg >/dev/null 2>&1 &&
+            command -v ffprobe >/dev/null 2>&1 &&
+            ffmpeg -version | head -n 1 &&
+            ffprobe -version | head -n 1
+          }
+
+          if verify_ffmpeg; then
             exit 0
           fi
+
+          echo "FFmpeg is not preinstalled on this runner image."
           for attempt in 1 2; do
-            echo "Installing FFmpeg (attempt $attempt/2)."
-            if timeout 120s sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update -qq && \
-               timeout 120s sudo apt-get -o Dpkg::Use-Pty=0 install -y -qq ffmpeg; then
-              ffmpeg -version | head -n 1
+            echo "Installing FFmpeg with apt (attempt $attempt/2)."
+            if timeout 90s sudo apt-get \
+                 -o Acquire::Retries=2 \
+                 -o Acquire::ForceIPv4=true \
+                 -o Acquire::http::Timeout=15 \
+                 -o Acquire::https::Timeout=15 \
+                 update -qq && \
+               timeout 90s sudo apt-get \
+                 -o Dpkg::Use-Pty=0 \
+                 install -y -qq --no-install-recommends ffmpeg && \
+               verify_ffmpeg; then
               exit 0
             fi
-            echo "FFmpeg install attempt $attempt failed or timed out."
-            sleep 5
+            echo "FFmpeg apt attempt $attempt failed or timed out."
+            sleep 3
           done
-          echo "FFmpeg installation failed after bounded retries."
+
+          echo "::warning::apt-based FFmpeg install failed; trying Homebrew bottle fallback."
+          BREW_BIN="/home/linuxbrew/.linuxbrew/bin/brew"
+          if [ -x "$BREW_BIN" ]; then
+            eval "$("$BREW_BIN" shellenv)"
+            export HOMEBREW_NO_AUTO_UPDATE=1
+            export HOMEBREW_NO_INSTALL_CLEANUP=1
+            if timeout 240s brew install ffmpeg && verify_ffmpeg; then
+              echo "$(dirname "$(command -v ffmpeg)")" >> "$GITHUB_PATH"
+              exit 0
+            fi
+          fi
+
+          echo "::error::FFmpeg/ffprobe bootstrap failed after apt and Homebrew fallbacks."
           exit 1
 
       - name: Install
