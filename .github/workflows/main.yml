@@ -15,6 +15,7 @@ on:
       - "requirements.txt"
       - "requirements-optional-media.txt"
       - ".github/workflows/main.yml"
+      - ".github/workflows/daily-watchdog.yml"
   pull_request:
     branches:
       - main
@@ -28,6 +29,7 @@ on:
       - "requirements.txt"
       - "requirements-optional-media.txt"
       - ".github/workflows/main.yml"
+      - ".github/workflows/daily-watchdog.yml"
   workflow_dispatch:
     inputs:
       mode:
@@ -48,8 +50,8 @@ on:
 
 permissions:
   contents: read
-  # The live job dispatches its successor instead of depending entirely on
-  # GitHub's best-effort scheduled-event delivery.
+  # Daily successor recovery lives in daily-watchdog.yml. This workflow still
+  # needs Actions write access only for its existing due Fanfic dispatch path.
   actions: write
 
 concurrency:
