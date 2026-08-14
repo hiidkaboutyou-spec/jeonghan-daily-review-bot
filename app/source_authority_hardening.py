@@ -12,7 +12,6 @@ Explicit archive search keeps its historical broader discovery behavior.
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
 
 from . import x_client as _x_client
 from .models import Update
