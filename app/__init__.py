@@ -12,6 +12,7 @@ from . import channel_part4_benchmark_hook as _channel_part4_benchmark_hook  # n
 # Every non-Fanfic X retrieval path is source-authoritative. Fanfic/AO3 keeps its
 # independent workflow and optional direct X recommendation lookup.
 from . import source_authority_hardening as _source_authority_hardening  # noqa: F401,E402
+from . import configured_source_subclasses as _configured_source_subclasses  # noqa: F401,E402
 
 # Protect runnable legacy/private/webhook boundaries and stale durable state too:
 # external historical rows/queued items must not bypass the collector policy.
