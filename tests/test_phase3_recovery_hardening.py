@@ -156,6 +156,25 @@ class Phase3RecoveryHardeningTests(unittest.TestCase):
         provider.assert_not_awaited()
         self.assertEqual(api.search_queries, ["from:source -filter:retweets"])
 
+    def test_unresolved_checkpoint_serialization_is_lossless_beyond_previous_cap(self):
+        updates = [
+            _update(str(index), self.start + timedelta(seconds=index))
+            for index in range(5001)
+        ]
+        serialized = phase3._update_dicts(updates)
+        self.assertEqual(len(serialized), 5001)
+        self.assertEqual(serialized[0]["id"], "0")
+        self.assertEqual(serialized[-1]["id"], "5000")
+
+        checkpoint = phase3._new_checkpoint(
+            "source", self.start, self.end + timedelta(hours=2), include_replies=True
+        )
+        checkpoint["updates"] = serialized
+        clean = phase3._sanitize_checkpoint(checkpoint)
+        self.assertIsNotNone(clean)
+        self.assertEqual(len(clean["updates"]), 5001)
+        self.assertEqual(clean["updates"][0]["id"], "0")
+
 
 if __name__ == "__main__":
     unittest.main()
