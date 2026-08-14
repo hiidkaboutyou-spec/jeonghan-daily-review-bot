@@ -9,9 +9,13 @@ from .observability import observe
 from .x_client import XCollectionError, normalize_handle
 
 # Unresolved retrieval boundaries are correctness state, not cache hints. Keep them
-# until successful completion (or an explicit future migration), while retaining a
-# bounded number of checkpoints and a bounded amount of serialized post progress.
-_phase3.MAX_CHECKPOINT_UPDATES = 5000
+# until successful completion (or an explicit future migration). Checkpoint count is
+# bounded, but successful post progress inside an unresolved checkpoint is serialized
+# losslessly: silently truncating older pages would violate completeness semantics.
+
+
+def _lossless_update_dicts(updates: list[Update]) -> list[dict[str, Any]]:
+    return [item.to_dict() for item in updates]
 
 
 def _sanitize_checkpoint_without_age_expiry(raw: Any) -> dict[str, Any] | None:
@@ -50,7 +54,7 @@ def _sanitize_checkpoint_without_age_expiry(raw: Any) -> dict[str, Any] | None:
         return None
     next_cursor = str(next_cursor_raw or "") or None
     updates_raw = raw.get("updates", [])
-    if not isinstance(updates_raw, list) or len(updates_raw) > _phase3.MAX_CHECKPOINT_UPDATES:
+    if not isinstance(updates_raw, list):
         return None
     updates: list[Update] = []
     try:
@@ -161,5 +165,6 @@ async def _lookup_user_with_scoped_id_recovery(api: Any, handle: str, attempt_id
 # StateStore checkpoint helpers and the resumable timeline resolve these names from
 # phase3_recovery at call time, so hardening them here upgrades the already-installed
 # Phase 3 layer without creating a second state or observability system.
+_phase3._update_dicts = _lossless_update_dicts
 _phase3._sanitize_checkpoint = _sanitize_checkpoint_without_age_expiry
 _phase3._lookup_user = _lookup_user_with_scoped_id_recovery
