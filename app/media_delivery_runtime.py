@@ -36,13 +36,21 @@ class MediaDedupReviewApplication(ReminderReviewApplication):
                 telegram.message_delivery_store = MessageDeliveryStore(durable_db)
 
     async def _deliver_private_media(self, update: Update) -> bool:
+        media = list(update.media[:20])
+        report = {
+            "requested": len(media),
+            "sent": 0,
+            "already_delivered": 0,
+            "failed": 0,
+        }
+        self._last_media_delivery_report = report
+
         # Intentional lightweight test doubles may omit persistent state entirely.
         # Real production always has StateStore.path; in the no-state test case,
         # preserve the parent behavior instead of constructing a fake durable path.
         if self.media_delivery is None:
             return await super()._deliver_private_media(update)
 
-        media = list(update.media[:20])
         if not media:
             return True
 
@@ -61,6 +69,7 @@ class MediaDedupReviewApplication(ReminderReviewApplication):
                 )
                 if self.media_delivery.any_recent(identities) or pending_identities.intersection(identities):
                     logger.info("Skipping recently delivered exact media for update %s", update.id)
+                    report["already_delivered"] += 1
                     continue
                 pending_identities.update(identities)
                 send_cached.append(cached_item)
@@ -90,6 +99,11 @@ class MediaDedupReviewApplication(ReminderReviewApplication):
                         kind=item.kind,
                         update_id=update.id,
                     )
+                    report["sent"] += 1
+                report["failed"] = max(
+                    0,
+                    report["requested"] - report["already_delivered"] - report["sent"],
+                )
                 return True
 
         # Slow path: prepare the real bytes, then SHA-256 them before upload. This
@@ -100,6 +114,8 @@ class MediaDedupReviewApplication(ReminderReviewApplication):
         prepared_identities: list[tuple[str, ...]] = []
         pending_identities: set[str] = set()
         already_delivered = False
+        prepare_failures = 0
+        slow_already_delivered = 0
         try:
             for item in media:
                 single = Update.from_dict(update.to_dict())
@@ -107,6 +123,7 @@ class MediaDedupReviewApplication(ReminderReviewApplication):
                 temp, values = self.media.prepare(single)
                 temp_handles.append(temp)
                 if not values:
+                    prepare_failures += 1
                     continue
                 value = values[0]
                 content_identity = self.media_delivery.content_identity(value.path)
@@ -117,16 +134,23 @@ class MediaDedupReviewApplication(ReminderReviewApplication):
                 if self.media_delivery.any_recent(identities) or pending_identities.intersection(identities):
                     logger.info("Skipping recently delivered exact media for update %s", update.id)
                     already_delivered = True
+                    slow_already_delivered += 1
                     continue
                 pending_identities.update(identities)
                 prepared.append(value)
                 prepared_items.append(item)
                 prepared_identities.append(identities)
 
+            report["already_delivered"] += slow_already_delivered
             if not prepared:
+                report["failed"] = prepare_failures
                 return already_delivered
 
-            sent = self.telegram.send_media(prepared)
+            try:
+                sent = self.telegram.send_media(prepared)
+            except TelegramError:
+                report["failed"] = prepare_failures + len(prepared)
+                raise
             for item, identities, message in zip(prepared_items, prepared_identities, sent):
                 file_id, unique_id = telegram_file_identity(message, item.kind)
                 if file_id:
@@ -141,6 +165,8 @@ class MediaDedupReviewApplication(ReminderReviewApplication):
                     kind=item.kind,
                     update_id=update.id,
                 )
+                report["sent"] += 1
+            report["failed"] = prepare_failures + max(0, len(prepared) - report["sent"])
             return True
         finally:
             for temp in temp_handles:
