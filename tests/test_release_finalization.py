@@ -123,14 +123,19 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("jeonghan-state-v2-", workflow)
         self.assertNotIn("path: .state\n", workflow)
 
-    def test_ffmpeg_setup_is_bounded_and_retried(self):
+    def test_ffmpeg_setup_has_bounded_apt_and_homebrew_fallback(self):
         workflow = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")
-        self.assertIn("- name: FFmpeg\n        timeout-minutes: 5", workflow)
+        self.assertIn("- name: FFmpeg\n        timeout-minutes: 8", workflow)
         self.assertIn("command -v ffmpeg", workflow)
-        self.assertIn("timeout 120s sudo apt-get", workflow)
-        self.assertIn("Acquire::https::Timeout=20", workflow)
-        self.assertIn("Installing FFmpeg (attempt $attempt/2).", workflow)
-        self.assertIn("FFmpeg installation failed after bounded retries.", workflow)
+        self.assertIn("command -v ffprobe", workflow)
+        self.assertIn("timeout 90s sudo apt-get", workflow)
+        self.assertIn("--no-install-recommends ffmpeg", workflow)
+        self.assertIn("apt-based FFmpeg install failed; trying Homebrew bottle fallback.", workflow)
+        self.assertIn('/home/linuxbrew/.linuxbrew/bin/brew', workflow)
+        self.assertIn("HOMEBREW_NO_AUTO_UPDATE=1", workflow)
+        self.assertIn("timeout 240s brew install ffmpeg", workflow)
+        self.assertIn('>> "$GITHUB_PATH"', workflow)
+        self.assertIn("FFmpeg/ffprobe bootstrap failed after apt and Homebrew fallbacks.", workflow)
 
     def test_temporary_release_workflows_are_not_part_of_release_tree(self):
         workflows = ROOT / ".github" / "workflows"

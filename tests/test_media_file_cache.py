@@ -52,6 +52,27 @@ class MediaFileCacheTests(unittest.TestCase):
             self.assertEqual([item.file_id for item in cached], ["photo-file", "video-file"])
             store.close()
 
+    def test_v2_video_file_id_is_invalidated_by_v3_migration(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = MediaFileCache(Path(temp) / "private.sqlite3")
+            item = self.item("video", "cached-v2.mp4")
+            v2_key = hashlib.sha256(
+                f"telegram-ios-video-v2\n{item.kind}\n{item.url}".encode("utf-8")
+            ).hexdigest()
+            with store.conn:
+                store.conn.execute(
+                    "INSERT INTO telegram_media_cache(media_key,kind,original_url,file_id,file_unique_id) VALUES(?,?,?,?,?)",
+                    (v2_key, item.kind, item.url, "stale-v2-file-id", "stale-v2-unique-id"),
+                )
+
+            self.assertIsNone(store.get(item))
+            store.put(item, "fresh-v3-file-id", "fresh-v3-unique-id")
+            refreshed = store.get(item)
+            self.assertEqual(refreshed.file_id, "fresh-v3-file-id")
+            self.assertEqual(refreshed.file_unique_id, "fresh-v3-unique-id")
+            self.assertNotEqual(refreshed.media_key, v2_key)
+            store.close()
+
     def test_old_unversioned_video_file_id_is_not_reused(self):
         with tempfile.TemporaryDirectory() as temp:
             store = MediaFileCache(Path(temp) / "private.sqlite3")

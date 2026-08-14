@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .models import MediaItem
 
-VIDEO_CACHE_VERSION = "telegram-ios-video-v2"
+VIDEO_CACHE_VERSION = "telegram-ios-video-v3"
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,9 +43,8 @@ class MediaFileCache:
     @staticmethod
     def key_for(item: MediaItem) -> str:
         # Only videos need invalidation: old Telegram video file_ids may point to
-        # uploads without an iOS-playable MP4 layout/preview. Keep the historical
-        # photo key byte-for-byte compatible so a video migration cannot evict the
-        # already-valid photo cache.
+        # uploads without the current iOS-playable MP4 normalization guarantees.
+        # Keep historical photo keys byte-for-byte compatible.
         if item.kind == "video":
             payload = f"{VIDEO_CACHE_VERSION}\n{item.kind}\n{item.url}".encode("utf-8")
         else:
