@@ -4,7 +4,7 @@
   "state_path": ".state/state.json",
   "runtime": {
     "max_auto_items_per_run": 60,
-    "max_collection_items": 1000,
+    "max_collection_items": 20000,
     "max_search_candidates": 8,
     "scheduled_min_interval_minutes": 12,
     "scheduled_lookback_hours": 24,
