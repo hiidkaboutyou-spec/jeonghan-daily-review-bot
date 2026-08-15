@@ -31,5 +31,10 @@ def install(event_fusion: Any) -> None:
         # Never replace Event results or affect delivery.
         return event_results
 
+    # Preserve the existing Timeline wrapper contract when adding the outer
+    # Translation Fusion shadow layer. This marker is observability/ordering metadata,
+    # not delivery authority, and must survive wrapper composition.
+    if getattr(current, "_event_timeline_shadow_installed", False):
+        shadow_group_updates._event_timeline_shadow_installed = True
     shadow_group_updates._translation_fusion_shadow_installed = True
     event_fusion.shadow_group_updates = shadow_group_updates

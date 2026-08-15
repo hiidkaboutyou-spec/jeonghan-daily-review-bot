@@ -3,6 +3,8 @@ from __future__ import annotations
 import copy
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from datetime import datetime
@@ -10,6 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app import event_fusion, event_timeline
+from app.event_fusion_private_runtime import ensure_translation_fusion_shadow
 from app.fic_state import FicObservation, FicStateStore
 from app.message_delivery import MessageDeliveryStore
 from app.models import Update
@@ -77,6 +80,12 @@ def evidence(
 
 
 class TranslationFusionFoundationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        # Translation Fusion is intentionally lazy for Fanfic independence. Explicitly
+        # activate the non-Fanfic shadow layer for this foundation test suite.
+        ensure_translation_fusion_shadow()
+
     def state(self, directory: str) -> StateStore:
         return StateStore(Path(directory) / "state.json")
 
@@ -334,6 +343,31 @@ class TranslationFusionFoundationTests(unittest.TestCase):
     def test_runtime_wrapper_is_shadow_only(self):
         self.assertEqual(TRANSLATION_FUSION_MODE, "shadow")
         self.assertTrue(getattr(event_fusion.shadow_group_updates, "_translation_fusion_shadow_installed", False))
+        self.assertTrue(getattr(event_fusion.shadow_group_updates, "_event_timeline_shadow_installed", False))
+
+    def test_fanfic_import_does_not_load_translation_fusion_runtime(self):
+        code = """
+import json
+import sys
+import app.fic_digest
+blocked = sorted(
+    name for name in sys.modules
+    if name in {
+        'app.translation_fusion',
+        'app.translation_fusion_runtime',
+        'app.translation_fusion_state_compat',
+    }
+)
+print(json.dumps(blocked))
+"""
+        completed = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(json.loads(completed.stdout.strip().splitlines()[-1]), [])
 
     def test_concert_text_identity_never_becomes_media_identity(self):
         event_id = event_fusion.make_event_id(("u1", "u2"))
