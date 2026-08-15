@@ -12,6 +12,10 @@ from .models import Draft, Update
 SCHEMA_VERSION = 4
 
 
+class StateCorruptionError(RuntimeError):
+    """Raised when an existing durable state file cannot be trusted safely."""
+
+
 class StateStore:
     def __init__(self, path: Path):
         self.path = path
@@ -38,20 +42,44 @@ class StateStore:
             "pending_delivery": [],
         }
 
+    def _quarantine_broken_state(self) -> Path | None:
+        """Move an untrusted state file aside without exposing its contents."""
+        backup = self.path.with_suffix(".broken.json")
+        try:
+            self.path.replace(backup)
+        except OSError:
+            return None
+        return backup
+
     def _load(self) -> dict[str, Any]:
         if not self.path.exists():
             return self._fresh()
+
         try:
-            value = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            backup = self.path.with_suffix(".broken.json")
-            try:
-                self.path.replace(backup)
-            except OSError:
-                pass
-            return self._fresh()
+            serialized = self.path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            backup = self._quarantine_broken_state()
+            suffix = f"; moved to {backup}" if backup is not None else ""
+            raise StateCorruptionError(
+                f"Existing state file could not be read safely: {self.path}{suffix}"
+            ) from exc
+
+        try:
+            value = json.loads(serialized)
+        except json.JSONDecodeError as exc:
+            backup = self._quarantine_broken_state()
+            suffix = f"; moved to {backup}" if backup is not None else ""
+            raise StateCorruptionError(
+                f"Existing state file is malformed JSON: {self.path}{suffix}"
+            ) from exc
+
         if not isinstance(value, dict):
-            return self._fresh()
+            backup = self._quarantine_broken_state()
+            suffix = f"; moved to {backup}" if backup is not None else ""
+            raise StateCorruptionError(
+                f"Existing state file must contain a JSON object: {self.path}{suffix}"
+            )
+
         return self._normalize_loaded(value)
 
     def _normalize_loaded(self, value: dict[str, Any]) -> dict[str, Any]:
