@@ -1,8 +1,9 @@
 """Shadow-only Channel Style Rewrite / User Voice foundation.
 
-The factual Persian draft produced by Translation Fusion is the only factual authority.
-Historical channel examples are structural/style demonstrations only. This module is
-provider-neutral, text-only, bounded, free, and never owns Telegram delivery.
+The faithful factual Persian draft is the only factual authority. Historical
+channel examples are form/style demonstrations only and never factual context.
+This module is provider-neutral, text-only, bounded, free, and never owns
+Telegram delivery, lifecycle, media, Event/Timeline, or public publishing.
 """
 from __future__ import annotations
 
@@ -53,6 +54,26 @@ _OVER_CUTE_RE = re.compile(
     r"(?:بچه[‌ ]?م|عسلم|عسلکم|کوچولوم|نازنینم|پرنسس|دارم\s*می[‌ ]?میرم|میمیرم|عاشقشم)",
     re.I,
 )
+# Translation Fusion compares multilingual source -> Persian candidate. Style Rewrite
+# compares Persian factual -> Persian candidate, so it needs a Persian boundary-safe
+# negation detector. This avoids false positives such as the final "نه" in "خونه"
+# while recognizing common colloquial/standard negative verb forms such as "نرفت".
+_STYLE_NEGATION_RE = re.compile(
+    r"(?<![\w\u200c])(?:"
+    r"نه|نیست|نبود|نشد|"
+    r"نکرد(?:م|ی|ه|یم|ین|ند)?|"
+    r"نرفت(?:م|ی|ه|یم|ین|ند)?|"
+    r"نگفت(?:م|ی|ه|یم|ین|ند)?|"
+    r"ندید(?:م|ی|ه|یم|ین|ند)?|"
+    r"نخواست(?:م|ی|ه|یم|ین|ند)?|"
+    r"نخورد(?:م|ی|ه|یم|ین|ند)?|"
+    r"نیومد(?:م|ی|ه|یم|ین|ند)?|"
+    r"نیامد(?:م|ی|ه|یم|ین|ند)?|"
+    r"نمی[\u200c ]?[\u0600-\u06ff]+|"
+    r"نخواهد[\u0600-\u06ff]*|نمیشه|نمی[\u200c ]?شه"
+    r")(?![\w\u200c])",
+    re.I,
+)
 _TEMPORAL_TERMS = (
     "قبل", "بعد", "اول", "بعدش", "سپس", "امروز", "دیروز", "فردا",
     "صبح", "ظهر", "عصر", "شب", "قبلاً", "بعداً",
@@ -79,7 +100,6 @@ _IDENTITY_ALIASES: dict[str, tuple[str, ...]] = {
     "VERNON": ("vernon", "ورنون", "버논", "バーノン"),
     "DINO": ("dino", "دینو", "디노", "ディノ"),
 }
-
 _REQUESTED_PROFILE_RULES: dict[str, tuple[set[str], tuple[str, ...]]] = {
     "live_translation": ({"LIVE_DIALOGUE", "WEVERSE_LIVE"}, (" live", "لایو", "라이브", "ライブ")),
     "going_seventeen": (set(), ("going seventeen", "gose", "고잉 세븐틴", "گوئینگ سونتین")),
@@ -229,11 +249,7 @@ class StyleRewriteProvider(Protocol):
 
 
 class ConservativeLocalStyleProvider:
-    """Free deterministic surface-only provider used in shadow foundation.
-
-    It deliberately does not attempt semantic paraphrase. Richer providers can be
-    plugged in later, but every candidate must pass the same deterministic lock.
-    """
+    """Free deterministic surface-only provider for the shadow foundation."""
 
     name = "local_conservative"
 
@@ -248,8 +264,8 @@ class ConservativeLocalStyleProvider:
 
 
 def _fingerprint(namespace: str, text: str) -> str:
-    value = hashlib.sha256(f"{namespace}\x1f{text}".encode("utf-8")).hexdigest()[:32]
-    return f"csr:{value}"
+    digest = hashlib.sha256(f"{namespace}\x1f{text}".encode("utf-8")).hexdigest()[:32]
+    return f"csr:{digest}"
 
 
 def normalize_persian_surface(text: str) -> str:
@@ -284,8 +300,7 @@ def _token_equivalent(candidate: str, factual_tokens: set[str]) -> bool:
 
 def identity_sequence(text: str) -> tuple[str, ...]:
     hits: list[tuple[int, str]] = []
-    value = str(text or "")
-    folded = value.casefold()
+    folded = str(text or "").casefold()
     for canonical, aliases in _IDENTITY_ALIASES.items():
         best: int | None = None
         for alias in aliases:
@@ -293,7 +308,11 @@ def identity_sequence(text: str) -> tuple[str, ...]:
             if re.search(r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]", alias_cf):
                 pos = folded.find(alias_cf)
             else:
-                match = re.search(rf"(?<![\w\u200c]){re.escape(alias_cf)}(?![\w\u200c])", folded, re.UNICODE)
+                match = re.search(
+                    rf"(?<![\w\u200c]){re.escape(alias_cf)}(?![\w\u200c])",
+                    folded,
+                    re.UNICODE,
+                )
                 pos = match.start() if match else -1
             if pos >= 0 and (best is None or pos < best):
                 best = pos
@@ -316,6 +335,10 @@ def temporal_sequence(text: str) -> tuple[str, ...]:
     return tuple(term for _, term in sorted(hits))
 
 
+def _has_style_negation(text: str) -> bool:
+    return bool(_STYLE_NEGATION_RE.search(str(text or "")))
+
+
 def hard_factual_invariants(text: str) -> dict[str, tuple[str, ...]]:
     analysis = analyze_source(text)
     return {
@@ -325,7 +348,7 @@ def hard_factual_invariants(text: str) -> dict[str, tuple[str, ...]]:
         "identities": identity_sequence(text),
         "temporal_sequence": temporal_sequence(text),
         "question": ("true",) if ("?" in text or "؟" in text) else (),
-        "negation": ("present",) if re.search(r"(?:نه|نیست|نبود|نکرد|نرفت|نمی[‌ ]?)", text) else (),
+        "negation": ("present",) if _has_style_negation(text) else (),
         "modality": ("present",) if re.search(r"(?:شاید|احتمال|ممکن|ظاهراً|انگار|به نظر)", text) else (),
         "content_type": (analysis.content_type,),
     }
@@ -378,10 +401,17 @@ def _profile_from_texts(key: str, content_type: str, texts: Sequence[str]) -> St
     count = len(clean)
     if not clean:
         return StyleProfile(
-            key=key, content_type=content_type, example_count=0,
-            register=target_register(content_type), median_chars=0.0,
-            multiline_pct=0.0, dialogue_pct=0.0, emoji_pct=0.0,
-            reaction_pct=0.0, formal_connector_pct=0.0, supported=False,
+            key=key,
+            content_type=content_type,
+            example_count=0,
+            register=target_register(content_type),
+            median_chars=0.0,
+            multiline_pct=0.0,
+            dialogue_pct=0.0,
+            emoji_pct=0.0,
+            reaction_pct=0.0,
+            formal_connector_pct=0.0,
+            supported=False,
         )
     return StyleProfile(
         key=key,
@@ -422,12 +452,12 @@ def audit_requested_profiles(memory: Any) -> dict[str, StyleProfile]:
         selected: list[str] = []
         dominant_types: dict[str, int] = {}
         for row in rows:
-            content_type = str(row["content_type"])
+            row_type = str(row["content_type"])
             text = str(row["text"])
             low = text.casefold()
-            if content_type in types or any(keyword in low for keyword in keywords):
+            if row_type in types or any(keyword in low for keyword in keywords):
                 selected.append(text)
-                dominant_types[content_type] = dominant_types.get(content_type, 0) + 1
+                dominant_types[row_type] = dominant_types.get(row_type, 0) + 1
         dominant = max(dominant_types, key=dominant_types.get) if dominant_types else "OTHER"
         result[key] = _profile_from_texts(key, dominant, selected)
     return result
@@ -439,14 +469,13 @@ def retrieve_structural_examples(
     *,
     limit: int = MAX_STYLE_EXAMPLES,
 ) -> list[RetrievedStyleExample]:
-    """Retrieve form-similar examples without topical/lexical FTS matching."""
+    """Retrieve form-similar examples without topical/current-text FTS matching."""
     limit = max(1, min(int(limit), MAX_STYLE_EXAMPLES))
     target_type = rewrite_input.content_type
     family = _content_family(target_type)
     target_len = max(1, len(rewrite_input.faithful_factual_text))
     target_dialogue = bool(rewrite_input.speaker_metadata)
     target_register_name = target_register(target_type, rewrite_input.faithful_factual_text)
-    candidates: list[RetrievedStyleExample] = []
     try:
         rows = memory.conn.execute(
             "SELECT example_id,text,content_type,source_language,date,char_count,has_dialogue "
@@ -455,6 +484,7 @@ def retrieve_structural_examples(
     except Exception:
         return []
 
+    candidates: list[RetrievedStyleExample] = []
     for row in rows:
         row_type = str(row["content_type"])
         row_family = _content_family(row_type)
@@ -493,11 +523,16 @@ def retrieve_structural_examples(
                 reasons=reasons,
             )
         )
+
     candidates.sort(key=lambda item: (-item.score, item.example_id))
     chosen: list[RetrievedStyleExample] = []
     format_fingerprints: set[str] = set()
     for item in candidates:
-        fingerprint = re.sub(r"[\w\u0600-\u06ff\u3040-\u30ff\uac00-\ud7af]+", "W", item.text[:120])
+        fingerprint = re.sub(
+            r"[\w\u0600-\u06ff\u3040-\u30ff\uac00-\ud7af]+",
+            "W",
+            item.text[:120],
+        )
         fingerprint = re.sub(r"W(?:\s+W)+", "W", fingerprint)
         if fingerprint in format_fingerprints and len(chosen) >= 2:
             continue
@@ -551,7 +586,20 @@ def style_fidelity_failures(
     if not candidate:
         return ["missing_style_candidate"]
 
-    failures = list(translation_fidelity_failures(factual, candidate))
+    # Reuse proven Translation Fusion gates, but replace its multilingual-source
+    # negation comparison with a symmetric Persian->Persian check for this layer.
+    failures = [
+        failure
+        for failure in translation_fidelity_failures(factual, candidate)
+        if failure not in {"negation_dropped", "negation_invented"}
+    ]
+    factual_neg = _has_style_negation(factual)
+    candidate_neg = _has_style_negation(candidate)
+    if factual_neg and not candidate_neg:
+        failures.append("negation_dropped")
+    if not factual_neg and candidate_neg:
+        failures.append("negation_invented")
+
     factual_ids = identity_sequence(factual)
     candidate_ids = identity_sequence(candidate)
     if factual_ids and candidate_ids and factual_ids != candidate_ids:
@@ -583,7 +631,11 @@ def ai_like_findings(text: str, profile: StyleProfile | None = None) -> list[str
     if profile is not None and profile.register == "factual" and profile.reaction_pct < 0.35:
         if _OVER_CUTE_RE.search(value):
             findings.append("over_cute_for_profile")
-    sentences = [item.strip() for item in re.split(r"[.!؟?]\s*", value) if len(item.strip()) >= 8]
+    sentences = [
+        item.strip()
+        for item in re.split(r"[.!؟?]\s*", value)
+        if len(item.strip()) >= 8
+    ]
     normalized = [re.sub(r"\s+", " ", item.casefold()) for item in sentences]
     if len(normalized) != len(set(normalized)):
         findings.append("redundant_restatement")
@@ -688,6 +740,7 @@ def rewrite_shadow_candidate(
         style_profile=profile.key,
         selected_example_ids=[item.example_id for item in examples],
     )
+    provider_name = getattr(provider, "name", type(provider).__name__)
     if not profile.supported:
         return StyleRewriteResult(
             event_id=event_id,
@@ -700,7 +753,7 @@ def rewrite_shadow_candidate(
             accepted=False,
             fallback_reason="unsupported_style_profile",
             review_required=True,
-            provider=getattr(provider, "name", type(provider).__name__),
+            provider=provider_name,
             factual_fingerprint=_fingerprint("factual-v1", factual_text),
         )
     if not examples:
@@ -715,7 +768,7 @@ def rewrite_shadow_candidate(
             accepted=False,
             fallback_reason="style_example_retrieval_failed",
             review_required=True,
-            provider=getattr(provider, "name", type(provider).__name__),
+            provider=provider_name,
             factual_fingerprint=_fingerprint("factual-v1", factual_text),
         )
     try:
@@ -732,7 +785,7 @@ def rewrite_shadow_candidate(
             accepted=False,
             fallback_reason="style_provider_failed",
             review_required=True,
-            provider=getattr(provider, "name", type(provider).__name__),
+            provider=provider_name,
             factual_fingerprint=_fingerprint("factual-v1", factual_text),
         )
     return evaluate_style_candidate(
@@ -740,7 +793,7 @@ def rewrite_shadow_candidate(
         candidate,
         examples,
         profile,
-        provider=getattr(provider, "name", type(provider).__name__),
+        provider=provider_name,
     )
 
 
@@ -771,9 +824,8 @@ def preview_factual_results(
     results: list[TranslationFusionResult] = []
     for segment_id in _affected_segment_ids(state, set(incoming)):
         evidence = build_evidence_for_segment(state, segment_id, configured_handles, incoming)
-        if not evidence:
-            continue
-        results.append(fuse_evidence_items(evidence, segment_id=segment_id))
+        if evidence:
+            results.append(fuse_evidence_items(evidence, segment_id=segment_id))
     return results
 
 
@@ -813,7 +865,7 @@ def shadow_style_rewrite(
     *,
     provider: StyleRewriteProvider | None = None,
 ) -> list[StyleRewriteResult]:
-    """Evaluate style only after Translation Fusion; never alters delivery or lifecycle."""
+    """Evaluate style after Translation Fusion without changing delivery/lifecycle."""
     incoming_list = list(updates)
     incoming = {str(item.id): item for item in incoming_list}
     fusion = state.data.get("event_fusion")
@@ -825,7 +877,7 @@ def shadow_style_rewrite(
     results: list[StyleRewriteResult] = []
     for factual in preview_factual_results(state, incoming_list, configured_handles):
         if not factual.fused_factual_text or factual.fidelity_status != "faithful_shadow_candidate":
-            metadata = {
+            fusion["style_rewrite_results"][factual.segment_id] = {
                 "event_id": factual.event_id[:80],
                 "segment_id": factual.segment_id[:80],
                 "content_type": "",
@@ -843,7 +895,6 @@ def shadow_style_rewrite(
                 "mode": STYLE_REWRITE_MODE,
                 "text_persisted": False,
             }
-            fusion["style_rewrite_results"][factual.segment_id] = metadata
             continue
         content_type = _infer_content_type(state, factual, incoming)
         result = rewrite_shadow_candidate(
