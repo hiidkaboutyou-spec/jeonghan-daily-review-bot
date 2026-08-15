@@ -7,11 +7,22 @@ from .observability import observe
 from .private_runtime import PrivateReviewApplication
 
 
-def _configured(application: PrivateReviewApplication) -> set[str]:
+def _configured(application: PrivateReviewApplication) -> set[str] | None:
+    """Return configured handles when runtime settings expose the real source list.
+
+    Some isolated delivery tests intentionally construct a minimal settings object
+    without sources. Shadow analysis is optional, so that case must preserve the
+    pre-shadow delivery path instead of becoming a new requirement for delivery.
+    """
+    sources = getattr(application.settings, "sources", None)
+    if not isinstance(sources, (list, tuple)):
+        return None
     return {
         str(item.get("handle", "")).lstrip("@").strip().casefold()
-        for item in application.settings.sources
-        if item.get("enabled", True) and str(item.get("handle", "")).strip()
+        for item in sources
+        if isinstance(item, dict)
+        and item.get("enabled", True)
+        and str(item.get("handle", "")).strip()
     }
 
 
@@ -40,6 +51,11 @@ def _install() -> None:
 
     async def deliver_updates(self, updates: list[Update], *, force: bool) -> None:
         configured = _configured(self)
+        if configured is None:
+            # Shadow-only analysis must never make source configuration a new
+            # precondition for otherwise-valid private delivery/test fixtures.
+            return await current(self, updates, force=force)
+
         shadow_chain_ok = False
         try:
             ensure_translation_fusion_shadow()
