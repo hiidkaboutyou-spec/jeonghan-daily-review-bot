@@ -53,6 +53,7 @@ _event_timeline_state_compat.install(_event_fusion, _event_timeline)
 from . import event_timeline_runtime as _event_timeline_runtime  # noqa: F401,E402
 _event_timeline_runtime.install(_event_fusion)
 
-# Bind the private-review Event hook only after Timeline has wrapped the Event function,
-# so private delivery gets Event -> Timeline shadow analysis and then continues unchanged.
+# Bind the private-review Event hook after Timeline. Translation Fusion is deliberately
+# lazy-loaded inside that Daily-only hook so importing/running app.fic_digest does not
+# acquire a non-Fanfic Translation Fusion runtime dependency.
 from . import event_fusion_private_runtime as _event_fusion_private_runtime  # noqa: F401,E402
