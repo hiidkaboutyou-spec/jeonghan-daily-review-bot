@@ -32,3 +32,9 @@ from . import zero_silent_miss as _zero_silent_miss  # noqa: F401,E402
 from . import phase2_runtime_compat as _phase2_runtime_compat  # noqa: F401,E402
 from . import phase2_final_visibility as _phase2_final_visibility  # noqa: F401,E402
 from . import phase2_correlation_stability as _phase2_correlation_stability  # noqa: F401,E402
+
+# Event Fusion foundation is installed after the final Phase 1/2/3 runtime so it can
+# observe the authoritative Update batch without becoming a new retrieval, delivery,
+# translation or media authority. It remains shadow-only and fails open to the
+# existing private-review delivery path.
+from . import event_fusion as _event_fusion  # noqa: F401,E402

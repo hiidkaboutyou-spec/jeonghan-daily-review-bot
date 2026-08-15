@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "description": "Deterministic shadow Event Fusion representative benchmark. same_event means confident/probable grouping; separate includes ambiguous under-grouping by design.",
+  "cases": [
+    {
+      "id": "same-event-two-sources",
+      "expected": "same_event",
+      "left": {"id":"101","author":"hani_berry_1004","created_at":"2026-08-01T10:00:00Z","text":"#CARATLAND2026 Jeonghan Super performance opening stage"},
+      "right": {"id":"102","author":"honeyya_hanihae","created_at":"2026-08-01T10:12:00Z","text":"#CARATLAND2026 Super performance opening stage Jeonghan from side angle"}
+    },
+    {
+      "id": "same-event-complementary-details",
+      "expected": "same_event",
+      "left": {"id":"103","author":"hani_berry_1004","created_at":"2026-08-02T09:00:00Z","text":"Jeonghan interview clip https://youtube.com/watch/interview42 he talks about training"},
+      "right": {"id":"104","author":"honeyya_hanihae","created_at":"2026-08-02T09:30:00Z","text":"Another detail from the interview https://youtube.com/watch/interview42 about his schedule"}
+    },
+    {
+      "id": "same-event-different-language",
+      "expected": "same_event",
+      "left": {"id":"105","author":"hani_berry_1004","created_at":"2026-08-03T11:00:00Z","text":"Jeonghan talked about the trip","quoted_id":"99001"},
+      "right": {"id":"106","author":"honeyya_hanihae","created_at":"2026-08-03T11:20:00Z","text":"정한이 여행 이야기를 했어요","quoted_id":"99001"}
+    },
+    {
+      "id": "same-interview-different-moments",
+      "expected": "separate",
+      "left": {"id":"107","author":"hani_berry_1004","created_at":"2026-08-04T12:00:00Z","text":"Arena Homme interview Jeonghan discusses childhood swimming"},
+      "right": {"id":"108","author":"honeyya_hanihae","created_at":"2026-08-04T12:08:00Z","text":"Arena Homme interview Jeonghan answers his favorite food ramen"}
+    },
+    {
+      "id": "same-live-different-moments",
+      "expected": "separate",
+      "left": {"id":"109","author":"hani_berry_1004","created_at":"2026-08-05T13:00:00Z","text":"Weverse Live Jeonghan talks about dinner"},
+      "right": {"id":"110","author":"honeyya_hanihae","created_at":"2026-08-05T13:06:00Z","text":"Weverse Live Jeonghan starts playing a game"}
+    },
+    {
+      "id": "unrelated-close-in-time",
+      "expected": "separate",
+      "left": {"id":"111","author":"hani_berry_1004","created_at":"2026-08-06T08:00:00Z","text":"Jeonghan arrived at Incheon airport"},
+      "right": {"id":"112","author":"honeyya_hanihae","created_at":"2026-08-06T08:04:00Z","text":"Jeonghan ambassador campaign brand event poster"}
+    },
+    {
+      "id": "same-member-different-events",
+      "expected": "separate",
+      "left": {"id":"113","author":"hani_berry_1004","created_at":"2026-08-07T10:00:00Z","text":"Jeonghan airport departure at Gimpo"},
+      "right": {"id":"114","author":"honeyya_hanihae","created_at":"2026-08-07T10:10:00Z","text":"Jeonghan fansign video call answer"}
+    },
+    {
+      "id": "reply-thread-relationship",
+      "expected": "same_event",
+      "left": {"id":"115","author":"hani_berry_1004","created_at":"2026-08-08T14:00:00Z","text":"Interview translation part one","conversation_id":"thread-115"},
+      "right": {"id":"116","author":"honeyya_hanihae","created_at":"2026-08-08T14:05:00Z","text":"Additional context to that answer","conversation_id":"thread-115","reply_to_id":"115"}
+    },
+    {
+      "id": "shared-repost-reference",
+      "expected": "same_event",
+      "left": {"id":"117","author":"hani_berry_1004","created_at":"2026-08-09T15:00:00Z","text":"Translation of the official clip","quoted_id":"88001"},
+      "right": {"id":"118","author":"honeyya_hanihae","created_at":"2026-08-09T15:03:00Z","text":"More context from the official clip","quoted_id":"88001"}
+    },
+    {
+      "id": "ambiguous-similar-wording",
+      "expected": "separate",
+      "left": {"id":"119","author":"hani_berry_1004","created_at":"2026-08-10T16:00:00Z","text":"Dokyeom said Jeonghan looked happy after rehearsal"},
+      "right": {"id":"120","author":"honeyya_hanihae","created_at":"2026-08-10T16:12:00Z","text":"Dokyeom said Jeonghan was happy during practice"}
+    },
+    {
+      "id": "concert-event-different-fancams",
+      "expected": "same_event",
+      "left": {"id":"121","author":"hani_berry_1004","created_at":"2026-08-11T18:00:00Z","text":"#CARATLAND2026 Super performance left angle fancam","media":[{"kind":"video","url":"https://media.example/fancam-left.mp4"}]},
+      "right": {"id":"122","author":"honeyya_hanihae","created_at":"2026-08-11T18:02:00Z","text":"#CARATLAND2026 Super performance right angle fancam","media":[{"kind":"video","url":"https://media.example/fancam-right.mp4"}]}
+    },
+    {
+      "id": "concert-performance-different-photos",
+      "expected": "same_event",
+      "left": {"id":"123","author":"hani_berry_1004","created_at":"2026-08-11T18:10:00Z","text":"#CARATLAND2026 Super performance ending pose photo","media":[{"kind":"photo","url":"https://media.example/photo-a.jpg"}]},
+      "right": {"id":"124","author":"honeyya_hanihae","created_at":"2026-08-11T18:11:00Z","text":"#CARATLAND2026 Super performance ending pose photo another angle","media":[{"kind":"photo","url":"https://media.example/photo-b.jpg"}]}
+    },
+    {
+      "id": "concert-exact-duplicate-media",
+      "expected": "same_event",
+      "left": {"id":"125","author":"hani_berry_1004","created_at":"2026-08-11T18:20:00Z","text":"#CARATLAND2026 Super performance official clip","media":[{"kind":"video","url":"https://media.example/exact.mp4"}]},
+      "right": {"id":"126","author":"honeyya_hanihae","created_at":"2026-08-11T18:21:00Z","text":"#CARATLAND2026 Super performance official clip repost","media":[{"kind":"video","url":"https://media.example/exact.mp4"}]}
+    },
+    {
+      "id": "different-concert-moments",
+      "expected": "separate",
+      "left": {"id":"127","author":"hani_berry_1004","created_at":"2026-08-11T17:00:00Z","text":"#CARATLAND2026 Jeonghan opening ment greeting"},
+      "right": {"id":"128","author":"honeyya_hanihae","created_at":"2026-08-11T20:30:00Z","text":"#CARATLAND2026 Jeonghan encore goodbye"}
+    },
+    {
+      "id": "going-seventeen-same-episode-different-segments",
+      "expected": "separate",
+      "left": {"id":"129","author":"hani_berry_1004","created_at":"2026-08-12T12:00:00Z","text":"#GOSE_EP5 Going Seventeen episode 5 Jeonghan cooking segment"},
+      "right": {"id":"130","author":"honeyya_hanihae","created_at":"2026-08-12T12:10:00Z","text":"#GOSE_EP5 Going Seventeen episode 5 Jeonghan quiz segment"}
+    },
+    {
+      "id": "interview-same-topic-different-answer",
+      "expected": "separate",
+      "left": {"id":"131","author":"hani_berry_1004","created_at":"2026-08-13T09:00:00Z","text":"Elle interview Jeonghan answer about friendship with Mingyu"},
+      "right": {"id":"132","author":"honeyya_hanihae","created_at":"2026-08-13T09:05:00Z","text":"Elle interview Jeonghan answer about friendship with Dokyeom"}
+    },
+    {
+      "id": "source-translation-overlap",
+      "expected": "same_event",
+      "left": {"id":"133","author":"hani_berry_1004","created_at":"2026-08-13T11:00:00Z","text":"English translation: Jeonghan said the trip was fun","quoted_id":"77001"},
+      "right": {"id":"134","author":"honeyya_hanihae","created_at":"2026-08-13T11:02:00Z","text":"한국어 번역: 정한이 여행이 재미있었다고 말했어요","quoted_id":"77001"}
+    },
+    {
+      "id": "complementary-source-information",
+      "expected": "same_event",
+      "left": {"id":"135","author":"hani_berry_1004","created_at":"2026-08-14T10:00:00Z","text":"Interview clip context https://youtu.be/context55 Jeonghan mentions the team"},
+      "right": {"id":"136","author":"honeyya_hanihae","created_at":"2026-08-14T10:18:00Z","text":"Additional sentence from https://youtu.be/context55 about the same answer"}
+    },
+    {
+      "id": "external-unconfigured-source-blocked",
+      "expected": "blocked",
+      "left": {"id":"137","author":"random_external","created_at":"2026-08-14T12:00:00Z","text":"#CARATLAND2026 Super performance opening stage"},
+      "right": {"id":"138","author":"hani_berry_1004","created_at":"2026-08-14T12:01:00Z","text":"#CARATLAND2026 Super performance opening stage"}
+    },
+    {
+      "id": "event-membership-independent-lifecycle",
+      "expected": "same_event",
+      "left": {"id":"139","author":"hani_berry_1004","created_at":"2026-08-15T01:00:00Z","text":"Interview source thread first detail","conversation_id":"thread-139"},
+      "right": {"id":"140","author":"honeyya_hanihae","created_at":"2026-08-15T01:03:00Z","text":"Interview source thread complementary detail","conversation_id":"thread-139","reply_to_id":"139"}
+    }
+  ]
+}
