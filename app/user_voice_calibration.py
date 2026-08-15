@@ -152,6 +152,45 @@ def _lexical_change_ratio(before: str, after: str) -> float:
     return round(max(0.0, min(1.0, 1.0 - common / denominator)), 4)
 
 
+def _single_edit_or_transposition(left: str, right: str) -> bool:
+    """Return True only for one bounded character typo inside a token."""
+    left = str(left or "").casefold()
+    right = str(right or "").casefold()
+    if not left or not right or left == right or abs(len(left) - len(right)) > 1:
+        return False
+    if len(left) == len(right):
+        mismatches = [index for index, pair in enumerate(zip(left, right)) if pair[0] != pair[1]]
+        if len(mismatches) == 1:
+            return True
+        if len(mismatches) == 2:
+            first, second = mismatches
+            return second == first + 1 and left[first] == right[second] and left[second] == right[first]
+        return False
+
+    shorter, longer = (left, right) if len(left) < len(right) else (right, left)
+    short_index = long_index = differences = 0
+    while short_index < len(shorter) and long_index < len(longer):
+        if shorter[short_index] == longer[long_index]:
+            short_index += 1
+            long_index += 1
+            continue
+        differences += 1
+        if differences > 1:
+            return False
+        long_index += 1
+    differences += len(longer) - long_index
+    return differences == 1
+
+
+def _single_token_typo_change(before: str, after: str) -> bool:
+    left = [token.casefold() for token in _WORD_RE.findall(str(before or ""))]
+    right = [token.casefold() for token in _WORD_RE.findall(str(after or ""))]
+    if len(left) != len(right) or not left:
+        return False
+    changed = [(old, new) for old, new in zip(left, right) if old != new]
+    return len(changed) == 1 and _single_edit_or_transposition(*changed[0])
+
+
 @dataclass(frozen=True, slots=True)
 class StyleDeltaFeatures:
     length_delta_ratio: float = 0.0
@@ -316,9 +355,7 @@ def _format_only_change(before: str, after: str) -> bool:
 
 
 def _looks_typo_only(delta: StyleDeltaFeatures, before: str, after: str) -> bool:
-    if delta.lexical_change_ratio > 0.08:
-        return False
-    if abs(len(str(before or "")) - len(str(after or ""))) > 2:
+    if not _single_token_typo_change(before, after):
         return False
     return not any(
         (
