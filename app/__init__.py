@@ -40,7 +40,19 @@ from . import event_fusion_state_compat as _event_fusion_state_compat  # noqa: F
 from . import event_fusion as _event_fusion  # noqa: F401,E402
 _event_fusion_state_compat.install(_event_fusion)
 
-# The remaining Event Fusion layers are conservative guards/runtime hooks only. They
-# do not become retrieval, delivery, translation or media authorities.
+# Event-level grouping stays conservative for long-form containers: same Live/show
+# does not imply the same moment.
 from . import event_fusion_longform_guard as _event_fusion_longform_guard  # noqa: F401,E402
+
+# Timeline Fusion is a second shadow-only organizational layer under semantic Events.
+# Preserve it inside the existing Event Fusion namespace, then wrap Event grouping so
+# segmentation runs afterward but can never become a delivery/retrieval authority.
+from . import event_timeline as _event_timeline  # noqa: F401,E402
+from . import event_timeline_state_compat as _event_timeline_state_compat  # noqa: F401,E402
+_event_timeline_state_compat.install(_event_fusion, _event_timeline)
+from . import event_timeline_runtime as _event_timeline_runtime  # noqa: F401,E402
+_event_timeline_runtime.install(_event_fusion)
+
+# Bind the private-review Event hook only after Timeline has wrapped the Event function,
+# so private delivery gets Event -> Timeline shadow analysis and then continues unchanged.
 from . import event_fusion_private_runtime as _event_fusion_private_runtime  # noqa: F401,E402
