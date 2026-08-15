@@ -20,11 +20,11 @@ from app.event_fusion import (
     shadow_group_updates,
 )
 from app.fic_state import FicObservation, FicStateStore
-from app.media_delivery_runtime import media_asset_id
 from app.message_delivery import MessageDeliveryStore
 from app.models import MediaItem, Update
 from app.realtime_ingest import realtime_shadow_enabled
 from app.state import StateStore
+from app.zero_silent_miss import media_asset_id
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIGURED = {"hani_berry_1004", "honeyya_hanihae", "pledis_17", "pledis_17jp"}
