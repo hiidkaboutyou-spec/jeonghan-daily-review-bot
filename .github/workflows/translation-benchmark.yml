@@ -19,10 +19,9 @@ on:
 permissions:
   contents: read
 
-# Pull requests use a bounded live production smoke so every code change gets a
-# fast, actionable EN/KO/JA Gemini check. The expensive 30-40 case human/editorial
-# certification remains available on workflow_dispatch and is never represented as
-# something CI can self-approve without human review.
+# Pull requests use bounded deterministic foundation benchmarks plus the existing
+# live EN/KO/JA translation smoke. Human/editorial style certification remains a
+# separate manual action and is never inferred from deterministic checks.
 concurrency:
   group: channel-style-translation-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -58,6 +57,12 @@ jobs:
           python -m compileall -q app tests tools
           python -m app --check
           python -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Channel Style Rewrite foundation benchmark
+        run: python -m tools.run_channel_style_rewrite_benchmark
+
+      - name: Translation Fusion foundation benchmark
+        run: python -m tools.run_translation_fusion_benchmark
 
       - name: Live EN KO JA production translation smoke
         run: python -m tools.run_translation_production_smoke
