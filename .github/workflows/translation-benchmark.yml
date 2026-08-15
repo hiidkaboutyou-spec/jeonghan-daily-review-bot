@@ -61,6 +61,9 @@ jobs:
       - name: Channel Style Rewrite foundation benchmark
         run: python -m tools.run_channel_style_rewrite_benchmark
 
+      - name: User-Voice Calibration foundation benchmark
+        run: python -m tools.run_user_voice_calibration_benchmark
+
       - name: Translation Fusion foundation benchmark
         run: python -m tools.run_translation_fusion_benchmark
 

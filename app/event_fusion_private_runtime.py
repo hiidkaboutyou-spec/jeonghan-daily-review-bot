@@ -29,7 +29,7 @@ def _configured(application: PrivateReviewApplication) -> set[str] | None:
 
 
 def ensure_translation_fusion_shadow() -> None:
-    """Lazy-load non-Fanfic Translation Fusion and Style Rewrite shadow state."""
+    """Lazy-load non-Fanfic Translation/Style/Calibration shadow state."""
     if not getattr(event_fusion.shadow_group_updates, "_translation_fusion_shadow_installed", False):
         from . import translation_fusion
         from . import translation_fusion_runtime
@@ -44,6 +44,16 @@ def ensure_translation_fusion_shadow() -> None:
     from . import channel_style_rewrite_state_compat
 
     channel_style_rewrite_state_compat.install(event_fusion, channel_style_rewrite)
+
+    # User-Voice Calibration is metadata-only and AUTO_LEARN=false.  It does not
+    # consume edits, alter ranking, or own any delivery path automatically.  This
+    # compatibility hook only permits bounded reversible calibration metadata to
+    # survive the existing Event durable-state sanitizer when explicit evidence is
+    # supplied by a future isolated review-evidence path.
+    from . import user_voice_calibration
+    from . import user_voice_calibration_state_compat
+
+    user_voice_calibration_state_compat.install(event_fusion, user_voice_calibration)
 
 
 def _install() -> None:
@@ -91,7 +101,7 @@ def _install() -> None:
                 )
 
         # Existing private-review delivery remains authoritative regardless of every
-        # shadow result or failure.
+        # shadow result or failure. Voice Calibration never changes this return path.
         return await current(self, updates, force=force)
 
     deliver_updates._event_fusion_private_shadow_installed = True
