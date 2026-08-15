@@ -33,10 +33,14 @@ from . import phase2_runtime_compat as _phase2_runtime_compat  # noqa: F401,E402
 from . import phase2_final_visibility as _phase2_final_visibility  # noqa: F401,E402
 from . import phase2_correlation_stability as _phase2_correlation_stability  # noqa: F401,E402
 
-# Event Fusion foundation is installed after the final Phase 1/2/3 runtime so it can
-# observe the authoritative Update batch without becoming a new retrieval, delivery,
-# translation or media authority. It remains shadow-only and fails open to the
-# existing private-review delivery path.
+# Event Fusion is additive metadata inside the already production-verified StateStore
+# contract. Capture that contract before importing the shadow layer, then restore it
+# immediately so Event Fusion cannot redefine the top-level durable-state schema.
+from . import event_fusion_state_compat as _event_fusion_state_compat  # noqa: F401,E402
 from . import event_fusion as _event_fusion  # noqa: F401,E402
+_event_fusion_state_compat.install(_event_fusion)
+
+# The remaining Event Fusion layers are conservative guards/runtime hooks only. They
+# do not become retrieval, delivery, translation or media authorities.
 from . import event_fusion_longform_guard as _event_fusion_longform_guard  # noqa: F401,E402
 from . import event_fusion_private_runtime as _event_fusion_private_runtime  # noqa: F401,E402
