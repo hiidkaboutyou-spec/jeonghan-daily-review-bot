@@ -58,12 +58,32 @@ class EditClassificationTests(unittest.TestCase):
         self.assertIn("factual_correction", record.labels)
         self.assertFalse(record.fidelity_passed)
 
+    def test_mistranslation_correction_is_excluded_from_style_learning(self):
+        record = _record(
+            101,
+            "FACTUAL_INFORMATION",
+            factual="جونگهان ساعت 19:30 اومد.",
+            candidate="جونگهان ساعت 20:30 اومد.",
+            final="جونگهان ساعت 19:30 اومد.",
+        )
+        self.assertTrue(record.fidelity_passed)
+        self.assertFalse(record.eligible_for_learning)
+        self.assertIn("factual_correction", record.labels)
+        self.assertNotIn("style_preference", record.labels)
+
     def test_style_only_edit_is_eligible(self):
         record = _record(2)
         self.assertTrue(record.eligible_for_learning)
         self.assertIn("style_preference", record.labels)
         self.assertIn("emoji_symbol_preference", record.labels)
         self.assertTrue(record.fidelity_passed)
+
+    def test_meaningful_formatting_preference_is_eligible(self):
+        text = "جونگهان امروز اومد و خندید."
+        record = _record(102, factual=text, candidate=text, final="جونگهان امروز اومد\nو خندید.")
+        self.assertTrue(record.eligible_for_learning)
+        self.assertIn("formatting_preference", record.labels)
+        self.assertNotIn("unclassified", record.labels)
 
     def test_ambiguous_untraceable_edit_is_excluded(self):
         record = _record(3, traceable=False)

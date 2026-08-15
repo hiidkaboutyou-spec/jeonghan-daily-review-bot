@@ -87,6 +87,46 @@ def run() -> dict:
     )
     cases.append(("factual correction excluded", not factual.eligible_for_learning and "factual_correction" in factual.labels))
 
+    mistranslation = build_calibration_record(
+        update_id="bench-mistranslation",
+        factual_text="جونگهان ساعت 19:30 اومد.",
+        shadow_candidate="جونگهان ساعت 20:30 اومد.",
+        final_user_text="جونگهان ساعت 19:30 اومد.",
+        content_type="FACTUAL_INFORMATION",
+        traceable=True,
+    )
+    cases.append((
+        "mistranslation correction excluded",
+        mistranslation.fidelity_passed and not mistranslation.eligible_for_learning
+        and "factual_correction" in mistranslation.labels and "style_preference" not in mistranslation.labels,
+    ))
+
+    typo = _record(2, "SHORT_REACTION", "جونگهان امروز اومدد.", "جونگهان امروز اومد.")
+    cases.append(("typo-only correction excluded", not typo.eligible_for_learning and "unclassified" in typo.labels))
+
+    formatting = _record(
+        3,
+        "SHORT_REACTION",
+        "جونگهان امروز اومد و خندید.",
+        "جونگهان امروز اومد\nو خندید.",
+        factual="جونگهان امروز اومد و خندید.",
+    )
+    cases.append((
+        "meaningful formatting preference eligible",
+        formatting.eligible_for_learning and "formatting_preference" in formatting.labels,
+    ))
+
+    conflict = build_calibration_record(
+        update_id="bench-conflict",
+        factual_text="جونگهان امروز اومد.",
+        shadow_candidate="جونگهان امروز اومد.",
+        final_user_text="جونگهان امروز اومد. 🩷",
+        content_type="OTHER",
+        traceable=True,
+        translation_conflict=True,
+    )
+    cases.append(("translation conflict excluded", not conflict.eligible_for_learning and "ambiguous" in conflict.labels))
+
     ambiguous = build_calibration_record(
         update_id="bench-amb",
         factual_text="جونگهان امروز اومد.",
@@ -200,6 +240,7 @@ def run() -> dict:
         "passed": len(cases) - len(failures),
         "failed": len(failures),
         "failures": failures,
+        "case_results": {name: bool(passed) for name, passed in cases},
         "real_user_edit_evidence": "not asserted by this benchmark",
         "real_corpus_split": {"calibration_ids": len(corpus_cal), "holdout_ids": len(corpus_holdout)},
         "calibration_record_split": {"calibration": len(calibration_set), "holdout": len(holdout_set)},

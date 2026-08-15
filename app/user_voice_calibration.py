@@ -158,6 +158,8 @@ def _single_edit_or_transposition(left: str, right: str) -> bool:
     right = str(right or "").casefold()
     if not left or not right or left == right or abs(len(left) - len(right)) > 1:
         return False
+    if any(ch.isdigit() for ch in left + right):
+        return False
     if len(left) == len(right):
         mismatches = [index for index, pair in enumerate(zip(left, right)) if pair[0] != pair[1]]
         if len(mismatches) == 1:
@@ -370,6 +372,26 @@ def _looks_typo_only(delta: StyleDeltaFeatures, before: str, after: str) -> bool
     )
 
 
+def _candidate_edit_is_factual_repair(
+    candidate_failures: Sequence[str],
+    delta: StyleDeltaFeatures,
+    *,
+    typo_only: bool,
+) -> bool:
+    """Exclude factual/mistranslation repairs while allowing proven style-artifact removal."""
+    failures = tuple(str(item) for item in candidate_failures if str(item))
+    if not failures:
+        return False
+    hard_failures = [item for item in failures if not item.startswith("unsupported_content_token:")]
+    if hard_failures:
+        return True
+    if typo_only:
+        return False
+    if delta.removed_ai_like_patterns:
+        return False
+    return True
+
+
 def classify_edit(
     factual_text: str,
     shadow_candidate: str,
@@ -385,18 +407,21 @@ def classify_edit(
     candidate = str(shadow_candidate or "").strip()
     final = str(final_user_text or "").strip()
     delta = analyze_style_delta(candidate, final, profile)
+    candidate_failures = tuple(style_fidelity_failures(factual, candidate)) if candidate else ("missing_style_candidate",)
     failures = tuple(style_fidelity_failures(factual, final)) if final else ("missing_final_user_edit",)
+    typo_only = _looks_typo_only(delta, candidate, final) and final != candidate
+    factual_repair = _candidate_edit_is_factual_repair(candidate_failures, delta, typo_only=typo_only)
     labels: list[str] = []
 
     known_category = str(content_type or "") in _KNOWN_CONTENT_TYPES
     if not traceable or not known_category or translation_conflict or not factual or not candidate or not final:
         labels.append("ambiguous")
-    if failures:
+    if failures or factual_repair:
         labels.append("factual_correction")
     if review_action == "reject":
         labels.append("rejected_bot_artifact")
 
-    if not failures and final:
+    if not failures and final and not factual_repair:
         if final == candidate:
             labels.append("style_preference")
         else:
@@ -418,7 +443,7 @@ def classify_edit(
             if delta.lexical_change_ratio > 0.05:
                 labels.append("one_off_wording")
 
-    if _looks_typo_only(delta, candidate, final) and final != candidate:
+    if typo_only:
         labels = [item for item in labels if item not in {"style_preference", "one_off_wording"}]
         labels.append("unclassified")
 
@@ -431,7 +456,7 @@ def classify_edit(
         confidence = min(confidence, 0.2)
     if "unclassified" in labels:
         confidence = min(confidence, 0.35)
-    if failures:
+    if failures or factual_repair:
         confidence = min(confidence, 0.95)
     elif final == candidate:
         confidence = min(confidence, 0.9)
