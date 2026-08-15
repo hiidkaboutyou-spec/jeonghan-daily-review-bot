@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import tempfile
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Callable
 
 from app.final_edit_capture import (
     AWAITING_CONFIRMATION,
@@ -21,12 +23,31 @@ ROOT = Path(__file__).parents[1]
 NOW = datetime(2026, 8, 15, 12, 0, tzinfo=timezone.utc)
 
 
-def _run_case(name, fn):
-    try:
-        ok = bool(fn())
-    except Exception as exc:
-        print(f"FAIL {name}: {type(exc).__name__}")
+@dataclass(frozen=True, slots=True)
+class BenchmarkCheckpoint:
+    name: str
+    passed: bool
+    error: str = ""
+
+
+class CheckpointCases(list[BenchmarkCheckpoint]):
+    """Evaluate each case at its lifecycle checkpoint, not after later mutations."""
+
+    def append(self, item: tuple[str, Callable[[], object]]) -> None:
+        name, evaluator = item
+        try:
+            checkpoint = BenchmarkCheckpoint(name=name, passed=bool(evaluator()))
+        except Exception as exc:
+            checkpoint = BenchmarkCheckpoint(name=name, passed=False, error=type(exc).__name__)
+        super().append(checkpoint)
+
+
+def _run_case(checkpoint: BenchmarkCheckpoint) -> bool:
+    name = checkpoint.name
+    if checkpoint.error:
+        print(f"FAIL {name}: {checkpoint.error}")
         return False
+    ok = checkpoint.passed
     print(("PASS " if ok else "FAIL ") + name)
     return ok
 
@@ -53,7 +74,7 @@ def main() -> int:
                 review_chat_ref=chat_ref, now=NOW + timedelta(seconds=offset),
             )
 
-        cases = []
+        cases = CheckpointCases()
 
         s1 = start("unconfirmed", 0)
         receive(s1, offset=1)
@@ -120,7 +141,7 @@ def main() -> int:
         cases.append(("29 no paid/new infra dependency", lambda: all(token not in requirements for token in ("supabase", "redis", "celery", "pinecone", "qdrant", "weaviate"))))
         cases.append(("30 no synthetic production seed", lambda: "INSERT INTO final_edits" not in runtime_source and "seed" not in runtime_source.casefold()))
 
-        passed = sum(_run_case(name, fn) for name, fn in cases)
+        passed = sum(_run_case(checkpoint) for checkpoint in cases)
         store.close()
 
     print(f"PRIVATE REVIEW FINAL EDIT CAPTURE BENCHMARK: {passed}/{len(cases)} passed")

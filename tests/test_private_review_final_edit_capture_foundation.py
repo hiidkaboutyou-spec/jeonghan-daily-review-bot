@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 from app.final_edit_capture import (
     AWAITING_CONFIRMATION,
@@ -23,8 +25,11 @@ from app.final_edit_capture import (
     record_metadata,
 )
 from app.final_edit_capture_runtime import TELEGRAM_USER_TEXT_LIMIT, _state_linkage, _with_edit_button
+from app.message_delivery import MessageDeliveryStore
+from app.realtime_ingest import realtime_shadow_enabled
 from app.telegram import draft_keyboard
 from app.user_voice_calibration import AUTO_LEARN, VOICE_CALIBRATION_MODE, build_calibration_record
+from tools.run_private_review_final_edit_capture_benchmark import CheckpointCases
 
 ROOT = Path(__file__).parents[1]
 BASE_TIME = datetime(2026, 8, 15, 12, 0, tzinfo=timezone.utc)
@@ -356,8 +361,9 @@ class RuntimeBoundaryTests(unittest.TestCase):
     def test_multi_part_semantics_are_whole_draft_safe(self):
         runtime = (ROOT / "app" / "final_edit_capture_runtime.py").read_text(encoding="utf-8")
         self.assertEqual(TELEGRAM_USER_TEXT_LIMIT, 4096)
-        self.assertIn("logical Draft", runtime)
-        self.assertIn("len(str(draft.caption or \"\")) > TELEGRAM_USER_TEXT_LIMIT", runtime)
+        self.assertIn("multi-part bot Draft", runtime)
+        self.assertIn("canonical whole-Draft final edit", runtime)
+        self.assertIn('len(str(draft.caption or "")) > TELEGRAM_USER_TEXT_LIMIT', runtime)
 
     def test_event_and_segment_linkage_uses_update_membership(self):
         draft = _Draft()
@@ -386,10 +392,58 @@ class RuntimeBoundaryTests(unittest.TestCase):
         self.assertNotIn("pending_delivery", source)
 
     def test_receipt_authority_is_untouched(self):
-        source = (ROOT / "app" / "final_edit_capture.py").read_text(encoding="utf-8")
-        self.assertNotIn("MessageDeliveryStore", source)
-        self.assertNotIn("telegram_media_delivery", source)
-        self.assertNotIn("receipt", source.casefold())
+        capture_source = (ROOT / "app" / "final_edit_capture.py").read_text(encoding="utf-8")
+        runtime_source = (ROOT / "app" / "final_edit_capture_runtime.py").read_text(encoding="utf-8")
+        combined = capture_source + runtime_source
+        self.assertNotIn("MessageDeliveryStore", combined)
+        self.assertNotIn("message_delivery_store", combined)
+        self.assertNotIn("telegram_media_delivery", combined)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "private-review.sqlite3"
+            receipts = MessageDeliveryStore(db_path)
+            receipts.save_plan("daily:u-a:text", "part one", ["part one"])
+            receipts.confirm("daily:u-a:text", 0, "part one", 777)
+
+            edits = FinalEditStore(db_path, ttl_seconds=300)
+            chat_ref = privacy_ref("private-review-chat-v1", "-100123")
+            draft_text = "جونگهان امروز اومد."
+            draft_fp = fingerprint("authoritative-review-draft-v1", draft_text)
+            session = edits.start_session(
+                draft_id="draft-a",
+                update_id="u-a",
+                event_id="evt:1",
+                segment_id="seg:1",
+                review_chat_ref=chat_ref,
+                authoritative_review_draft_fingerprint=draft_fp,
+                original_factual_fingerprint="f" * 64,
+                shadow_style_candidate_fingerprint="s" * 64,
+                content_type="SHORT_REACTION",
+                now=BASE_TIME,
+            )
+            edits.set_prompt_message(session.session_id, 101, now=BASE_TIME + timedelta(seconds=1))
+            edits.receive_user_text(
+                session.session_id,
+                "جونگهان امروز اومد. 🩷",
+                current_draft_fingerprint=draft_fp,
+                review_chat_ref=chat_ref,
+                now=BASE_TIME + timedelta(seconds=2),
+            )
+            edits.confirm_session(
+                session.session_id,
+                current_draft_fingerprint=draft_fp,
+                review_chat_ref=chat_ref,
+                now=BASE_TIME + timedelta(seconds=3),
+            )
+
+            self.assertEqual(receipts.get_plan("daily:u-a:text"), ("part one", ["part one"]))
+            self.assertEqual(receipts.confirmed_message_id("daily:u-a:text", 0, "part one"), 777)
+            self.assertEqual(
+                receipts.conn.execute("SELECT COUNT(*) FROM message_delivery_parts").fetchone()[0],
+                1,
+            )
+            edits.close()
+            receipts.close()
 
     def test_phase3_retrieval_is_untouched(self):
         combined = (ROOT / "app" / "final_edit_capture.py").read_text(encoding="utf-8") + (ROOT / "app" / "final_edit_capture_runtime.py").read_text(encoding="utf-8")
@@ -441,8 +495,12 @@ class RuntimeBoundaryTests(unittest.TestCase):
         self.assertNotIn("sentry_sdk", source)
 
     def test_realtime_shadow_mode_remains_off(self):
-        runtime = json.loads((ROOT / "config" / "runtime.json").read_text(encoding="utf-8"))
-        self.assertFalse(bool(runtime.get("realtime_shadow_mode", False)))
+        source = (ROOT / "app" / "realtime_ingest.py").read_text(encoding="utf-8")
+        self.assertIn('os.getenv("REALTIME_SHADOW_MODE", "")', source)
+        with mock.patch.dict(os.environ, {"REALTIME_SHADOW_MODE": ""}):
+            self.assertFalse(realtime_shadow_enabled())
+        with mock.patch.dict(os.environ, {"REALTIME_SHADOW_MODE": "true"}):
+            self.assertTrue(realtime_shadow_enabled())
 
     def test_configured_sources_remain_24(self):
         config = json.loads((ROOT / "config" / "sources.json").read_text(encoding="utf-8"))
@@ -454,6 +512,69 @@ class RuntimeBoundaryTests(unittest.TestCase):
         text = "\n".join(path.read_text(encoding="utf-8").casefold() for path in paths)
         for forbidden in ("supabase", "redis", "celery", "pinecone", "paid x api", "vector db", "openai api"):
             self.assertNotIn(forbidden, text)
+
+
+class BenchmarkCheckpointRegressionTests(FinalEditStoreTestCase):
+    def test_early_lifecycle_checkpoints_survive_later_store_mutation(self):
+        checkpoints = CheckpointCases()
+
+        unconfirmed = self.start(draft_id="draft-unconfirmed", update_id="u-unconfirmed")
+        self.receive(unconfirmed)
+        checkpoints.append((
+            "01 unconfirmed is not evidence",
+            lambda: self.store.confirmed_real_final_edit_count() == 0,
+        ))
+        checkpoints.append((
+            "02 awaiting explicit confirmation",
+            lambda: self.store.get_session(unconfirmed.session_id, expire=False).status == AWAITING_CONFIRMATION,
+        ))
+
+        confirmed = self.confirm(unconfirmed)
+        self.assertIsNotNone(confirmed)
+        checkpoints.append((
+            "04 confirmed count increments",
+            lambda: self.store.confirmed_real_final_edit_count() == 1,
+        ))
+
+        cancelled = self.start(
+            draft_id="draft-cancelled",
+            update_id="u-cancelled",
+            now=BASE_TIME + timedelta(seconds=20),
+        )
+        self.receive(cancelled, now=BASE_TIME + timedelta(seconds=21))
+        self.store.cancel_session(cancelled.session_id, now=BASE_TIME + timedelta(seconds=22))
+        checkpoints.append((
+            "05 cancelled edit is not evidence",
+            lambda: self.store.confirmed_real_final_edit_count() == 1,
+        ))
+
+        first_revision = self.start(
+            draft_id="draft-revision",
+            update_id="u-revision",
+            now=BASE_TIME + timedelta(seconds=30),
+        )
+        self.receive(first_revision, "جونگهان امروز اومد. 🩷", now=BASE_TIME + timedelta(seconds=31))
+        self.confirm(first_revision, now=BASE_TIME + timedelta(seconds=32))
+        second_revision = self.start(
+            draft_id="draft-revision",
+            update_id="u-revision",
+            now=BASE_TIME + timedelta(seconds=40),
+        )
+        self.receive(second_revision, "جونگهان امروز اومد. 🩷🩷", now=BASE_TIME + timedelta(seconds=41))
+        self.confirm(second_revision, now=BASE_TIME + timedelta(seconds=42))
+
+        self.assertEqual(self.store.confirmed_real_final_edit_count(), 2)
+        self.assertEqual(
+            [checkpoint.name for checkpoint in checkpoints],
+            [
+                "01 unconfirmed is not evidence",
+                "02 awaiting explicit confirmation",
+                "04 confirmed count increments",
+                "05 cancelled edit is not evidence",
+            ],
+        )
+        self.assertTrue(all(checkpoint.passed for checkpoint in checkpoints))
+        self.assertTrue(all(not checkpoint.error for checkpoint in checkpoints))
 
 
 if __name__ == "__main__":
