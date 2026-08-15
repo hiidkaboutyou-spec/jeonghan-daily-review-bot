@@ -53,6 +53,15 @@ _event_timeline_state_compat.install(_event_fusion, _event_timeline)
 from . import event_timeline_runtime as _event_timeline_runtime  # noqa: F401,E402
 _event_timeline_runtime.install(_event_fusion)
 
-# Bind the private-review Event hook only after Timeline has wrapped the Event function,
-# so private delivery gets Event -> Timeline shadow analysis and then continues unchanged.
+# Translation Fusion is a third shadow-only layer under Timeline Segments. It records
+# configured-source evidence and deterministic fidelity outcomes only; it never
+# replaces the existing writer, Draft, Telegram, lifecycle, media, or retrieval path.
+from . import translation_fusion as _translation_fusion  # noqa: F401,E402
+from . import translation_fusion_state_compat as _translation_fusion_state_compat  # noqa: F401,E402
+_translation_fusion_state_compat.install(_event_fusion, _translation_fusion)
+from . import translation_fusion_runtime as _translation_fusion_runtime  # noqa: F401,E402
+_translation_fusion_runtime.install(_event_fusion)
+
+# Bind the private-review Event hook only after Timeline and Translation Fusion have
+# wrapped the Event function, so all three shadow layers run before unchanged delivery.
 from . import event_fusion_private_runtime as _event_fusion_private_runtime  # noqa: F401,E402
