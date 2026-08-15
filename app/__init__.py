@@ -38,3 +38,4 @@ from . import phase2_correlation_stability as _phase2_correlation_stability  # n
 # translation or media authority. It remains shadow-only and fails open to the
 # existing private-review delivery path.
 from . import event_fusion as _event_fusion  # noqa: F401,E402
+from . import event_fusion_longform_guard as _event_fusion_longform_guard  # noqa: F401,E402
