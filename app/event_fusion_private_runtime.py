@@ -10,11 +10,13 @@ from .private_runtime import PrivateReviewApplication
 def _configured(application: PrivateReviewApplication) -> set[str] | None:
     """Return configured handles when runtime settings expose the real source list.
 
-    Some isolated delivery tests intentionally construct a minimal settings object
-    without sources. Shadow analysis is optional, so that case must preserve the
-    pre-shadow delivery path instead of becoming a new requirement for delivery.
+    Some isolated delivery tests intentionally construct a minimal application or
+    settings object without sources. Shadow analysis is optional, so those cases
+    must preserve the pre-shadow delivery path instead of becoming a new delivery
+    requirement.
     """
-    sources = getattr(application.settings, "sources", None)
+    settings = getattr(application, "settings", None)
+    sources = getattr(settings, "sources", None)
     if not isinstance(sources, (list, tuple)):
         return None
     return {
