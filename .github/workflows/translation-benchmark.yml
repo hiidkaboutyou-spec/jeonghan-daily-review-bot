@@ -64,6 +64,9 @@ jobs:
       - name: Forward-ready private-review UX foundation benchmark
         run: python -m tools.run_forward_ready_benchmark
 
+      - name: Fused Private-Review Delivery foundation benchmark
+        run: python -m tools.run_fused_private_review_delivery_benchmark
+
       - name: Direct User Style Rules foundation benchmark
         run: python -m tools.run_direct_user_style_rules_benchmark
 
@@ -75,6 +78,12 @@ jobs:
 
       - name: Translation Fusion foundation benchmark
         run: python -m tools.run_translation_fusion_benchmark
+
+      - name: Event Fusion foundation benchmark
+        run: python -m tools.run_event_fusion_benchmark
+
+      - name: Event Timeline foundation benchmark
+        run: python -m tools.run_event_timeline_benchmark
 
       - name: Live EN KO JA production translation smoke
         run: python -m tools.run_translation_production_smoke

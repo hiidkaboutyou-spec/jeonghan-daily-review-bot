@@ -111,11 +111,12 @@ def _install() -> None:
         # shadow result or failure. Planning happens only after that unchanged path
         # so it can reference the current Draft, but it cannot affect the send.
         result = await current(self, updates, force=force)
+        forward_ready_packages = None
         if shadow_chain_ok:
             try:
                 from .forward_ready_package import plan_forward_ready_packages
 
-                plan_forward_ready_packages(
+                forward_ready_packages = plan_forward_ready_packages(
                     self.state,
                     updates,
                     final_edit_store=getattr(self, "final_edit_store", None),
@@ -126,6 +127,41 @@ def _install() -> None:
                     level="warning",
                     component="forward_ready_package",
                     stage="private_review_presentation_shadow",
+                    status="failed",
+                    error_class=type(exc).__name__,
+                    mode="shadow",
+                )
+
+        # The fused delivery planner is a second, independent fail-open shadow layer.
+        # It consumes the already-derived ForwardReadyPackage objects only after the
+        # real Update-oriented private-review send has completed. It has no Telegram
+        # transport/receipt capability and cannot reorder, suppress, or combine the
+        # authoritative production messages.
+        if forward_ready_packages is not None:
+            try:
+                from .fused_private_review_delivery import (
+                    plan_fused_private_review_delivery,
+                    privacy_safe_observation,
+                )
+
+                fused_plans = plan_fused_private_review_delivery(
+                    self.state,
+                    forward_ready_packages,
+                )
+                for plan in fused_plans:
+                    observe(
+                        "shadow_fused_private_review_delivery",
+                        component="fused_private_review_delivery",
+                        stage="private_review_delivery_plan_shadow",
+                        status="planned",
+                        **privacy_safe_observation(plan),
+                    )
+            except Exception as exc:
+                observe(
+                    "shadow_fused_private_review_delivery",
+                    level="warning",
+                    component="fused_private_review_delivery",
+                    stage="private_review_delivery_plan_shadow",
                     status="failed",
                     error_class=type(exc).__name__,
                     mode="shadow",
