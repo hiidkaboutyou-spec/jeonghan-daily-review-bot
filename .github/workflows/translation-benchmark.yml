@@ -61,6 +61,9 @@ jobs:
       - name: Private-Review Final-Edit Capture foundation benchmark
         run: python -m tools.run_private_review_final_edit_capture_benchmark
 
+      - name: Forward-ready private-review UX foundation benchmark
+        run: python -m tools.run_forward_ready_benchmark
+
       - name: Direct User Style Rules foundation benchmark
         run: python -m tools.run_direct_user_style_rules_benchmark
 
