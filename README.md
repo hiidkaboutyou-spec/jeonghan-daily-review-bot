@@ -8,7 +8,7 @@
 
 ## قابلیت‌های اصلی
 
-- اسکن ۲۲ منبع تنظیم‌شده در `config/sources.json` و جست‌وجوی چندزبانهٔ EN/KR/JP
+- اسکن ۲۴ منبع تنظیم‌شده در `config/sources.json` و جست‌وجوی چندزبانهٔ EN/KR/JP
 - replay دو ساعت اخیر، دریافت کامل ۲۴ ساعت یک منبع و جست‌وجوی آرشیو خصوصی
 - گروه‌بندی chronological رویدادها و لایوها
 - رسانهٔ باکیفیت با direct URL و fallbackهای yt-dlp/FFmpeg و gallery-dl اختیاری
@@ -20,6 +20,7 @@
 - inbox، reminder، source health و private archive SQLite
 - `📚 فن‌فیک` و Nightly AO3/X digest با pagination محدود، pacing، fic-state و multipart receipts
 - هیچ autopublish عمومی؛ همهٔ خروجی‌ها در review chat خصوصی می‌مانند
+- برنامه‌ریزی shadow و reference-only برای بسته‌های Forward-ready؛ جزئیات و مرزهای ایمنی در [`docs/forward-ready-private-review-ux-foundation.md`](docs/forward-ready-private-review-ux-foundation.md)
 
 ## منوی تلگرام
 

@@ -55,6 +55,13 @@ def ensure_translation_fusion_shadow() -> None:
 
     user_voice_calibration_state_compat.install(event_fusion, user_voice_calibration)
 
+    # Forward-ready planning is another bounded, recomputable shadow layer. Its
+    # sanitizer permits only IDs/fingerprints/statuses inside Event Fusion state.
+    from . import forward_ready_package
+    from . import forward_ready_state_compat
+
+    forward_ready_state_compat.install(event_fusion, forward_ready_package)
+
 
 def _install() -> None:
     current = PrivateReviewApplication.deliver_updates
@@ -101,8 +108,29 @@ def _install() -> None:
                 )
 
         # Existing private-review delivery remains authoritative regardless of every
-        # shadow result or failure. Voice Calibration never changes this return path.
-        return await current(self, updates, force=force)
+        # shadow result or failure. Planning happens only after that unchanged path
+        # so it can reference the current Draft, but it cannot affect the send.
+        result = await current(self, updates, force=force)
+        if shadow_chain_ok:
+            try:
+                from .forward_ready_package import plan_forward_ready_packages
+
+                plan_forward_ready_packages(
+                    self.state,
+                    updates,
+                    final_edit_store=getattr(self, "final_edit_store", None),
+                )
+            except Exception as exc:
+                observe(
+                    "shadow_forward_ready_package",
+                    level="warning",
+                    component="forward_ready_package",
+                    stage="private_review_presentation_shadow",
+                    status="failed",
+                    error_class=type(exc).__name__,
+                    mode="shadow",
+                )
+        return result
 
     deliver_updates._event_fusion_private_shadow_installed = True
     PrivateReviewApplication.deliver_updates = deliver_updates
