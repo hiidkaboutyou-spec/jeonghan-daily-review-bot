@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "authority_order": [
+    "factual_fidelity",
+    "direct_user_style_rules",
+    "stable_real_user_edit_preferences",
+    "historical_style_examples",
+    "generic_style_heuristics"
+  ],
+  "max_recent_symbols": 4,
+  "symbol_pool": [
+    "◝₊ ★",
+    "☆🍰",
+    "𐙚⋆°｡",
+    "✧˖°",
+    "⋆౨ৎ˚⟡˖"
+  ],
+  "body_prefixes": [
+    "💒 ⌕ ",
+    "،،⌕໋  ִ˒˒ "
+  ],
+  "rules": [
+    {
+      "rule_id": "jeonghan_instagram_story",
+      "priority": 100,
+      "category": "instagram_story",
+      "platforms": ["instagram"],
+      "accounts": ["jeonghaniyoo_n"],
+      "story": true,
+      "header_template": "jeonghaniyoo_n 𐑞✿ྀི instagram story:",
+      "body_prefix_policy": "none",
+      "symbol_policy": "none",
+      "required_evidence": ["platform", "account", "story"]
+    },
+    {
+      "rule_id": "banila_co_jeonghan",
+      "priority": 90,
+      "category": "banila_co",
+      "brands": ["banila co"],
+      "require_jeonghan": true,
+      "header_template": "☆ اپدیت برند بانیلاکو با هانی    💒!",
+      "body_prefix_policy": "deterministic_family",
+      "symbol_policy": "none",
+      "required_evidence": ["brand", "jeonghan"]
+    },
+    {
+      "rule_id": "jeonghan_instagram_feed",
+      "priority": 80,
+      "category": "instagram_feed",
+      "platforms": ["instagram"],
+      "accounts": ["jeonghaniyoo_n"],
+      "story": false,
+      "header_template": "🧸    #IG ׂ ✧   ﹫ jeonghaniyoo_n",
+      "body_prefix_policy": "deterministic_family",
+      "symbol_policy": "none",
+      "required_evidence": ["platform", "account"]
+    },
+    {
+      "rule_id": "weverse_update",
+      "priority": 70,
+      "category": "weverse",
+      "platforms": ["weverse"],
+      "header_template": "୨ ࣪ ˓ بانی ثراپی    -{date}🥛 ★",
+      "body_prefix_policy": "deterministic_family",
+      "symbol_policy": "none",
+      "required_evidence": ["platform", "date"]
+    },
+    {
+      "rule_id": "dated_live_event_program",
+      "priority": 60,
+      "category": "live_event_program",
+      "categories": ["live", "event", "program"],
+      "content_types": ["LIVE_DIALOGUE", "WEVERSE_LIVE", "FASHION_EVENT"],
+      "header_template": "{date} {symbol} {title}",
+      "body_prefix_policy": "deterministic_family",
+      "symbol_policy": "rotate",
+      "required_evidence": ["date", "title"]
+    }
+  ]
+}

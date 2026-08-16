@@ -15,6 +15,14 @@ from typing import Any, Iterable, Mapping, Protocol, Sequence
 
 from .channel_quality import target_register
 from .channel_style_runtime import RetrievedStyleExample, analyze_source, classify_content_type
+from .direct_style_rules import (
+    DEFAULT_AUTHORITY_ORDER,
+    DIRECT_STYLE_RULES_MODE,
+    DIRECT_STYLE_RULES_VERSION,
+    DirectStyleEvidence,
+    DirectStylePlanner,
+    StyleDirective,
+)
 from .observability import observe
 from .translation_fusion import (
     TranslationFusionResult,
@@ -27,6 +35,7 @@ STYLE_REWRITE_VERSION = 1
 STYLE_REWRITE_MODE = "shadow"
 MAX_STYLE_EXAMPLES = 5
 MAX_STYLE_RESULTS = 3000
+MAX_DIRECT_STYLE_SYMBOL_HISTORY = 4
 MIN_PROFILE_EXAMPLES = 12
 STYLE_SCORE_THRESHOLD = 0.34
 
@@ -164,6 +173,9 @@ class StyleRewriteInput:
     hard_factual_invariants: Mapping[str, tuple[str, ...]]
     style_profile: str
     selected_style_example_ids: tuple[str, ...]
+    direct_style_rule_id: str = ""
+    direct_style_category: str = "generic"
+    authority_order: tuple[str, ...] = DEFAULT_AUTHORITY_ORDER
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,6 +196,12 @@ class StyleRewriteResult:
     provider: str = "local_conservative"
     factual_fingerprint: str = ""
     candidate_fingerprint: str = ""
+    direct_style_rule_id: str = ""
+    direct_style_category: str = "generic"
+    direct_style_applied: bool = False
+    direct_style_fallback_reason: str = "no_matching_direct_rule"
+    direct_style_symbol: str = ""
+    authority_order: tuple[str, ...] = DEFAULT_AUTHORITY_ORDER
 
     def state_metadata(self) -> dict[str, Any]:
         return {
@@ -202,6 +220,14 @@ class StyleRewriteResult:
             "review_required": bool(self.review_required),
             "provider": self.provider[:48],
             "mode": STYLE_REWRITE_MODE,
+            "direct_style_rules_version": DIRECT_STYLE_RULES_VERSION,
+            "direct_style_rules_mode": DIRECT_STYLE_RULES_MODE,
+            "direct_style_rule_id": self.direct_style_rule_id[:80],
+            "direct_style_category": self.direct_style_category[:48],
+            "direct_style_applied": bool(self.direct_style_applied),
+            "direct_style_fallback_reason": self.direct_style_fallback_reason[:80],
+            "direct_style_symbol": self.direct_style_symbol[:32],
+            "authority_order": list(self.authority_order),
             "text_persisted": False,
         }
 
@@ -362,6 +388,7 @@ def build_style_rewrite_input(
     content_type: str | None = None,
     style_profile: str = "",
     selected_example_ids: Iterable[str] = (),
+    direct_style: StyleDirective | None = None,
 ) -> StyleRewriteInput:
     text = str(factual_text or "").strip()
     analysis = analyze_source(text, hinted_content_type=content_type)
@@ -375,6 +402,9 @@ def build_style_rewrite_input(
         hard_factual_invariants=hard_factual_invariants(text),
         style_profile=(style_profile or chosen_type)[:80],
         selected_style_example_ids=tuple(str(item) for item in selected_example_ids)[:MAX_STYLE_EXAMPLES],
+        direct_style_rule_id=(direct_style.rule_id if direct_style else "")[:80],
+        direct_style_category=(direct_style.category if direct_style else "generic")[:48],
+        authority_order=direct_style.authority_order if direct_style else DEFAULT_AUTHORITY_ORDER,
     )
 
 
@@ -675,20 +705,28 @@ def evaluate_style_candidate(
     profile: StyleProfile,
     *,
     provider: str = "fixture",
+    direct_style: StyleDirective | None = None,
+    direct_style_evidence: DirectStyleEvidence | None = None,
 ) -> StyleRewriteResult:
     factual = rewrite_input.faithful_factual_text
-    candidate = str(candidate_text or "").strip()
-    failures = style_fidelity_failures(factual, candidate, examples)
-    score = score_style_match(candidate, profile)
-    findings = ai_like_findings(candidate, profile)
+    directive = direct_style or StyleDirective(authority_order=rewrite_input.authority_order)
+    evidence = direct_style_evidence or DirectStyleEvidence(content_type=rewrite_input.content_type)
+    body_candidate = str(candidate_text or "").strip()
+    candidate = directive.render(body_candidate, is_dialogue=evidence.is_dialogue)
+    projected, directive_failures = directive.factual_projection(candidate, is_dialogue=evidence.is_dialogue)
+    failures = list(directive_failures)
+    failures.extend(style_fidelity_failures(factual, projected, examples))
+    failures = list(dict.fromkeys(failures))
+    score = score_style_match(projected, profile)
+    findings = ai_like_findings(projected, profile)
     fallback = ""
     accepted = not failures
     if failures:
         fallback = "fidelity_lock_rejected"
-    elif findings and score < STYLE_SCORE_THRESHOLD:
+    elif findings and (score < STYLE_SCORE_THRESHOLD or directive.applied):
         accepted = False
         fallback = "unnatural_or_overstyled"
-    elif score < STYLE_SCORE_THRESHOLD:
+    elif score < STYLE_SCORE_THRESHOLD and not directive.applied:
         accepted = False
         fallback = "low_style_confidence"
     final_text = candidate if accepted else factual
@@ -709,6 +747,12 @@ def evaluate_style_candidate(
         provider=provider,
         factual_fingerprint=_fingerprint("factual-v1", factual),
         candidate_fingerprint=_fingerprint("candidate-v1", candidate) if candidate else "",
+        direct_style_rule_id=directive.rule_id,
+        direct_style_category=directive.category,
+        direct_style_applied=directive.applied,
+        direct_style_fallback_reason=directive.fallback_reason,
+        direct_style_symbol=directive.symbol,
+        authority_order=directive.authority_order,
     )
 
 
@@ -720,9 +764,31 @@ def rewrite_shadow_candidate(
     segment_id: str,
     content_type: str | None = None,
     provider: StyleRewriteProvider | None = None,
+    direct_evidence: DirectStyleEvidence | Mapping[str, Any] | None = None,
+    recent_symbols: Sequence[object] = (),
 ) -> StyleRewriteResult:
     provider = provider or ConservativeLocalStyleProvider()
     content_type = content_type or classify_content_type(factual_text)
+    evidence = direct_evidence if isinstance(direct_evidence, DirectStyleEvidence) else DirectStyleEvidence.from_mapping(direct_evidence)
+    if evidence.content_type == "OTHER" and content_type != "OTHER":
+        evidence = DirectStyleEvidence(
+            content_type=content_type,
+            category=evidence.category,
+            platform=evidence.platform,
+            account=evidence.account,
+            brand=evidence.brand,
+            date=evidence.date,
+            title=evidence.title,
+            is_story=evidence.is_story,
+            is_dialogue=evidence.is_dialogue,
+            has_jeonghan=evidence.has_jeonghan,
+            ambiguous=evidence.ambiguous,
+        )
+    directive = DirectStylePlanner().plan(
+        evidence,
+        context_key=f"{event_id}:{segment_id}",
+        recent_symbols=recent_symbols,
+    )
     profile = profile_for_content_type(memory, content_type)
     preliminary = build_style_rewrite_input(
         factual_text,
@@ -730,6 +796,7 @@ def rewrite_shadow_candidate(
         segment_id=segment_id,
         content_type=content_type,
         style_profile=profile.key,
+        direct_style=directive,
     )
     examples = retrieve_structural_examples(memory, preliminary, limit=MAX_STYLE_EXAMPLES)
     final_input = build_style_rewrite_input(
@@ -739,9 +806,10 @@ def rewrite_shadow_candidate(
         content_type=content_type,
         style_profile=profile.key,
         selected_example_ids=[item.example_id for item in examples],
+        direct_style=directive,
     )
     provider_name = getattr(provider, "name", type(provider).__name__)
-    if not profile.supported:
+    if not profile.supported and not directive.applied:
         return StyleRewriteResult(
             event_id=event_id,
             segment_id=segment_id,
@@ -755,8 +823,14 @@ def rewrite_shadow_candidate(
             review_required=True,
             provider=provider_name,
             factual_fingerprint=_fingerprint("factual-v1", factual_text),
+            direct_style_rule_id=directive.rule_id,
+            direct_style_category=directive.category,
+            direct_style_applied=directive.applied,
+            direct_style_fallback_reason=directive.fallback_reason,
+            direct_style_symbol=directive.symbol,
+            authority_order=directive.authority_order,
         )
-    if not examples:
+    if not examples and not directive.applied:
         return StyleRewriteResult(
             event_id=event_id,
             segment_id=segment_id,
@@ -770,6 +844,12 @@ def rewrite_shadow_candidate(
             review_required=True,
             provider=provider_name,
             factual_fingerprint=_fingerprint("factual-v1", factual_text),
+            direct_style_rule_id=directive.rule_id,
+            direct_style_category=directive.category,
+            direct_style_applied=directive.applied,
+            direct_style_fallback_reason=directive.fallback_reason,
+            direct_style_symbol=directive.symbol,
+            authority_order=directive.authority_order,
         )
     try:
         candidate = provider.rewrite(final_input, examples, profile)
@@ -787,6 +867,12 @@ def rewrite_shadow_candidate(
             review_required=True,
             provider=provider_name,
             factual_fingerprint=_fingerprint("factual-v1", factual_text),
+            direct_style_rule_id=directive.rule_id,
+            direct_style_category=directive.category,
+            direct_style_applied=directive.applied,
+            direct_style_fallback_reason=directive.fallback_reason,
+            direct_style_symbol=directive.symbol,
+            authority_order=directive.authority_order,
         )
     return evaluate_style_candidate(
         final_input,
@@ -794,6 +880,8 @@ def rewrite_shadow_candidate(
         examples,
         profile,
         provider=provider_name,
+        direct_style=directive,
+        direct_style_evidence=evidence,
     )
 
 
@@ -843,10 +931,88 @@ def _infer_content_type(state: Any, result: TranslationFusionResult, incoming: M
     return classify_content_type(result.fused_factual_text)
 
 
+def _direct_style_evidence(
+    state: Any,
+    result: TranslationFusionResult,
+    incoming: Mapping[str, Any],
+    content_type: str,
+) -> DirectStyleEvidence:
+    """Derive rule inputs only from current Segment Updates and their metadata."""
+    current_updates: list[Any] = []
+    for update_id in result.evidence_update_ids:
+        item = incoming.get(str(update_id)) or state.get_update(str(update_id))
+        if item is not None:
+            current_updates.append(item)
+    backbone = next(
+        (item for item in current_updates if str(item.id) == str(result.backbone_update_id)),
+        current_updates[0] if current_updates else None,
+    )
+    if backbone is None:
+        return DirectStyleEvidence(content_type=content_type, ambiguous=True)
+
+    source_text = "\n".join(str(item.translation_source()) for item in current_updates).strip()
+    folded = source_text.casefold()
+    categories = {
+        str(getattr(item, "category", "") or "general").casefold().replace("_", "-")
+        for item in current_updates
+    }
+    platforms: set[str] = set()
+    detected_platform = analyze_source(source_text, hinted_content_type=content_type).platform
+    if detected_platform:
+        platforms.add(detected_platform)
+    if any(marker in folded for marker in ("weverse", "ویورس", "위버스")):
+        platforms.add("weverse")
+    if any(marker in folded for marker in ("instagram", "اینستاگرام", "인스타", "ig update", "ig story")):
+        platforms.add("instagram")
+
+    category = str(getattr(backbone, "category", "") or "general").casefold().replace("_", "-")
+    if category in {"jeonghan-instagram", "member-instagram", "instagram", "instagram-story"}:
+        platforms.add("instagram")
+    if category in {"weverse", "weverse-post", "weverse-live"}:
+        platforms.add("weverse")
+    platform = next(iter(platforms)) if len(platforms) == 1 else ""
+
+    explicit_story = category == "instagram-story" or bool(
+        re.search(r"(?:instagram|ig|اینستاگرام|인스타)\s+story|استوری\s+اینستاگرام", folded, re.I)
+    )
+    account = "jeonghaniyoo_n" if (
+        str(getattr(backbone, "author", "")).casefold().lstrip("@") == "jeonghaniyoo_n"
+        or "jeonghaniyoo_n" in folded
+    ) else ""
+    brand = "banila co" if any(marker in folded for marker in ("banila co", "banilaco", "banila", "بانیلا")) else ""
+    has_jeonghan = bool(account) or "JEONGHAN" in identity_sequence(source_text + "\n" + result.fused_factual_text)
+    title = str(getattr(backbone, "event_title", "") or "").strip()[:160]
+    try:
+        current_date = backbone.created_at.strftime("%y%m%d")
+    except Exception:
+        current_date = ""
+    dialogue = bool(_SPEAKER_RE.search(result.fused_factual_text)) or content_type in {
+        "LIVE_DIALOGUE", "WEVERSE_LIVE", "FANSIGN", "INTERVIEW", "MEMBER_QUOTE",
+    }
+    meaningful_categories = {item for item in categories if item not in {"", "general", "other"}}
+    return DirectStyleEvidence(
+        content_type=content_type,
+        category=category,
+        platform=platform,
+        account=account,
+        brand=brand,
+        date=current_date,
+        title=title,
+        is_story=explicit_story,
+        is_dialogue=dialogue,
+        has_jeonghan=has_jeonghan,
+        ambiguous=len(platforms) > 1 or len(meaningful_categories) > 1,
+    )
+
+
 def _fresh_style_fields() -> dict[str, Any]:
     return {
         "channel_style_rewrite_version": STYLE_REWRITE_VERSION,
         "channel_style_rewrite_mode": STYLE_REWRITE_MODE,
+        "direct_style_rules_version": DIRECT_STYLE_RULES_VERSION,
+        "direct_style_rules_mode": DIRECT_STYLE_RULES_MODE,
+        "direct_style_authority_order": list(DEFAULT_AUTHORITY_ORDER),
+        "direct_style_recent_symbols": [],
         "style_rewrite_results": {},
     }
 
@@ -855,6 +1021,13 @@ def _prune_style(event_state: dict[str, Any]) -> None:
     results = event_state.get("style_rewrite_results")
     if isinstance(results, dict) and len(results) > MAX_STYLE_RESULTS:
         event_state["style_rewrite_results"] = dict(list(results.items())[-MAX_STYLE_RESULTS:])
+    history = event_state.get("direct_style_recent_symbols")
+    if isinstance(history, list):
+        event_state["direct_style_recent_symbols"] = [
+            str(item)[:32] for item in history[-MAX_DIRECT_STYLE_SYMBOL_HISTORY:] if str(item).strip()
+        ]
+    else:
+        event_state["direct_style_recent_symbols"] = []
 
 
 def shadow_style_rewrite(
@@ -893,10 +1066,19 @@ def shadow_style_rewrite(
                 "review_required": True,
                 "provider": getattr(provider, "name", "local_conservative") if provider else "local_conservative",
                 "mode": STYLE_REWRITE_MODE,
+                "direct_style_rules_version": DIRECT_STYLE_RULES_VERSION,
+                "direct_style_rules_mode": DIRECT_STYLE_RULES_MODE,
+                "direct_style_rule_id": "",
+                "direct_style_category": "generic",
+                "direct_style_applied": False,
+                "direct_style_fallback_reason": "translation_fidelity_not_ready",
+                "direct_style_symbol": "",
+                "authority_order": list(DEFAULT_AUTHORITY_ORDER),
                 "text_persisted": False,
             }
             continue
         content_type = _infer_content_type(state, factual, incoming)
+        direct_evidence = _direct_style_evidence(state, factual, incoming, content_type)
         result = rewrite_shadow_candidate(
             memory,
             factual.fused_factual_text,
@@ -904,8 +1086,12 @@ def shadow_style_rewrite(
             segment_id=factual.segment_id,
             content_type=content_type,
             provider=provider,
+            direct_evidence=direct_evidence,
+            recent_symbols=fusion.get("direct_style_recent_symbols", ()),
         )
         fusion["style_rewrite_results"][factual.segment_id] = result.state_metadata()
+        if result.accepted and result.direct_style_symbol:
+            fusion["direct_style_recent_symbols"].append(result.direct_style_symbol)
         results.append(result)
         observe(
             "shadow_channel_style_rewrite",

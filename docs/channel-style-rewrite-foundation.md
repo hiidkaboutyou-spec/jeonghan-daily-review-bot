@@ -10,6 +10,8 @@ The production invariant is:
 
 Historical channel examples are style demonstrations only. They are never factual evidence for the current update.
 
+Configured Direct User Style Rules now form a deterministic presentation plan after factual fusion and before historical/provider styling. Their headers, prefixes, and rotating symbols remain shadow-only and are validated through factual projection; see `docs/direct-user-style-rules-foundation.md`.
+
 ## Existing system reused
 
 The phase preserves the 16,306-example historical channel corpus, its 10 stable-ID shards, the existing `ChannelStyleMemory` SQLite/FTS index, channel profile/glossary, Persian/channel quality helpers, and existing RTL/RLM presentation code. No historical example is deleted or rewritten.

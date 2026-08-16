@@ -61,6 +61,9 @@ jobs:
       - name: Private-Review Final-Edit Capture foundation benchmark
         run: python -m tools.run_private_review_final_edit_capture_benchmark
 
+      - name: Direct User Style Rules foundation benchmark
+        run: python -m tools.run_direct_user_style_rules_benchmark
+
       - name: Channel Style Rewrite foundation benchmark
         run: python -m tools.run_channel_style_rewrite_benchmark
 

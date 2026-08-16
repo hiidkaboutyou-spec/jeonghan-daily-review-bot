@@ -57,9 +57,22 @@ def _sanitize_style(raw: object, rewrite: Any) -> dict[str, Any]:
                 "review_required": bool(value.get("review_required", True)),
                 "provider": _bounded(value.get("provider"), 48),
                 "mode": rewrite.STYLE_REWRITE_MODE,
+                "direct_style_rules_version": rewrite.DIRECT_STYLE_RULES_VERSION,
+                "direct_style_rules_mode": rewrite.DIRECT_STYLE_RULES_MODE,
+                "direct_style_rule_id": _bounded(value.get("direct_style_rule_id"), 80),
+                "direct_style_category": _bounded(value.get("direct_style_category"), 48) or "generic",
+                "direct_style_applied": bool(value.get("direct_style_applied", False)),
+                "direct_style_fallback_reason": _bounded(value.get("direct_style_fallback_reason"), 80),
+                "direct_style_symbol": _bounded(value.get("direct_style_symbol"), 32),
+                "authority_order": list(rewrite.DEFAULT_AUTHORITY_ORDER),
                 "text_persisted": False,
             }
     clean["style_rewrite_results"] = results
+    clean["direct_style_recent_symbols"] = _strings(
+        raw.get("direct_style_recent_symbols"),
+        rewrite.MAX_DIRECT_STYLE_SYMBOL_HISTORY,
+        32,
+    )
     return clean
 
 
