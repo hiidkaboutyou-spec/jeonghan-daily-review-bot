@@ -6,6 +6,12 @@ import asyncio
 from .channel_style_validation import check_project
 from .config import ConfigError, Settings
 from .observability import capture_technical_exception, init_optional_sentry
+from . import final_edit_capture_runtime as _final_edit_capture_runtime
+
+# Final Edit Capture is deliberately installed only on the normal Daily/private-review
+# entrypoint. app.fic_digest imports neither this module nor the capture runtime.
+_final_edit_capture_runtime.install()
+
 from .webhook_aware_assistant import WebhookAwarePersonalAssistant
 
 

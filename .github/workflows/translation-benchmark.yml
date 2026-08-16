@@ -58,6 +58,9 @@ jobs:
           python -m app --check
           python -m unittest discover -s tests -p "test_*.py" -v
 
+      - name: Private-Review Final-Edit Capture foundation benchmark
+        run: python -m tools.run_private_review_final_edit_capture_benchmark
+
       - name: Channel Style Rewrite foundation benchmark
         run: python -m tools.run_channel_style_rewrite_benchmark
 
