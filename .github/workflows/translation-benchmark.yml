@@ -67,6 +67,9 @@ jobs:
       - name: Fused Private-Review Delivery foundation benchmark
         run: python -m tools.run_fused_private_review_delivery_benchmark
 
+      - name: Fused Private-Review Authority Activation foundation benchmark
+        run: python -m tools.run_fused_private_review_authority_benchmark
+
       - name: Direct User Style Rules foundation benchmark
         run: python -m tools.run_direct_user_style_rules_benchmark
 
