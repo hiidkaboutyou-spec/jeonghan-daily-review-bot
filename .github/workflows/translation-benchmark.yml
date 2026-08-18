@@ -58,34 +58,13 @@ jobs:
         run: python -m compileall -q app tools
 
       - name: Compile tests
-        shell: bash
-        run: |
-          set -o pipefail
-          python -m compileall -q tests 2>&1 | tee compile-tests.log
+        run: python -m compileall -q tests
 
       - name: Application check
-        shell: bash
-        run: |
-          set -o pipefail
-          python -m app --check 2>&1 | tee app-check.log
+        run: python -m app --check
 
       - name: Full unittest discovery
-        shell: bash
-        run: |
-          set -o pipefail
-          python -m unittest discover -s tests -p "test_*.py" -v 2>&1 | tee unittest.log
-
-      - name: Upload PR36 validation diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pr36-validation-diagnostics
-          path: |
-            compile-tests.log
-            app-check.log
-            unittest.log
-          if-no-files-found: warn
-          retention-days: 3
+        run: python -m unittest discover -s tests -p "test_*.py" -v
 
       - name: Private-Review Final-Edit Capture foundation benchmark
         run: python -m tools.run_private_review_final_edit_capture_benchmark
