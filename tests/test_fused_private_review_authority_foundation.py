@@ -211,10 +211,14 @@ class FusedAuthorityFoundationTests(unittest.TestCase):
         self.assertEqual(reason, "TELEGRAM_ALBUM_LIMIT")
 
     def test_caption_limit_falls_back_without_truncating(self):
-        body = "الف" * 1025
+        safe_body = "ا" * 1024
+        oversized_body = "ا" * 1025
         p = plan(units=(unit("caption"),))
-        self.assertEqual(decide(ON, p, state=state_with(body)).selected_path, LEGACY)
-        self.assertEqual(len(FusedBodyResolver(state_with(body)).resolve(p, unit("caption")).body), 1025)
+        self.assertEqual(decide(ON, p, state=state_with(safe_body)).selected_path, "FUSED")
+        self.assertEqual(decide(ON, p, state=state_with(oversized_body)).selected_path, LEGACY)
+        resolved = FusedBodyResolver(state_with(oversized_body)).resolve(p, unit("caption"))
+        self.assertEqual(resolved.body, oversized_body)
+        self.assertEqual(len(resolved.body), 1025)
 
     def test_long_text_reuses_existing_splitter(self):
         body = "الف" * 9000
