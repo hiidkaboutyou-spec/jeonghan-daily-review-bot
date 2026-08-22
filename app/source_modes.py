@@ -130,6 +130,14 @@ class SourceConfig:
             keywords=keywords or JEONGHAN_KEYWORDS,
             emojis=emojis or JEONGHAN_EMOJIS,
         )
+    
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> SourceConfig:
+        """Create SourceConfig from dictionary (alias for from_mapping for loader compatibility).
+        
+        Supports legacy format with 'jeonghan_only' for backward compatibility.
+        """
+        return cls.from_mapping(raw)
 
 
 class ContentFilter:
