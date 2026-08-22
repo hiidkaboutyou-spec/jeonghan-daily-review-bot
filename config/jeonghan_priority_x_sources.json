@@ -1,18 +1,31 @@
 {
-  "description": "Additional X sources for Jeonghan Daily Review Bot. Keep only Jeonghan-related posts or posts matching Jeonghan angel emoji markers.",
+  "description": "Additional X sources for Jeonghan Daily Review Bot. Sources can collect full feeds or only Jeonghan-related posts.",
   "sources": [
-    {"handle":"ayecheol","label":"ayecheol","enabled":true,"priority":15,"include_replies":true,"jeonghan_only":true},
-    {"handle":"joshushushu_svt","label":"joshushushu_svt","enabled":true,"priority":15,"include_replies":true,"jeonghan_only":true},
-    {"handle":"sounds_of_cheol","label":"sounds_of_cheol","enabled":true,"priority":15,"include_replies":true,"jeonghan_only":true},
-    {"handle":"wonubliss","label":"wonubliss","enabled":true,"priority":15,"include_replies":true,"jeonghan_only":true},
-    {"handle":"jeongh4nss","label":"jeongh4nss","enabled":true,"priority":20,"include_replies":true,"jeonghan_only":true},
-    {"handle":"minghaocheoi_","label":"minghaocheoi_","enabled":true,"priority":15,"include_replies":true,"jeonghan_only":true},
-    {"handle":"xuperyoon","label":"xuperyoon","enabled":true,"priority":15,"include_replies":true,"jeonghan_only":true},
-    {"handle":"svt_ady","label":"svt_ady","enabled":true,"priority":15,"include_replies":true,"jeonghan_only":true}
+    {"handle":"ayecheol","label":"ayecheol","enabled":true,"priority":15,"include_replies":true,"mode":"keyword_filter","jeonghan_only":true},
+    {"handle":"joshushushu_svt","label":"joshushushu_svt","enabled":true,"priority":15,"include_replies":true,"mode":"keyword_filter","jeonghan_only":true},
+    {"handle":"sounds_of_cheol","label":"sounds_of_cheol","enabled":true,"priority":15,"include_replies":true,"mode":"keyword_filter","jeonghan_only":true},
+    {"handle":"wonubliss","label":"wonubliss","enabled":true,"priority":15,"include_replies":true,"mode":"keyword_filter","jeonghan_only":true},
+    {"handle":"jeongh4nss","label":"jeongh4nss","enabled":true,"priority":20,"include_replies":true,"mode":"keyword_filter","jeonghan_only":true},
+    {"handle":"minghaocheoi_","label":"minghaocheoi_","enabled":true,"priority":15,"include_replies":true,"mode":"keyword_filter","jeonghan_only":true},
+    {"handle":"xuperyoon","label":"xuperyoon","enabled":true,"priority":15,"include_replies":true,"mode":"keyword_filter","jeonghan_only":true},
+    {"handle":"svt_ady","label":"svt_ady","enabled":true,"priority":15,"include_replies":true,"mode":"keyword_filter","jeonghan_only":true}
   ],
   "content_filter": {
-    "target_member": "JEONGHAN",
-    "allow_if_contains_member_terms": true,
+    "keywords": [
+      "JEONGHAN",
+      "Jeonghan",
+      "jeonghan",
+      "Hannie",
+      "Hanie",
+      "Hani",
+      "정한",
+      "윤정한",
+      "Yoon Jeonghan",
+      "Yoonjeonghan",
+      "#JEONGHAN",
+      "#윤정한",
+      "#정한"
+    ],
     "allow_if_contains_any_emojis": ["🪽", "😇", "👼🏻", "👼"]
   }
 }
