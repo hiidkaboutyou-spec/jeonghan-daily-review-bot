@@ -38,25 +38,16 @@ def ensure_translation_fusion_shadow() -> None:
         translation_fusion_state_compat.install(event_fusion, translation_fusion)
         translation_fusion_runtime.install(event_fusion)
 
-    # Style Rewrite remains lazy and non-Fanfic. Install only its durable metadata
-    # sanitizer here; candidate evaluation runs after the Translation wrapper below.
     from . import channel_style_rewrite
     from . import channel_style_rewrite_state_compat
 
     channel_style_rewrite_state_compat.install(event_fusion, channel_style_rewrite)
 
-    # User-Voice Calibration is metadata-only and AUTO_LEARN=false.  It does not
-    # consume edits, alter ranking, or own any delivery path automatically.  This
-    # compatibility hook only permits bounded reversible calibration metadata to
-    # survive the existing Event durable-state sanitizer when explicit evidence is
-    # supplied by a future isolated review-evidence path.
     from . import user_voice_calibration
     from . import user_voice_calibration_state_compat
 
     user_voice_calibration_state_compat.install(event_fusion, user_voice_calibration)
 
-    # Forward-ready planning is another bounded, recomputable shadow layer. Its
-    # sanitizer permits only IDs/fingerprints/statuses inside Event Fusion state.
     from . import forward_ready_package
     from . import forward_ready_state_compat
 
@@ -71,8 +62,6 @@ def _install() -> None:
     async def deliver_updates(self, updates: list[Update], *, force: bool) -> None:
         configured = _configured(self)
         if configured is None:
-            # Shadow-only analysis must never make source configuration a new
-            # precondition for otherwise-valid private delivery/test fixtures.
             return await current(self, updates, force=force)
 
         shadow_chain_ok = False
@@ -107,9 +96,10 @@ def _install() -> None:
                     source="faithful_factual_persian",
                 )
 
-        # Existing private-review delivery remains authoritative regardless of every
-        # shadow result or failure. Planning happens only after that unchanged path
-        # so it can reference the current Draft, but it cannot affect the send.
+        # HARD DEFAULT: the existing Update-oriented private-review delivery still
+        # completes first and remains authoritative. The authority foundation below
+        # only evaluates privacy-safe future-switch metadata after this send. It
+        # cannot cause fused network traffic in this PR.
         result = await current(self, updates, force=force)
         forward_ready_packages = None
         if shadow_chain_ok:
@@ -132,13 +122,9 @@ def _install() -> None:
                     mode="shadow",
                 )
 
-        # The fused delivery planner is a second, independent fail-open shadow layer.
-        # It consumes the already-derived ForwardReadyPackage objects only after the
-        # real Update-oriented private-review send has completed. It has no Telegram
-        # transport/receipt capability and cannot reorder, suppress, or combine the
-        # authoritative production messages.
         if forward_ready_packages is not None:
             try:
+                from .fused_private_review_authority import runtime_authority_metadata
                 from .fused_private_review_delivery import (
                     plan_fused_private_review_delivery,
                     privacy_safe_observation,
@@ -155,6 +141,29 @@ def _install() -> None:
                         stage="private_review_delivery_plan_shadow",
                         status="planned",
                         **privacy_safe_observation(plan),
+                    )
+                    # Decision-only observation. Because this occurs after legacy
+                    # delivery, even an accidentally-set ON/CANARY env value cannot
+                    # send a fused duplicate in this foundation. A later isolated
+                    # activation phase must move an explicitly validated decision
+                    # before transport and preserve receipt-aware recovery.
+                    metadata = runtime_authority_metadata(
+                        plan,
+                        state=self.state,
+                        final_edit_store=getattr(self, "final_edit_store", None),
+                        review_chat_id=getattr(getattr(self, "settings", None), "review_chat_id", None),
+                        receipt_stores_healthy=bool(
+                            getattr(getattr(self, "telegram", None), "message_delivery_store", None) is not None
+                            and getattr(self, "media_delivery", None) is not None
+                        ),
+                    )
+                    observe(
+                        "fused_private_review_authority_decision",
+                        component="fused_private_review_authority",
+                        stage="post_legacy_decision_foundation",
+                        status="observed",
+                        network_execution_enabled=False,
+                        **metadata,
                     )
             except Exception as exc:
                 observe(

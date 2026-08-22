@@ -50,13 +50,21 @@ jobs:
         run: |
           python -m pip install --upgrade "pip>=26.1.2"
           python -m pip install -r requirements.txt
-          python -m pip check
 
-      - name: Validate translation project
-        run: |
-          python -m compileall -q app tests tools
-          python -m app --check
-          python -m unittest discover -s tests -p "test_*.py" -v
+      - name: Dependency validation
+        run: python -m pip check
+
+      - name: Compile application/tools
+        run: python -m compileall -q app tools
+
+      - name: Compile tests
+        run: python -m compileall -q tests
+
+      - name: Application check
+        run: python -m app --check
+
+      - name: Full unittest discovery
+        run: python -m unittest discover -s tests -p "test_*.py" -v
 
       - name: Private-Review Final-Edit Capture foundation benchmark
         run: python -m tools.run_private_review_final_edit_capture_benchmark
@@ -66,6 +74,9 @@ jobs:
 
       - name: Fused Private-Review Delivery foundation benchmark
         run: python -m tools.run_fused_private_review_delivery_benchmark
+
+      - name: Fused Private-Review Authority Activation foundation benchmark
+        run: python -m tools.run_fused_private_review_authority_benchmark
 
       - name: Direct User Style Rules foundation benchmark
         run: python -m tools.run_direct_user_style_rules_benchmark
