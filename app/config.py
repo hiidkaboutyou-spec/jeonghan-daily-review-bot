@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from .source_modes import SourceConfig
+
 ROOT = Path(__file__).resolve().parents[1]
 HANDLE_RE = re.compile(r"^[A-Za-z0-9_]{1,15}$")
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
@@ -94,7 +96,7 @@ class Settings:
     gemini_model: str
     timezone: ZoneInfo
     state_path: Path
-    sources: list[dict[str, Any]]
+    sources: list[SourceConfig]
     keyword_groups: list[dict[str, Any]]
     themes: dict[str, Any]
     runtime: dict[str, Any]
@@ -148,6 +150,19 @@ class Settings:
         configured_model = str(settings_json.get("gemini_model", DEFAULT_GEMINI_MODEL)).strip()
         requested_model = os.getenv("GEMINI_MODEL", "").strip() or configured_model or DEFAULT_GEMINI_MODEL
         gemini_model = normalize_gemini_model(requested_model)
+        
+        # Convert sources JSON to SourceConfig instances.
+        # Legacy configs (missing mode) automatically default to full_feed.
+        sources_list: list[SourceConfig] = []
+        for source_dict in sources_json.get("sources", []):
+            try:
+                source_config = SourceConfig.from_dict(source_dict)
+                sources_list.append(source_config)
+            except Exception as exc:
+                logger.error("Failed to load source config: %s", exc)
+                # Skip malformed sources; don't crash startup.
+                continue
+        
         return cls(
             telegram_token=token,
             admin_user_id=admin_id,
@@ -157,7 +172,7 @@ class Settings:
             gemini_model=gemini_model,
             timezone=timezone_info,
             state_path=ROOT / str(settings_json.get("state_path", ".state/state.json")),
-            sources=list(sources_json.get("sources", [])),
+            sources=sources_list,
             keyword_groups=list(sources_json.get("keyword_groups", [])),
             themes=themes_json,
             runtime=dict(settings_json.get("runtime", {})),
@@ -167,7 +182,7 @@ class Settings:
         errors: list[str] = []
         handles: set[str] = set()
         for source in self.sources:
-            handle = str(source.get("handle", "")).lstrip("@").strip()
+            handle = source.handle.lstrip("@").strip()
             if not handle:
                 errors.append("A source is missing its handle.")
                 continue
