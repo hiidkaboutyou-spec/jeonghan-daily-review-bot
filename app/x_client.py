@@ -417,6 +417,10 @@ class XCollector:
         quoted_media = self._convert_media(getattr(quoted, "media", None))
         lang = str(getattr(tweet, "lang", "") or "")
         media = self._convert_media(getattr(tweet, "media", None))
+        # Deleted/unavailable tweet shells can retain an ID while carrying no
+        # publishable content. Do not let those empty records reach Type-A feeds.
+        if not text and not media and not quoted_text and not quoted_media:
+            return None
         url = str(getattr(tweet, "url", "") or "") or (f"https://x.com/{author}/status/{tweet_id}" if author else f"https://x.com/i/status/{tweet_id}")
         return Update(
             id=tweet_id,

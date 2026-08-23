@@ -101,6 +101,22 @@ class TelegramTransportTests(unittest.TestCase):
         with self.assertRaises(TelegramPermanentError):
             bot.api("sendMessage", attempts=1)
 
+    def test_malformed_rate_limit_parameters_fall_back_safely(self):
+        bot = self.bot_with([
+            _Response(429, {"ok": False, "error_code": 429, "parameters": ["bad"]}),
+        ])
+        with self.assertRaises(TelegramRateLimitError) as caught:
+            bot.api("sendMessage", attempts=1)
+        self.assertEqual(caught.exception.retry_after, 1)
+
+    def test_get_updates_ignores_malformed_success_shapes(self):
+        bot = self.bot_with([
+            _Response(200, {"ok": True, "result": {"unexpected": "object"}}),
+            _Response(200, {"ok": True, "result": [{"update_id": 1}, "bad", None]}),
+        ])
+        self.assertEqual(bot.get_updates(0), [])
+        self.assertEqual(bot.get_updates(0), [{"update_id": 1}])
+
 
 class _State:
     def __init__(self):

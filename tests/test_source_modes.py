@@ -41,6 +41,7 @@ class SourceModeTests(unittest.TestCase):
             "Yoon Jeonghan arrived",
             "Hannie posted",
             "Hanie live",
+            "Hani update",
             "정한 업데이트",
             "new clip 🪽",
             "new clip 😇",
@@ -49,7 +50,7 @@ class SourceModeTests(unittest.TestCase):
         ):
             with self.subTest(text=text):
                 self.assertTrue(content_filter.matches(text))
-        for text in ("Joshua update", "seventeen schedule", "notjeonghanaccount", "Hani update"):
+        for text in ("Joshua update", "seventeen schedule", "notjeonghanaccount"):
             with self.subTest(text=text):
                 self.assertFalse(content_filter.matches(text))
 
@@ -95,7 +96,7 @@ class SourceModeTests(unittest.TestCase):
         self.assertEqual(by_handle["ayecheol"]["mode"], "keyword_filter")
         self.assertEqual(
             by_handle["ayecheol"]["keywords"],
-            ["jeonghan", "Hannie", "Hanie", "정한", "Yoon Jeonghan"],
+            ["jeonghan", "Hannie", "Hanie", "Hani", "정한", "Yoon Jeonghan"],
         )
         self.assertEqual(settings.validate_files(), [])
 

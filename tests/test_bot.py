@@ -131,6 +131,21 @@ class StateTests(unittest.TestCase):
 
 
 class XConversionTests(unittest.TestCase):
+    def test_deleted_empty_tweet_shell_is_discarded(self):
+        tweet = SimpleNamespace(
+            id_str="deleted",
+            url="https://x.com/source/status/deleted",
+            date=datetime(2026, 8, 23, tzinfo=timezone.utc),
+            user=SimpleNamespace(username="source", displayname="Source"),
+            rawContent="",
+            conversationIdStr="deleted",
+            inReplyToTweetIdStr="",
+            quotedTweet=None,
+            lang="",
+            media=None,
+        )
+        self.assertIsNone(XCollector({}, [], [])._convert_tweet(tweet, raw_query="test"))
+
     def test_twscrape_tweet_and_best_video_are_converted(self):
         media = SimpleNamespace(
             photos=[SimpleNamespace(url="https://pbs.twimg.com/media/photo")],

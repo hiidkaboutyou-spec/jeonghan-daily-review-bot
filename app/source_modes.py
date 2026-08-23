@@ -20,6 +20,7 @@ JEONGHAN_KEYWORDS = (
     "jeonghan",
     "Hannie",
     "Hanie",
+    "Hani",
     "정한",
 )
 JEONGHAN_EMOJIS = ("🪽", "😇", "👼🏻", "👼")
