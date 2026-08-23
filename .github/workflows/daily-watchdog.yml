@@ -6,6 +6,10 @@ on:
       - Jeonghan Daily Review Bot
     types:
       - completed
+  schedule:
+    # Independent heartbeat for GITHUB_TOKEN-created recovery runs, whose
+    # completion does not reliably create a successor workflow_run event.
+    - cron: "4,16,28,40,52 * * * *"
   workflow_dispatch:
     inputs:
       source_run_id:
@@ -36,6 +40,7 @@ permissions:
 jobs:
   watchdog:
     if: >-
+      github.event_name == 'schedule' ||
       (github.event_name == 'workflow_run' &&
        github.event.workflow_run.head_branch == 'main' &&
        (github.event.workflow_run.event == 'schedule' ||
@@ -59,6 +64,7 @@ jobs:
       - name: Run bounded Daily watchdog
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          WATCHDOG_TRIGGER: ${{ github.event_name }}
           SOURCE_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.source_run_id }}
           SOURCE_RUN_NUMBER: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.run_number || inputs.source_run_number }}
           SOURCE_EVENT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event || inputs.source_event }}

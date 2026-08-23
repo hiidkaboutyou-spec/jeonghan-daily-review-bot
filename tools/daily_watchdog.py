@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 from urllib import request
@@ -144,6 +145,87 @@ def newer_covering_run(
     return max(candidates, key=lambda item: int(item.get("run_number") or 0))
 
 
+def _parse_github_time(value: object) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(value or "").replace("Z", "+00:00")).astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def run_periodic_watchdog(
+    client: Any,
+    *,
+    interval_minutes: int,
+    now: datetime | None = None,
+) -> int:
+    """Recover a stale Daily even when no workflow_run event was emitted."""
+    if interval_minutes < 1:
+        log_decision("guard_blocked", reason="invalid_interval", trigger="schedule")
+        return 1
+    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    try:
+        runs = sorted(
+            (run for run in client.list_daily_runs() if base_live_event(run)),
+            key=lambda item: int(item.get("run_number") or 0),
+            reverse=True,
+        )
+        live_runs: list[dict[str, Any]] = []
+        for run in runs:
+            status = str(run.get("status") or "")
+            event = str(run.get("event") or "")
+            if status in ACTIVE_STATUSES:
+                log_decision(
+                    "successor_not_needed",
+                    reason="active_daily",
+                    run_id=run.get("id", ""),
+                    status=status,
+                )
+                return 0
+            if event == "workflow_dispatch":
+                run_id = int(run.get("id") or 0)
+                if run_id <= 0 or not client.run_executed_live_monitor(run_id):
+                    continue
+            live_runs.append(run)
+    except Exception as exc:
+        log_decision("lookup_failed", error=type(exc).__name__, phase="periodic_run_check")
+        return 1
+
+    latest = live_runs[0] if live_runs else None
+    if latest is not None:
+        actor = latest.get("actor")
+        actor_login = str(actor.get("login") or "") if isinstance(actor, dict) else str(actor or "")
+        if (
+            str(latest.get("event") or "") == "workflow_dispatch"
+            and actor_login == AUTOMATION_ACTOR
+            and str(latest.get("conclusion") or "") != "success"
+        ):
+            log_decision(
+                "guard_blocked",
+                reason="failed_automated_recovery",
+                source_run_id=latest.get("id", ""),
+            )
+            return 0
+        stamp = _parse_github_time(latest.get("updated_at") or latest.get("created_at"))
+        if stamp is None:
+            log_decision("lookup_failed", phase="periodic_timestamp", source_run_id=latest.get("id", ""))
+            return 1
+        if (now - stamp).total_seconds() < interval_minutes * 60:
+            log_decision(
+                "successor_not_needed",
+                reason="recent_daily",
+                source_run_id=latest.get("id", ""),
+            )
+            return 0
+
+    try:
+        client.dispatch_live()
+    except Exception as exc:
+        log_decision("dispatch_failed", error=type(exc).__name__, trigger="schedule")
+        return 1
+    log_decision("successor_dispatched", trigger="schedule")
+    return 0
+
+
 def run_watchdog(
     client: Any,
     *,
@@ -234,13 +316,15 @@ def main() -> int:
     try:
         repository = os.environ["GITHUB_REPOSITORY"]
         token = os.environ["GITHUB_TOKEN"]
+        interval = load_due_interval_minutes()
+        client = GitHubActionsClient(repository, token)
+        if os.environ.get("WATCHDOG_TRIGGER", "workflow_run") == "schedule":
+            return run_periodic_watchdog(client, interval_minutes=interval)
         source_run_id = int(os.environ["SOURCE_RUN_ID"])
         source_run_number = int(os.environ["SOURCE_RUN_NUMBER"])
         source_event = os.environ.get("SOURCE_EVENT", "")
         source_conclusion = os.environ.get("SOURCE_CONCLUSION", "")
         source_actor = os.environ.get("SOURCE_ACTOR", "")
-        interval = load_due_interval_minutes()
-        client = GitHubActionsClient(repository, token)
     except (KeyError, ValueError, json.JSONDecodeError, OSError) as exc:
         log_decision("guard_blocked", reason=type(exc).__name__)
         return 1

@@ -3,9 +3,10 @@ from __future__ import annotations
 import io
 import unittest
 from contextlib import redirect_stdout
+from datetime import datetime, timezone
 from pathlib import Path
 
-from tools.daily_watchdog import load_due_interval_minutes, run_watchdog
+from tools.daily_watchdog import load_due_interval_minutes, run_periodic_watchdog, run_watchdog
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -47,7 +48,16 @@ class FakeClient:
             raise self.dispatch_error
 
 
-def live_run(run_number, *, status="completed", conclusion="success", event="schedule", run_id=None):
+def live_run(
+    run_number,
+    *,
+    status="completed",
+    conclusion="success",
+    event="schedule",
+    run_id=None,
+    actor="hiidkaboutyou-spec",
+    updated_at="2026-08-23T11:55:00Z",
+):
     return {
         "id": run_id or (1000 + run_number),
         "run_number": run_number,
@@ -56,6 +66,8 @@ def live_run(run_number, *, status="completed", conclusion="success", event="sch
         "display_title": "Jeonghan Daily Review Bot",
         "status": status,
         "conclusion": conclusion if status == "completed" else None,
+        "actor": {"login": actor},
+        "updated_at": updated_at,
     }
 
 
@@ -192,6 +204,8 @@ class DailyWatchdogWorkflowTests(unittest.TestCase):
         watchdog = (ROOT / ".github" / "workflows" / "daily-watchdog.yml").read_text(encoding="utf-8")
         main = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")
         self.assertIn("workflow_run:", watchdog)
+        self.assertIn("schedule:", watchdog)
+        self.assertIn('cron: "4,16,28,40,52 * * * *"', watchdog)
         self.assertIn("Jeonghan Daily Review Bot", watchdog)
         self.assertIn("types:\n      - completed", watchdog)
         self.assertIn("group: jeonghan-daily-watchdog-main", watchdog)
@@ -231,6 +245,49 @@ class DailyWatchdogWorkflowTests(unittest.TestCase):
         self.assertIn('- "tests/**"', main)
         self.assertIn('- "tools/**"', main)
         self.assertIn("(github.event_name == 'push' && github.ref == 'refs/heads/main')", main)
+
+
+class PeriodicDailyWatchdogTests(unittest.TestCase):
+    now = datetime(2026, 8, 23, 12, 0, tzinfo=timezone.utc)
+
+    def run_case(self, client):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            code = run_periodic_watchdog(client, interval_minutes=12, now=self.now)
+        return code, output.getvalue()
+
+    def test_stale_daily_dispatches_one_recovery(self):
+        client = FakeClient([live_run(1, updated_at="2026-08-23T11:40:00Z")])
+        code, output = self.run_case(client)
+        self.assertEqual((code, client.dispatch_calls), (0, 1))
+        self.assertIn("successor_dispatched", output)
+
+    def test_recent_or_active_daily_blocks_recovery(self):
+        recent = FakeClient([live_run(2)])
+        self.assertEqual((self.run_case(recent)[0], recent.dispatch_calls), (0, 0))
+        active = FakeClient([live_run(3, status="in_progress")])
+        self.assertEqual((self.run_case(active)[0], active.dispatch_calls), (0, 0))
+
+    def test_failed_automated_recovery_is_hard_stop(self):
+        failed = live_run(
+            4,
+            event="workflow_dispatch",
+            conclusion="failure",
+            actor="github-actions[bot]",
+            run_id=4004,
+            updated_at="2026-08-23T11:40:00Z",
+        )
+        client = FakeClient([failed], live_run_ids={4004})
+        code, output = self.run_case(client)
+        self.assertEqual((code, client.dispatch_calls), (0, 0))
+        self.assertIn("failed_automated_recovery", output)
+
+    def test_completed_check_dispatch_does_not_mask_stale_live_run(self):
+        check = live_run(6, event="workflow_dispatch", run_id=6006)
+        stale = live_run(5, updated_at="2026-08-23T11:40:00Z")
+        client = FakeClient([check, stale], live_run_ids=set())
+        code, _ = self.run_case(client)
+        self.assertEqual((code, client.dispatch_calls), (0, 1))
 
 
 if __name__ == "__main__":

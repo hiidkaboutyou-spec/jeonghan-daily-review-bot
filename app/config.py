@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from .source_modes import SourceConfig
+
 ROOT = Path(__file__).resolve().parents[1]
 HANDLE_RE = re.compile(r"^[A-Za-z0-9_]{1,15}$")
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
@@ -103,6 +105,7 @@ class Settings:
     def load(cls, *, require_secrets: bool = True) -> "Settings":
         settings_json = read_json(ROOT / "config" / "settings.json")
         sources_json = read_json(ROOT / "config" / "sources.json")
+        priority_sources_json = read_json(ROOT / "config" / "jeonghan_priority_x_sources.json")
         themes_json = read_json(ROOT / "config" / "themes.json")
 
         token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
@@ -148,6 +151,24 @@ class Settings:
         configured_model = str(settings_json.get("gemini_model", DEFAULT_GEMINI_MODEL)).strip()
         requested_model = os.getenv("GEMINI_MODEL", "").strip() or configured_model or DEFAULT_GEMINI_MODEL
         gemini_model = normalize_gemini_model(requested_model)
+        raw_sources = list(sources_json.get("sources", []))
+        priority_filter = priority_sources_json.get("content_filter", {})
+        if not isinstance(priority_filter, dict):
+            raise ConfigError("config/jeonghan_priority_x_sources.json content_filter must be an object.")
+        for raw_source in priority_sources_json.get("sources", []):
+            if not isinstance(raw_source, dict):
+                raw_sources.append(raw_source)
+                continue
+            configured = dict(raw_source)
+            configured.setdefault("keywords", priority_filter.get("keywords"))
+            configured.setdefault("emojis", priority_filter.get("emojis"))
+            raw_sources.append(configured)
+        normalized_sources: list[dict[str, Any]] = []
+        for index, raw_source in enumerate(raw_sources, start=1):
+            try:
+                normalized_sources.append(SourceConfig.from_mapping(raw_source).to_mapping())
+            except (TypeError, ValueError) as exc:
+                raise ConfigError(f"Invalid X source configuration at position {index}: {exc}") from exc
         return cls(
             telegram_token=token,
             admin_user_id=admin_id,
@@ -157,7 +178,7 @@ class Settings:
             gemini_model=gemini_model,
             timezone=timezone_info,
             state_path=ROOT / str(settings_json.get("state_path", ".state/state.json")),
-            sources=list(sources_json.get("sources", [])),
+            sources=normalized_sources,
             keyword_groups=list(sources_json.get("keyword_groups", [])),
             themes=themes_json,
             runtime=dict(settings_json.get("runtime", {})),

@@ -88,7 +88,11 @@ def _configured_only(
         )
         if item_score > current_score:
             chosen[item.id] = item
-    return sorted(chosen.values(), key=lambda item: (item.created_at, item.id))
+    ordered = sorted(chosen.values(), key=lambda item: (item.created_at, item.id))
+    gate = getattr(self, "source_mode_gate", None)
+    if gate is None:
+        raise RuntimeError("source-mode gate is not installed")
+    return gate.filter_posts(ordered)
 
 
 def _source_authoritative_filter(

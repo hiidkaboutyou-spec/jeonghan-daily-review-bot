@@ -129,11 +129,17 @@ class TelegramBot:
             if not isinstance(payload, dict):
                 raise TelegramPermanentError("Telegram returned an invalid JSON payload.")
 
-            error_code = int(payload.get("error_code", 0) or 0)
+            try:
+                error_code = int(payload.get("error_code", 0) or 0)
+            except (TypeError, ValueError):
+                raise TelegramPermanentError("Telegram returned an invalid error_code.") from None
             if response.status_code == 429 or error_code == 429:
                 self._last_api_had_rate_limit = True
+                parameters = payload.get("parameters")
+                if not isinstance(parameters, dict):
+                    parameters = {}
                 try:
-                    retry_after = int((payload.get("parameters") or {}).get("retry_after", 1) or 1)
+                    retry_after = int(parameters.get("retry_after", 1) or 1)
                 except (TypeError, ValueError):
                     retry_after = 1
                 if attempt + 1 < attempts:
@@ -170,7 +176,13 @@ class TelegramBot:
             },
             timeout=30,
         )
-        return list(result or [])
+        if not isinstance(result, list):
+            logger.warning("Ignoring malformed Telegram getUpdates result; expected a list")
+            return []
+        updates = [item for item in result if isinstance(item, dict)]
+        if len(updates) != len(result):
+            logger.warning("Ignored %s malformed Telegram update item(s)", len(result) - len(updates))
+        return updates
 
     def _encode_reply_markup(self, reply_markup: dict[str, Any] | None) -> dict[str, Any] | None:
         if not reply_markup or "inline_keyboard" not in reply_markup:
