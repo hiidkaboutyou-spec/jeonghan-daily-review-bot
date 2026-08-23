@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .models import MediaItem, Update, ensure_utc
+from .source_modes import SourceMode, SourceModeGate
 
 logger = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[1]
@@ -121,6 +122,7 @@ class XCollector:
     def __init__(self, cookies: dict[str, str], sources: list[dict[str, Any]], keyword_groups: list[dict[str, Any]]):
         self.cookies = cookies
         self.sources = sources
+        self.source_mode_gate = SourceModeGate(sources)
         self.keyword_groups = keyword_groups
         self.api = None
         self.last_errors: list[str] = []
@@ -132,7 +134,8 @@ class XCollector:
         self.dedicated_sources = {
             str(item.get("handle", "")).lstrip("@").lower()
             for item in sources
-            if item.get("enabled", True) and item.get("jeonghan_only", False)
+            if item.get("enabled", True)
+            and str(item.get("mode", "")).strip().lower() == SourceMode.FULL_FEED.value
         }
 
     async def _get_api(self):

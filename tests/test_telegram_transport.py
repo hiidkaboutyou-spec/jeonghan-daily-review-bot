@@ -94,6 +94,13 @@ class TelegramTransportTests(unittest.TestCase):
             bot.api("sendMessage", attempts=1)
         self.assertNotIn("super-secret-token", str(caught.exception))
 
+    def test_malformed_error_code_is_a_typed_permanent_error(self):
+        bot = self.bot_with([
+            _Response(400, {"ok": False, "error_code": {"unexpected": "object"}}),
+        ])
+        with self.assertRaises(TelegramPermanentError):
+            bot.api("sendMessage", attempts=1)
+
 
 class _State:
     def __init__(self):

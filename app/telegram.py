@@ -129,7 +129,10 @@ class TelegramBot:
             if not isinstance(payload, dict):
                 raise TelegramPermanentError("Telegram returned an invalid JSON payload.")
 
-            error_code = int(payload.get("error_code", 0) or 0)
+            try:
+                error_code = int(payload.get("error_code", 0) or 0)
+            except (TypeError, ValueError):
+                raise TelegramPermanentError("Telegram returned an invalid error_code.") from None
             if response.status_code == 429 or error_code == 429:
                 self._last_api_had_rate_limit = True
                 try:

@@ -8,7 +8,7 @@
 
 ## قابلیت‌های اصلی
 
-- اسکن ۲۴ منبع تنظیم‌شده در `config/sources.json` و جست‌وجوی چندزبانهٔ EN/KR/JP
+- اسکن ۳۲ منبع تنظیم‌شده با حالت‌های `full_feed` و `keyword_filter` و جست‌وجوی چندزبانهٔ EN/KR/JP
 - replay دو ساعت اخیر، دریافت کامل ۲۴ ساعت یک منبع و جست‌وجوی آرشیو خصوصی
 - گروه‌بندی chronological رویدادها و لایوها
 - رسانهٔ باکیفیت با direct URL و fallbackهای yt-dlp/FFmpeg و gallery-dl اختیاری

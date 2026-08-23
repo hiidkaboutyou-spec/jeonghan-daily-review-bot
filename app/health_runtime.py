@@ -68,10 +68,16 @@ class HealthReviewApplication(PrivateReviewApplication):
             nav.append(("◀️ قبلی", f"health:page:{page - 1}"))
         if page + 1 < pages:
             nav.append(("بعدی ▶️", f"health:page:{page + 1}"))
-        markup = inline_keyboard([nav]) if nav else inline_keyboard([])
+        markup = inline_keyboard([nav]) if nav else None
         text = "\n".join(lines)
         if message_id:
-            self.telegram.edit_message_text(message_id, text, reply_markup=markup)
+            # Empty inline markup removes old buttons on edit, but must not be sent
+            # with a new message: Telegram rejects that as malformed keyboard data.
+            self.telegram.edit_message_text(
+                message_id,
+                text,
+                reply_markup=markup if markup is not None else inline_keyboard([]),
+            )
         else:
             self.telegram.send_message(text, reply_markup=markup or main_keyboard())
 
