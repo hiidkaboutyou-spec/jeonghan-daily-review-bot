@@ -857,20 +857,46 @@ async def build_digests(settings: Settings, *, fic_store: FicStateStore | None =
     # for X recommendations. The old order reopened every recommended work page
     # before doing the AO3 search, so a handful of stale/slow links could consume
     # two minutes and still leave the X list empty.
-    ao3_candidates = await asyncio.to_thread(search_ao3_balanced, 48)
-    x_fics = await search_x_recommendations(settings, known_fics=ao3_candidates)
+    #
+    # Phase isolation: each phase catches its own errors so one failure never
+    # prevents the other list from being built.
+    ao3_candidates: list[Fic] = []
+    try:
+        ao3_candidates = await asyncio.to_thread(search_ao3_balanced, 48)
+    except Exception as exc:
+        logger.warning("AO3 search phase failed: %s", type(exc).__name__)
+
+    x_fics: list[Fic] = []
+    try:
+        x_fics = await search_x_recommendations(settings, known_fics=ao3_candidates)
+    except Exception as exc:
+        logger.warning("X fic recommendations phase failed: %s", type(exc).__name__)
     if fic_store is not None:
-        observe_fics(fic_store, x_fics)
+        try:
+            observe_fics(fic_store, x_fics)
+        except Exception as exc:
+            logger.warning("Fic observation (X) failed: %s", type(exc).__name__)
     x_fics = _rank_digest_fics(x_fics, "x")
-    x_summaries = await asyncio.to_thread(summarize_fics_persian, settings, x_fics)
+    x_summaries: dict[str, str] = {}
+    try:
+        x_summaries = await asyncio.to_thread(summarize_fics_persian, settings, x_fics)
+    except Exception as exc:
+        logger.warning("X summary translation phase failed: %s", type(exc).__name__)
     x_text = format_digest("🌙 فن‌فیک‌های پیشنهادی از X", x_fics, x_summaries, "x")
 
     x_ids = {fic.work_id for fic in x_fics if fic.work_id}
     ao3_fics = [fic for fic in ao3_candidates if not fic.work_id or fic.work_id not in x_ids][:36]
     if fic_store is not None:
-        observe_fics(fic_store, ao3_fics)
+        try:
+            observe_fics(fic_store, ao3_fics)
+        except Exception as exc:
+            logger.warning("Fic observation (AO3) failed: %s", type(exc).__name__)
     ao3_fics = _rank_digest_fics(ao3_fics, "ao3")
-    ao3_summaries = await asyncio.to_thread(summarize_fics_persian, settings, ao3_fics)
+    ao3_summaries: dict[str, str] = {}
+    try:
+        ao3_summaries = await asyncio.to_thread(summarize_fics_persian, settings, ao3_fics)
+    except Exception as exc:
+        logger.warning("AO3 summary translation phase failed: %s", type(exc).__name__)
     ao3_text = format_digest("📚 تازه‌ها و انتخاب‌های محبوب AO3", ao3_fics, ao3_summaries, "ao3")
     logger.info(
         "Fanfic digest built successfully (x=%s ao3_pool=%s ao3_list=%s)",
@@ -901,9 +927,17 @@ async def send_digests(settings: Settings, bot: TelegramBot | None = None) -> No
         x_text, ao3_text = await build_digests(settings, fic_store=fic_store)
         day = datetime.now(settings.timezone).strftime("%Y-%m-%d")
         run_scope = _delivery_run_scope(day, manual_request=manual_request)
-        bot.send_message(x_text, delivery_key=f"fic:{run_scope}:x")
-        bot.send_message(ao3_text, delivery_key=f"fic:{run_scope}:ao3")
-        logger.info("Fanfic digest delivery confirmed for both X and AO3 lists")
+        # Deliver each list independently so a Telegram error on one never
+        # blocks the other.
+        try:
+            bot.send_message(x_text, delivery_key=f"fic:{run_scope}:x")
+        except Exception as exc:
+            logger.warning("X fic list delivery failed: %s", type(exc).__name__)
+        try:
+            bot.send_message(ao3_text, delivery_key=f"fic:{run_scope}:ao3")
+        except Exception as exc:
+            logger.warning("AO3 fic list delivery failed: %s", type(exc).__name__)
+        logger.info("Fanfic digest delivery completed")
     finally:
         fic_store.close()
         if owned_message_store is not None and bot.message_delivery_store is owned_message_store:
@@ -913,7 +947,24 @@ async def send_digests(settings: Settings, bot: TelegramBot | None = None) -> No
 
 async def main_async() -> int:
     settings = Settings.load(require_secrets=True)
-    await send_digests(settings)
+    try:
+        await send_digests(settings)
+    except Exception as exc:
+        logger.error("Fanfic digest failed entirely: %s", type(exc).__name__)
+        # Attempt to notify via Telegram even if the build failed.
+        try:
+            from .telegram import TelegramBot
+            bot = TelegramBot(
+                settings.telegram_token,
+                settings.admin_user_id,
+                settings.review_chat_id,
+            )
+            bot.send_message(
+                f"⚠️ فن‌فیک دیلی با خطا مواجه شد ({type(exc).__name__})؛ اجرای بعدی دوباره تلاش می‌کند."
+            )
+        except Exception:
+            pass
+        return 1
     return 0
 
 

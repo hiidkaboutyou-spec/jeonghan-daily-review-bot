@@ -91,6 +91,7 @@ class Application:
             "🗂 ۲۴ ساعت منبع": "/sources",
             "🔎 سرچ آرشیو": "/search",
             "📋 وضعیت": "/status",
+            "📊 گزارش": "/report",
             "❔ راهنما": "/help",
         }
         text = button_map.get(text, text)
@@ -124,6 +125,8 @@ class Application:
             self.show_sources()
         elif command == "/status":
             self.send_status()
+        elif command == "/report":
+            self.send_travel_report()
         elif command == "/help":
             self.send_help()
         elif command == "/fic":
@@ -160,6 +163,8 @@ class Application:
             self.show_sources()
         elif data == "cmd:status":
             self.send_status()
+        elif data == "cmd:report":
+            self.send_travel_report()
         elif data == "cmd:help":
             self.send_help()
         elif len(parts) >= 3 and parts[0] == "source":
@@ -207,15 +212,131 @@ class Application:
 
     def send_status(self) -> None:
         data = self.state.data
-        text = (
-            f"وضعیت بات\n\n"
-            f"منابع فعال: {sum(bool(item.get('enabled', True)) for item in self.settings.sources)}\n"
-            f"آیتم‌های آرشیو داخلی: {len(data.get('archive', {}))}\n"
-            f"صف باقی‌مانده: {len(data.get('pending_delivery', []))}\n"
-            f"آخرین اسکن موفق خودکار: {data.get('last_auto_run') or 'هنوز اجرا نشده'}\n"
-            f"مدل کپشن: {self.settings.gemini_model}"
-        )
-        self.telegram.send_message(ensure_rtl_line(text), reply_markup=main_keyboard())
+        enabled = sum(bool(item.get('enabled', True)) for item in self.settings.sources)
+        pending = len(data.get('pending_delivery', []))
+        archive_count = len(data.get('archive', {}))
+        last_run = data.get('last_auto_run') or 'هنوز اجرا نشده'
+        last_attempt = data.get('last_auto_attempt') or ''
+        streak = int(data.get('x_scan_failure_streak', 0) or 0)
+        scan_items = int(data.get('last_scan_item_count', 0) or 0)
+        failed_sources = list(data.get('last_failed_sources') or [])
+
+        lines = [
+            "📋 وضعیت بات",
+            "",
+            f"منابع فعال: {enabled}",
+            f"آرشیو: {archive_count} آیتم",
+            f"صف ارسال: {pending} آیتم",
+            f"آخرین اسکن موفق: {last_run}",
+        ]
+        if last_attempt and last_attempt != last_run:
+            lines.append(f"آخرین تلاش: {last_attempt}")
+        if streak > 0:
+            lines.append(f"خطای پیاپی X: {streak}")
+        if scan_items > 0:
+            lines.append(f"آیتم‌های اسکن آخر: {scan_items}")
+        if failed_sources:
+            preview = "، ".join(failed_sources[:3])
+            if len(failed_sources) > 3:
+                preview += f" و {len(failed_sources) - 3} مورد دیگر"
+            lines.append(f"منابع با خطا: {preview}")
+        lines.append(f"مدل کپشن: {self.settings.gemini_model}")
+        self.telegram.send_message(ensure_rtl_line("\n".join(lines)), reply_markup=main_keyboard())
+
+    def send_travel_report(self) -> None:
+        """Comprehensive unattended operation report for travel mode."""
+        data = self.state.data
+        now = datetime.now(timezone.utc)
+        enabled = sum(bool(item.get('enabled', True)) for item in self.settings.sources)
+        pending = len(data.get('pending_delivery', []))
+        archive_count = len(data.get('archive', {}))
+        seen_count = len(data.get('seen', {}))
+
+        last_run = _parse_state_datetime(data.get('last_auto_run'))
+        last_attempt = _parse_state_datetime(data.get('last_auto_attempt'))
+        streak = int(data.get('x_scan_failure_streak', 0) or 0)
+        translation_streak = int(data.get('translation_outage_streak', 0) or 0)
+        scan_items = int(data.get('last_scan_item_count', 0) or 0)
+        scan_groups = int(data.get('last_scan_group_count', 0) or 0)
+        failed_sources = list(data.get('last_failed_sources') or [])
+        group_failures = int(data.get('last_group_failure_count', 0) or 0)
+        group_total = int(data.get('last_group_total_count', 0) or 0)
+        group_fail_at = _parse_state_datetime(data.get('last_group_failure_at'))
+
+        lines = [
+            "📊 گزارش سفر — وضعیت عملیات بدون نظارت",
+            "",
+        ]
+
+        # Overall health
+        if streak == 0 and translation_streak == 0 and group_failures == 0:
+            lines.append("🟢 وضعیت کلی: سالم")
+        elif streak >= 3 or translation_streak >= 3:
+            lines.append("🔴 وضعیت کلی: نیاز به بررسی")
+        else:
+            lines.append("🟡 وضعیت کلی: هشدار")
+
+        lines += [""]
+
+        # Collection status
+        lines.append("📡 جمع‌آوری:")
+        lines.append(f"  • منابع فعال: {enabled}")
+        if last_run:
+            age = now - last_run
+            if age < timedelta(hours=1):
+                lines.append(f"  • آخرین اسکن موفق: {int(age.total_seconds() // 60)} دقیقه پیش")
+            elif age < timedelta(hours=24):
+                lines.append(f"  • آخرین اسکن موفق: {int(age.total_seconds() // 3600)} ساعت پیش")
+            else:
+                lines.append(f"  • آخرین اسکن موفق: {int(age.total_seconds() // 86400)} روز پیش ⚠️")
+        else:
+            lines.append("  • آخرین اسکن موفق: هنوز اجرا نشده ⚠️")
+        if last_attempt and (not last_run or last_attempt > last_run):
+            lines.append(f"  • آخرین تلاش: {last_attempt.strftime('%H:%M UTC')}")
+        lines.append(f"  • آیتم‌های اسکن آخر: {scan_items} در {scan_groups} گروه")
+
+        if streak > 0:
+            lines.append(f"  • خطای X پیاپی: {streak}")
+
+        lines += [""]
+
+        # Failed sources
+        lines.append("⚠️ منابع با خطا:")
+        if failed_sources:
+            for source in failed_sources[:5]:
+                lines.append(f"  • {source[:80]}")
+            if len(failed_sources) > 5:
+                lines.append(f"  • و {len(failed_sources) - 5} مورد دیگر")
+        else:
+            lines.append("  • هیچ")
+
+        lines += [""]
+
+        # Translation status
+        lines.append("🌐 ترجمه:")
+        if translation_streak == 0:
+            lines.append("  • وضعیت: سالم")
+        else:
+            retry_after = _parse_state_datetime(data.get('translation_retry_after'))
+            if retry_after and now < retry_after:
+                wait = retry_after - now
+                lines.append(f"  • در حالت خنک شدن — تلاش بعدی در {int(wait.total_seconds() // 60)} دقیقه")
+            else:
+                lines.append(f"  • خطای پیاپی: {translation_streak}")
+
+        lines += [""]
+
+        # Delivery status
+        lines.append("📬 تحویل:")
+        lines.append(f"  • صف باقیمانده: {pending} آیتم")
+        lines.append(f"  • آرشیو: {archive_count} آیتم")
+        lines.append(f"  • دیده‌شده: {seen_count} آیتم")
+        if group_failures > 0 and group_total > 0:
+            lines.append(f"  • گروه‌های ناموفق اخیر: {group_failures}/{group_total}")
+            if group_fail_at:
+                lines.append(f"  • زمان آخرین خطا: {group_fail_at.strftime('%Y-%m-%d %H:%M UTC')}")
+
+        self.telegram.send_message(ensure_rtl_line("\n".join(lines)), reply_markup=main_keyboard())
 
     def send_help(self) -> None:
         text = (
@@ -224,6 +345,7 @@ class Application:
             "🔎 سرچ آرشیو — تاریخ یا توضیح رویداد\n"
             "📚 فن‌فیک — اجرای فوری دو لیست X و AO3\n"
             "📋 وضعیت — وضعیت بات\n"
+            "📊 گزارش — گزارش جامع سفر و عملیات بدون نظارت\n"
             "❔ راهنما — همین توضیح"
         )
         self.telegram.send_message(ensure_rtl_line(text), reply_markup=main_keyboard())
@@ -366,6 +488,7 @@ class Application:
         last = _parse_state_datetime(self.state.data.get("last_auto_run")) or (now - timedelta(hours=2))
         if now - last < timedelta(minutes=10):
             return
+        self.state.data["last_auto_attempt"] = now.isoformat()
         lookback = max(2, int(self.settings.runtime.get("scheduled_lookback_hours", 24)))
         start = max(last - timedelta(minutes=30), now - timedelta(hours=lookback))
         try:
@@ -386,15 +509,22 @@ class Application:
         # Queue what we got, but don't advance the success cursor until every configured
         # retrieval path completed. Seen IDs prevent duplicates on the retry.
         if getattr(self.collector, "last_errors", []):
+            failed_sources = list(self.collector.last_errors)
             logger.warning(
                 "Scheduled X scan returned partial results (%s paths); cursor retained for retry.",
-                len(self.collector.last_errors),
+                len(failed_sources),
             )
+            self.state.data["last_failed_sources"] = failed_sources[:10]
             self._record_x_scan_failure(now)
             return
         self.state.data["last_auto_run"] = now.isoformat()
         self.state.data["last_x_error_notice"] = ""
         self.state.data["x_scan_failure_streak"] = 0
+        self.state.data["last_failed_sources"] = []
+        self.state.data["last_scan_item_count"] = len(fresh[:ceiling])
+        self.state.data["last_scan_group_count"] = len(
+            organize_updates(fresh[:ceiling])
+        ) if fresh[:ceiling] else 0
 
     def _record_x_scan_failure(self, now: datetime) -> None:
         try:
@@ -409,7 +539,16 @@ class Application:
         last_notice = _parse_state_datetime(self.state.data.get("last_x_error_notice"))
         if last_notice and now - last_notice < timedelta(hours=2):
             return
-        self._safe_send("⚠️ اسکن خودکار X کامل نشد؛ زمان آخرین اسکن موفق حفظ شد و اجرای بعدی دوباره بازهٔ جاافتاده را بررسی می‌کند.")
+        streak = int(self.state.data.get("x_scan_failure_streak", 0) or 0)
+        failed_sources = list(self.state.data.get("last_failed_sources") or [])
+        lines = ["⚠️ اسکن خودکار X کامل نشد"]
+        lines.append("زمان آخرین اسکن موفق حفظ شد و اجرای بعدی دوباره بازهٔ جاافتاده را بررسی می‌کند.")
+        if streak >= 3:
+            lines.append(f"خطای پیاپی: {streak} بار")
+        if failed_sources:
+            preview = "، ".join(failed_sources[:3])
+            lines.append(f"منابع با خطا: {preview}")
+        self._safe_send("\n".join(lines))
         self.state.data["last_x_error_notice"] = now.isoformat()
 
     async def deliver_pending(self) -> None:
@@ -434,12 +573,30 @@ class Application:
             if current_force is None:
                 current_force = force
             if force != current_force and batch:
-                await self.deliver_updates(batch, force=current_force)
+                try:
+                    await self.deliver_updates(batch, force=current_force)
+                except Exception as exc:
+                    logger.warning(
+                        "Pending batch delivery failed (%s); remaining batches continue",
+                        type(exc).__name__,
+                    )
+                    self._safe_send(
+                        f"⚠️ بخشی از صف تحویل با خطا مواجه شد ({type(exc).__name__})؛ بقیه بررسی می‌شود."
+                    )
                 batch = []
                 current_force = force
             batch.append(item)
         if batch:
-            await self.deliver_updates(batch, force=bool(current_force))
+            try:
+                await self.deliver_updates(batch, force=bool(current_force))
+            except Exception as exc:
+                logger.warning(
+                    "Final pending batch delivery failed (%s)",
+                    type(exc).__name__,
+                )
+                self._safe_send(
+                    f"⚠️ بخشی از صف تحویل با خطا مواجه شد ({type(exc).__name__})."
+                )
 
     async def deliver_updates(self, updates: list[Update], *, force: bool) -> None:
         if not force:
@@ -453,47 +610,23 @@ class Application:
             reply_markup=main_keyboard(),
         )
         deferred = 0
+        failed_groups = 0
         for group in groups:
-            copy = self.writer.write_group(group)
-            manual_review = getattr(self.writer, "last_manual_review", {})
-            if not isinstance(manual_review, dict):
-                manual_review = {}
-            group.title = copy.title or group.title
-            if copy.category in self.settings.themes.get("themes", {}):
-                group.category = copy.category
-            for part, update in enumerate(group.updates, start=1):
-                body = copy.bodies.get(update.id) or update.text
-                if translation_unavailable(body):
-                    deferred += 1
-                    # Do not mark it seen: the pending queue will retry it when the
-                    # translation provider is healthy again.
-                    continue
-                caption = self.themes.caption(group, update, body, part, len(group.updates))
-                temp, prepared = self.media.prepare(update)
-                try:
-                    if prepared:
-                        self.telegram.send_media(prepared)
-                finally:
-                    temp.cleanup()
-                draft_id = short_id(f"{update.id}:{datetime.now(timezone.utc).timestamp()}")
-                sent = self.telegram.send_message(caption, reply_markup=draft_keyboard(draft_id))
-                self.state.archive_update(update)
-                self.state.save_draft(
-                    Draft(
-                        id=draft_id,
-                        update_id=update.id,
-                        event_key=group.key,
-                        caption=caption,
-                        mode=(
-                            "manual_review"
-                            if update.id in manual_review
-                            else "default"
-                        ),
-                        telegram_message_id=int(sent.get("message_id", 0) or 0),
-                        created_at=datetime.now(timezone.utc).isoformat(),
-                    )
+            try:
+                deferred += await self._deliver_one_group(group, force=force, manual_review={})
+            except Exception as exc:
+                failed_groups += 1
+                logger.warning(
+                    "Group %s delivery failed (%s); remaining groups continue: %s",
+                    group.key,
+                    type(exc).__name__,
+                    str(exc)[:200],
                 )
-                self.state.mark_seen(update)
+                self._safe_send(
+                    f"⚠️ گروه «{group.title[:80]}» ارسال نشد؛ بقیهٔ گروه‌ها ادامه دارد."
+                )
+        if failed_groups:
+            self._record_group_failure(total=len(groups), failed=failed_groups)
         if deferred:
             self._notify_translation_outage_if_due(deferred)
         else:
@@ -536,7 +669,15 @@ class Application:
                 reply_markup=inline_keyboard([]),
             )
             return
-        mode = {"fun": "funnier", "soft": "softer", "precise": "precise"}.get(action)
+        mode = {
+            "fun": "funnier",
+            "soft": "softer",
+            "precise": "precise",
+            "simple": "simple",
+            "cute_fan": "cute_fan",
+            "carat": "carat",
+            "tweet": "tweet",
+        }.get(action)
         if not mode:
             return
         update = self.state.get_update(draft.update_id)
@@ -552,6 +693,75 @@ class Application:
         draft.caption = caption
         draft.mode = mode
         self.state.save_draft(draft)
+
+    async def _deliver_one_group(self, group: EventGroup, *, force: bool, manual_review: dict) -> int:
+        """Deliver a single event group; returns the count of deferred translations.
+
+        This isolates failures: one broken group never blocks the rest.
+        """
+        copy = self.writer.write_group(group)
+        local_manual_review = getattr(self.writer, "last_manual_review", {})
+        if not isinstance(local_manual_review, dict):
+            local_manual_review = {}
+        group.title = copy.title or group.title
+        if copy.category in self.settings.themes.get("themes", {}):
+            group.category = copy.category
+        deferred = 0
+        for part, update in enumerate(group.updates, start=1):
+            try:
+                body = copy.bodies.get(update.id) or update.text
+                if translation_unavailable(body):
+                    deferred += 1
+                    continue
+                caption = self.themes.caption(group, update, body, part, len(group.updates))
+                temp, prepared = self.media.prepare(update)
+                try:
+                    if prepared:
+                        self.telegram.send_media(prepared)
+                finally:
+                    temp.cleanup()
+                draft_id = short_id(f"{update.id}:{datetime.now(timezone.utc).timestamp()}")
+                sent = self.telegram.send_message(caption, reply_markup=draft_keyboard(draft_id))
+                self.state.archive_update(update)
+                self.state.save_draft(
+                    Draft(
+                        id=draft_id,
+                        update_id=update.id,
+                        event_key=group.key,
+                        caption=caption,
+                        mode=(
+                            "manual_review"
+                            if update.id in local_manual_review
+                            else "default"
+                        ),
+                        telegram_message_id=int(sent.get("message_id", 0) or 0),
+                        created_at=datetime.now(timezone.utc).isoformat(),
+                    )
+                )
+                self.state.mark_seen(update)
+            except TelegramError as exc:
+                logger.warning(
+                    "Telegram delivery failed for %s/%s; update remains pending: %s",
+                    group.key,
+                    update.id,
+                    type(exc).__name__,
+                )
+                continue
+            except Exception as exc:
+                logger.warning(
+                    "Unexpected delivery failure for %s/%s: %s",
+                    group.key,
+                    update.id,
+                    type(exc).__name__,
+                )
+                continue
+        return deferred
+
+    def _record_group_failure(self, *, total: int, failed: int) -> None:
+        """Track batch-level group failures for the travel mode status report."""
+        self.state.data["last_group_failure_count"] = failed
+        self.state.data["last_group_total_count"] = total
+        self.state.data["last_group_failure_at"] = datetime.now(timezone.utc).isoformat()
 
     def _safe_send(self, text: str) -> None:
         try:

@@ -34,6 +34,12 @@ class StateStore:
             "translation_retry_after": "",
             "translation_outage_streak": 0,
             "x_scan_failure_streak": 0,
+            "last_failed_sources": [],
+            "last_scan_item_count": 0,
+            "last_scan_group_count": 0,
+            "last_group_failure_count": 0,
+            "last_group_total_count": 0,
+            "last_group_failure_at": "",
             "seen": {},
             "archive": {},
             "sessions": {},
@@ -127,6 +133,22 @@ class StateStore:
         pending = value.get("pending_delivery")
         if isinstance(pending, list):
             fresh["pending_delivery"] = [item for item in pending if isinstance(item, dict)]
+        # Travel mode fields: optional, default-safe
+        failed_sources = value.get("last_failed_sources")
+        if isinstance(failed_sources, list):
+            fresh["last_failed_sources"] = [
+                str(item) for item in failed_sources[:10]
+            ]
+        for key in ("last_scan_item_count", "last_scan_group_count",
+                     "last_group_failure_count", "last_group_total_count"):
+            try:
+                fresh[key] = max(0, int(value.get(key, 0) or 0))
+            except (TypeError, ValueError):
+                fresh[key] = 0
+        raw_group_fail = value.get("last_group_failure_at", "")
+        fresh["last_group_failure_at"] = str(raw_group_fail) if isinstance(
+            raw_group_fail, (str, int, float)
+        ) else ""
         fresh["schema"] = SCHEMA_VERSION
         return fresh
 
