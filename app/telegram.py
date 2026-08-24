@@ -523,7 +523,8 @@ def main_keyboard() -> dict[str, Any]:
         "keyboard": [
             [{"text": "🕑 ۲ ساعت اخیر"}, {"text": "🗂 ۲۴ ساعت منبع"}],
             [{"text": "🔎 سرچ آرشیو"}, {"text": "📚 فن‌فیک"}],
-            [{"text": "📋 وضعیت"}, {"text": "❔ راهنما"}],
+            [{"text": "📋 وضعیت"}, {"text": "📊 گزارش"}],
+            [{"text": "❔ راهنما"}],
         ],
         "resize_keyboard": True,
         "is_persistent": True,
@@ -536,7 +537,8 @@ def draft_keyboard(draft_id: str) -> dict[str, Any]:
     return inline_keyboard(
         [
             [("😂 بامزه‌تر", f"draft:fun:{draft_id}"), ("🪽 نرم‌تر", f"draft:soft:{draft_id}")],
-            [("📰 دقیق‌تر", f"draft:precise:{draft_id}"), ("📋 متن تمیز", f"draft:copy:{draft_id}")],
-            [("🗑 رد", f"draft:reject:{draft_id}")],
+            [("📰 دقیق‌تر", f"draft:precise:{draft_id}"), ("📝 ساده", f"draft:simple:{draft_id}")],
+            [("💜 کارآت", f"draft:carat:{draft_id}"), ("🐦 توییتی", f"draft:tweet:{draft_id}")],
+            [("📋 متن تمیز", f"draft:copy:{draft_id}"), ("🗑 رد", f"draft:reject:{draft_id}")],
         ]
     )
