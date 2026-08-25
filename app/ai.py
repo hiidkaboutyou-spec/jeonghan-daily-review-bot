@@ -405,15 +405,25 @@ def _load_voice_profile(root) -> str:
         forbidden = data.get("forbidden_patterns", [])
         parts = []
         parts.append("صدا: " + str(tone.get("primary", "")))
+        # Extract just the Persian verb forms from keys like "is_ـه", "does_میکنه"
         if sentence.get("sentence_endings_colloquial"):
             endings = sentence["sentence_endings_colloquial"]
-            parts.append("فعل‌های عامیانه: " + ", ".join(list(endings.keys())[:8]))
+            persian_forms = []
+            for key in list(endings.keys())[:8]:
+                verb = key.rsplit("_", 1)[-1] if "_" in key else key
+                persian_forms.append(verb)
+            parts.append("فعل‌های عامیانه: " + "، ".join(persian_forms))
         if sentence.get("structure_rules"):
             rules = sentence["structure_rules"]
             if rules:
                 parts.append("ساختار: " + rules[0])
         if vocab:
-            parts.append("فعل‌های طبیعی: " + ", ".join(f"{k} = {v}" for k, v in list(vocab.items())[:6]))
+            # Format as "natural → formal (avoid)" pairs without English prefixes
+            pairs = []
+            for key, val in list(vocab.items())[:6]:
+                # val looks like "ـه (not است)" — keep as-is for clarity
+                pairs.append(str(val))
+            parts.append("شکل طبیعی: " + "، ".join(pairs))
         if forbidden:
             parts.append("ممنوع: " + ", ".join(str(f)[:60] for f in forbidden[:4]))
         return " | ".join(parts)

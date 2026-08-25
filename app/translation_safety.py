@@ -59,9 +59,13 @@ _EXCESSIVE_EMOJI_RE = re.compile(
     r"\U0001F1E0-\U0001F1FF\U00002702-\U000027B0\U0001f926-\U0001f937"
     r"\U00010000-\U0010ffff\u2600-\u2B55]{5,}",
 )
-# Voice-aware: generic praise without specific observation
+# Voice-aware: generic praise without specific observation.
+# Only matches standalone empty praise or repeated empty words,
+# not natural Persian sentences that contain these words.
 _GENERIC_PRAISE_RE = re.compile(
-    r"(?:خیلی خوبه|عالیه|فوق‌العاده‌ست|خیلی قشنگه|بهترینه|عالیه خیلی خوبه)",
+    r"(?:^\s*خیلی خوبه\s*$|^\s*عالیه\s*$|^\s*فوق\u200c?العاده\u200c?ست\s*$|^\s*خیلی قشنگه\s*$"
+    r"|^\s*بهترینه\s*$|^\s*عالیه خیلی خوبه\s*$"
+    r"|عالیه\s+عالیه(?:\s+عالیه)*|خیلی خوبه\s+خیلی خوبه)",
     re.I,
 )
 
