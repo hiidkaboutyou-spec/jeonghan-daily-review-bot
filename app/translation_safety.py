@@ -47,6 +47,23 @@ _BOOKISH_RE = re.compile(
     r"به دوربین لبخند می زند|دارد چه کار می کند|\sـ(?:ه|ست)(?:\s|$))",
     re.I,
 )
+# Voice-aware: formal verb conjugations that break the colloquial voice
+_FORMAL_VERB_RE = re.compile(
+    r"(?:می[‌ ]?شود|می[‌ ]?کند|می[‌ ]?خواهد|می[‌ ]?باشد|می[‌ ]?نماید|"
+    r"درصدد|استفاده از|متعلق به|به وضوح|اطرافیان)",
+    re.I,
+)
+# Voice-aware: excessive emoji (>4 in a short text)
+_EXCESSIVE_EMOJI_RE = re.compile(
+    r"[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF"
+    r"\U0001F1E0-\U0001F1FF\U00002702-\U000027B0\U0001f926-\U0001f937"
+    r"\U00010000-\U0010ffff\u2600-\u2B55]{5,}",
+)
+# Voice-aware: generic praise without specific observation
+_GENERIC_PRAISE_RE = re.compile(
+    r"(?:خیلی خوبه|عالیه|فوق‌العاده‌ست|خیلی قشنگه|بهترینه|عالیه خیلی خوبه)",
+    re.I,
+)
 
 
 def metadata_only(update: Update) -> bool:
@@ -77,9 +94,19 @@ def natural_persian_failures(update: Update, output: str) -> list[str]:
     content_type = classify_content_type(update.translation_source())
     if content_type not in _INFORMAL_TYPES:
         return []
-    if _BOOKISH_RE.search(str(output or "")):
-        return ["bookish or machine-like register for informal source"]
-    return []
+    failures: list[str] = []
+    text = str(output or "")
+    if _BOOKISH_RE.search(text):
+        failures.append("bookish or machine-like register for informal source")
+    # Voice-aware checks: detect patterns that break the channel's natural voice.
+    # Only flag formal verbs that weren't already caught by _BOOKISH_RE above.
+    if not _BOOKISH_RE.search(text) and _FORMAL_VERB_RE.search(text):
+        failures.append("formal verb conjugation in informal context")
+    if _EXCESSIVE_EMOJI_RE.search(text):
+        failures.append("excessive emoji usage")
+    if _GENERIC_PRAISE_RE.search(text):
+        failures.append("generic praise without specific observation")
+    return failures
 
 
 def semantic_quality_failures(update: Update, output: str) -> list[str]:
@@ -137,6 +164,9 @@ def manual_review_body(body: str, reasons: list[str]) -> str:
         "bookish or machine-like register for informal source": "لحن کتابی یا ماشینی",
         "malformed mixed-script token": "واژهٔ مخلوط و نامعتبر",
         "literal social-media slang": "اسلنگ تحت‌اللفظی و غیرطبیعی",
+        "formal verb conjugation in informal context": " فعل رسمی در متن عامیانه",
+        "excessive emoji usage": "ایموجی بیش از حد",
+        "generic praise without specific observation": "تعریف کلی بدون جزئیات",
     }
     reason = "، ".join(labels.get(item, item) for item in reasons)
     return f"⚠️ نیاز به بازبینی دستی ({reason})\n\n{body.strip()}".strip()

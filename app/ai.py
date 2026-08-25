@@ -4,6 +4,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from .models import EventGroup, Update
@@ -109,6 +110,7 @@ class CaptionWriter:
             return self._fallback_group(group)
 
         style_profile = json.dumps(self.memory.profile, ensure_ascii=False)[:7000]
+        voice_guidance = _load_voice_profile(getattr(self.memory, 'root', None) or Path('.'))
         source_items = [
             {
                 "id": item.id,
@@ -152,6 +154,9 @@ class CaptionWriter:
 
 پروفایل واقعی کانال:
 {style_profile}
+
+صدا و لحن (از تحلیل ۱۵۰۰۰+ پست واقعی):
+{voice_guidance}
 
 نمونه‌های واقعی و فقط برای تقلید لحن، نه کپی اطلاعات:
 {json.dumps(samples, ensure_ascii=False)}
@@ -386,6 +391,34 @@ def _unique(values: list[str]) -> list[str]:
             seen.add(key)
             result.append(value)
     return result
+
+
+def _load_voice_profile(root) -> str:
+    """Load the channel voice profile for caption generation guidance."""
+    from pathlib import Path
+    profile_path = Path(root) / "config" / "channel_voice_profile.json"
+    try:
+        data = json.loads(profile_path.read_text(encoding="utf-8"))
+        tone = data.get("tone", {})
+        sentence = data.get("sentence_patterns", {})
+        vocab = data.get("vocabulary_dna", {}).get("natural_persian_over_formal", {})
+        forbidden = data.get("forbidden_patterns", [])
+        parts = []
+        parts.append("صدا: " + str(tone.get("primary", "")))
+        if sentence.get("sentence_endings_colloquial"):
+            endings = sentence["sentence_endings_colloquial"]
+            parts.append("فعل‌های عامیانه: " + ", ".join(list(endings.keys())[:8]))
+        if sentence.get("structure_rules"):
+            rules = sentence["structure_rules"]
+            if rules:
+                parts.append("ساختار: " + rules[0])
+        if vocab:
+            parts.append("فعل‌های طبیعی: " + ", ".join(f"{k} = {v}" for k, v in list(vocab.items())[:6]))
+        if forbidden:
+            parts.append("ممنوع: " + ", ".join(str(f)[:60] for f in forbidden[:4]))
+        return " | ".join(parts)
+    except (OSError, json.JSONDecodeError):
+        return ""
 
 
 def _safe_error(exc: Exception | None) -> str:
