@@ -379,7 +379,13 @@ def _load_real_fics() -> tuple[list[Fic], dict[str, list[str]]]:
         if index:
             time.sleep(1.0)
         work_id = str(item["work_id"])
-        fic = fetch_ao3_work(f"https://archiveofourown.org/works/{work_id}")
+        fic = None
+        for attempt in range(3):
+            fic = fetch_ao3_work(f"https://archiveofourown.org/works/{work_id}")
+            if fic is not None:
+                break
+            if attempt < 2:
+                time.sleep(2.0 * (attempt + 1))
         if fic is None:
             raise RuntimeError(f"AO3 evaluation work unavailable: {work_id}")
         fics.append(fic)
@@ -488,12 +494,17 @@ def main() -> int:
         "git_sha": os.environ.get("GITHUB_SHA", ""),
         "model": model,
     }
+
+    def checkpoint() -> None:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+
     if args.section in {"all", "translation"}:
         result["translation"] = evaluate_translation(judge, api_key, model)
+        checkpoint()
     if args.section in {"all", "fic"}:
         result["fic"] = evaluate_fics(judge, settings)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        checkpoint()
     print(json.dumps({
         "output": str(args.output),
         "translation": result.get("translation", {}).get("case_count"),
