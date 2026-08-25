@@ -18,8 +18,14 @@ import logging
 import re
 from typing import Any
 
-from .ai import CaptionWriter as LegacyCaptionWriter, GroupCopy, gemini_should_try_next_model
+from .ai import (
+    CaptionWriter as LegacyCaptionWriter,
+    GroupCopy,
+    _load_voice_profile,
+    gemini_should_try_next_model,
+)
 from .channel_quality import commentary_policy, language_guidance, rerank_for_mode
+from .config import ROOT
 from . import channel_translation as v1
 from .channel_style_runtime import (
     CHANNEL_STYLE_VERSION,
@@ -249,6 +255,8 @@ class ChannelStyleCaptionWriter(_BaseWriter):
             for key in ("register", "syntax", "lexicon", "emotion", "formatting", "code_switching", "dialogue", "explanation")
             if self.memory.profile.get(key) is not None
         }
+        voice_guidance = _load_voice_profile(getattr(self.memory, "root", ROOT))
+        self.last_diagnostics["voice_profile_loaded"] = bool(voice_guidance)
         paired_examples = translation_demonstrations(
             analysis.content_type, analysis.source_language
         )
@@ -289,6 +297,9 @@ RELEVANT CHANNEL GLOSSARY (terminology/spelling only, never factual evidence):
 
 CHANNEL STYLE DNA:
 {json.dumps(compact_profile, ensure_ascii=False)}
+
+CHANNEL VOICE PROFILE (writing guidance only; never reject or alter SOURCE facts):
+{voice_guidance or "No additional voice guidance loaded; continue with CHANNEL STYLE DNA."}
 
 PAIRED TRANSLATION DEMONSTRATIONS (learn the source→natural-Persian transformation; facts are fictional):
 {json.dumps(paired_examples, ensure_ascii=False)}

@@ -49,7 +49,8 @@ class ChannelTranslationPlaybookTests(unittest.TestCase):
     def test_unavailable_model_never_pretends_dictionary_fallback_is_translation(self):
         source = "캐럿들이 부끄러울 수도 있으니까 마스크 쓰고 있어요"
         result = unavailable_translation(source)
-        self.assertIn("ترجمهٔ خودکار در دسترس نبود", result)
+        self.assertIn("نیاز به بازبینی دستی", result)
+        self.assertIn("سرویس ترجمه موقتاً در دسترس نیست", result)
         self.assertIn(source, result)
         self.assertNotIn("قیراط", result)
 

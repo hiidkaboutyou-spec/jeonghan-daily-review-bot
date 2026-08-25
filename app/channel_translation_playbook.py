@@ -117,4 +117,7 @@ def unavailable_translation(source: str) -> str:
     broken dictionary fallback as Persian translation.
     """
     value = str(source or "").strip()
-    return f"⚠️ ترجمهٔ خودکار در دسترس نبود؛ متن اصلی برای بررسی:\n\n{value}"
+    return (
+        "⚠️ نیاز به بازبینی دستی (سرویس ترجمه موقتاً در دسترس نیست)"
+        f"\n\nمتن اصلی:\n{value}"
+    )

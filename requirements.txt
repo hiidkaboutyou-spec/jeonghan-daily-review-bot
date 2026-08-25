@@ -1,4 +1,5 @@
-twscrape @ git+https://github.com/vladkens/twscrape.git@e51d9ad043c8bb15284ca86178740004fa0fc9de
+# Upstream PR #328: accept X's 16-hex webpack hashes introduced 2026-08-24.
+twscrape @ git+https://github.com/vladkens/twscrape.git@3f47af40bc2036fe96562e82edf52b92b7fc2574
 google-genai>=2.13,<3
 requests>=2.33,<3
 beautifulsoup4>=4.12,<5
