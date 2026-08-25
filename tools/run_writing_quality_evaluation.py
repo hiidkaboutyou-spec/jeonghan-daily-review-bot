@@ -324,8 +324,8 @@ def evaluate_translation(judge: Judge, api_key: str, model: str) -> dict[str, An
         item for item in comparisons
         if not item["baseline"]["fallback"]
         and not item["voice_aware"]["fallback"]
-        and str(item["baseline"]["output_mode"]).startswith("styled_direct")
-        and str(item["voice_aware"]["output_mode"]).startswith("styled_direct")
+        and not item["baseline"]["deterministic_failures"]
+        and not item["voice_aware"]["deterministic_failures"]
     ]
 
     def paired_means(arm: str) -> dict[str, float]:
@@ -407,12 +407,15 @@ def _load_real_fics() -> tuple[list[Fic], dict[str, list[str]]]:
             time.sleep(1.0)
         work_id = str(item["work_id"])
         fic = None
-        for attempt in range(3):
+        for attempt in range(6):
             fic = fetch_ao3_work(f"https://archiveofourown.org/works/{work_id}")
             if fic is not None:
                 break
-            if attempt < 2:
-                time.sleep(2.0 * (attempt + 1))
+            if attempt < 5:
+                # AO3 is volunteer-run and occasionally returns a short burst of
+                # 5xx responses to hosted runners. Retry slowly rather than
+                # hammering it or invalidating an otherwise completed 50-case A/B.
+                time.sleep(min(15.0, 5.0 * (attempt + 1)))
         if fic is None:
             raise RuntimeError(f"AO3 evaluation work unavailable: {work_id}")
         fics.append(fic)

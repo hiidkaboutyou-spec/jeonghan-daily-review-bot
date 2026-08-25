@@ -49,9 +49,10 @@ class VoiceProfileLoaderTests(unittest.TestCase):
 
     def test_contains_key_sections(self):
         result = _load_voice_profile(ROOT)
+        self.assertIn("اولویت: فقط لحن", result)
         self.assertIn("فعل‌های عامیانه:", result, "Should list colloquial verb forms")
         self.assertIn("شکل طبیعی:", result, "Should list natural-vs-formal pairs")
-        self.assertIn("ممنوع:", result, "Should list forbidden patterns")
+        self.assertNotIn("Using English when Persian transliteration exists", result)
 
     def test_returns_empty_for_nonexistent_root(self):
         result = _load_voice_profile(Path("/nonexistent/path"))

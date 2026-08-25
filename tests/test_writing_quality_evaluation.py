@@ -35,7 +35,7 @@ class WritingQualityEvaluationTests(unittest.TestCase):
         self.assertEqual(fics, [fic])
         self.assertEqual(coverage, {"123": ["transient"]})
         self.assertEqual(fetch.call_count, 2)
-        sleep.assert_called_once_with(2.0)
+        sleep.assert_called_once_with(5.0)
 
 
 if __name__ == "__main__":
