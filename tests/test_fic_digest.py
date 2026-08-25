@@ -28,6 +28,8 @@ class FanficDigestTests(unittest.TestCase):
         self.assertIn("هیچ پایان", prompt)
         self.assertIn("حدس نزن", prompt)
         self.assertIn("پایان دیده‌نشده را هرگز نساز", prompt)
+        self.assertIn("`/` رابطهٔ عاشقانه/جنسی و `&` رابطهٔ غیرعاشقانه", prompt)
+        self.assertIn("دربارهٔ کیفیت نثر", prompt)
 
     def test_three_spoiler_modes_use_grounded_structured_outputs(self):
         fic = Fic(
