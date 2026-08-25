@@ -97,6 +97,9 @@ jobs:
       - name: Live EN KO JA production translation smoke
         run: python -m tools.run_translation_production_smoke
 
+      - name: Live fic digest production writer smoke
+        run: python -m tools.run_fic_digest_production_smoke
+
   human-benchmark:
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'translation-human'
     runs-on: ubuntu-latest

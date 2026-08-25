@@ -301,6 +301,12 @@ class PromptStructureTests(unittest.TestCase):
         self.assertIn('_load_voice_profile(getattr(self.memory, "root", ROOT))', v2_py)
         self.assertIn('self.last_diagnostics["voice_profile_loaded"]', v2_py)
 
+    def test_evaluation_backed_fidelity_rules_override_voice_flourish(self):
+        v2_py = (ROOT / "app" / "channel_translation_v2.py").read_text()
+        self.assertIn("food/meal باید «غذا» بماند، نه «چیزمیز»", v2_py)
+        self.assertIn("نسبت‌های دستوری مثل with/by/for", v2_py)
+        self.assertIn("علامت‌ها و تزئین‌های Unicode منبع", v2_py)
+
 
 if __name__ == "__main__":
     unittest.main()

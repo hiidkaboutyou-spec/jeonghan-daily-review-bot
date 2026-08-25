@@ -7,8 +7,12 @@ from unittest.mock import Mock, patch
 
 from app.fic_digest import (
     Fic,
+    SPOILER_FULL,
+    SPOILER_MEDIUM,
+    SPOILER_NO,
     _assign_relative_tiers,
     _chunks,
+    _fic_prompt_prefix,
     _normalize_fic_summary_names,
     _rank_digest_fics,
     _translate_summary,
@@ -19,6 +23,107 @@ from app.fic_digest import (
 
 
 class FanficDigestTests(unittest.TestCase):
+    def test_prompt_forbids_hallucinated_plot_and_unsourced_ending(self):
+        prompt = _fic_prompt_prefix()
+        self.assertIn("هیچ پایان", prompt)
+        self.assertIn("حدس نزن", prompt)
+        self.assertIn("پایان دیده‌نشده را هرگز نساز", prompt)
+
+    def test_three_spoiler_modes_use_grounded_structured_outputs(self):
+        fic = Fic(
+            title="Dark romance",
+            url="https://archiveofourown.org/works/77",
+            author="writer",
+            summary="Jeonghan and Seungcheol confront their attraction during a violent crisis.",
+            relationships=["Choi Seungcheol/Yoon Jeonghan"],
+            rating="Explicit",
+            warnings=["Graphic Depictions Of Violence"],
+            freeforms=["Sexual Tension", "Angst"],
+        )
+        item = {
+            "url": fic.url,
+            "summary_fa_nospoiler": "جونگهان و سونگچول وسط یک بحران با کشش بین‌شون روبه‌رو می‌شن.",
+            "summary_fa_medium": "جونگهان و سونگچول وسط یک بحران خشونت‌آمیز با کشش بین‌شون روبه‌رو می‌شن.",
+            "summary_fa_full": "تمام اطلاعات عمومی فقط همین بحران خشونت‌آمیز و کشش بین جونگهان و سونگچوله.",
+            "relationship_dynamic_fa": "کشش دوطرفه بین جونگهان و سونگچول",
+            "warnings_fa": ["خشونت با توصیف صریح"],
+            "emotional_tone": "پرتنش و تلخ",
+            "themes": ["کشش عاطفی"],
+            "tropes": ["sexual tension"],
+            "why_read": "برای تنش عاطفی دقیق بین این دو نفر.",
+        }
+        response = SimpleNamespace(parsed={"items": [item]}, text="")
+        client = SimpleNamespace(models=SimpleNamespace(generate_content=Mock(return_value=response)))
+        settings = SimpleNamespace(gemini_api_key="key", gemini_model="gemini-3.5-flash-lite")
+
+        with patch("google.genai.Client", return_value=client), patch("app.fic_digest.time.sleep"):
+            medium = summarize_fics_persian(settings, [fic], SPOILER_MEDIUM)
+
+        self.assertEqual(medium[fic.url], item["summary_fa_medium"])
+        self.assertEqual(fic.summary_fa_nospoiler, item["summary_fa_nospoiler"])
+        self.assertEqual(fic.summary_fa_full, item["summary_fa_full"])
+        self.assertEqual(fic.relationship_dynamic_fa, item["relationship_dynamic_fa"])
+        self.assertEqual(fic.warnings_fa, item["warnings_fa"])
+        prompt = client.models.generate_content.call_args.kwargs["contents"]
+        self.assertIn("Graphic Depictions Of Violence", prompt)
+        self.assertIn("Choi Seungcheol/Yoon Jeonghan", prompt)
+        self.assertIn("Sexual Tension", prompt)
+
+        self.assertIn(item["summary_fa_nospoiler"], format_digest("t", [fic], medium, "ao3", SPOILER_NO))
+        self.assertIn(item["summary_fa_medium"], format_digest("t", [fic], medium, "ao3", SPOILER_MEDIUM))
+        self.assertIn(item["summary_fa_full"], format_digest("t", [fic], medium, "ao3", SPOILER_FULL))
+
+    def test_invalid_spoiler_mode_is_rejected(self):
+        settings = SimpleNamespace(gemini_api_key="", gemini_model="")
+        with self.assertRaises(ValueError):
+            summarize_fics_persian(settings, [], "surprise-ending")
+
+    def test_incomplete_relationship_interpretation_is_not_published(self):
+        fic = Fic(
+            title="Fic",
+            url="https://archiveofourown.org/works/78",
+            author="writer",
+            summary="Jeonghan meets Seungcheol again.",
+            relationships=["Choi Seungcheol/Yoon Jeonghan"],
+        )
+        item = {
+            "url": fic.url,
+            "summary_fa_nospoiler": "جونگهان دوباره سونگچول رو می‌بینه.",
+            "summary_fa_medium": "جونگهان دوباره سونگچول رو می‌بینه.",
+            "summary_fa_full": "جونگهان دوباره سونگچول رو می‌بینه.",
+            "relationship_dynamic_fa": "",
+            "warnings_fa": [],
+            "emotional_tone": "",
+            "themes": [],
+            "tropes": [],
+            "why_read": "دیدار دوبارهٔ این دو نفر.",
+        }
+        client = SimpleNamespace(
+            models=SimpleNamespace(
+                generate_content=Mock(return_value=SimpleNamespace(parsed={"items": [item]}, text=""))
+            )
+        )
+        settings = SimpleNamespace(gemini_api_key="key", gemini_model="gemini-3.5-flash-lite")
+        with patch("google.genai.Client", return_value=client), patch("app.fic_digest.time.sleep"):
+            result = summarize_fics_persian(settings, [fic])
+
+        self.assertIn("متن اصلی AO3", result[fic.url])
+        self.assertEqual(fic.relationship_dynamic_fa, "")
+
+    def test_missing_mode_output_falls_back_without_inventing_content(self):
+        fic = Fic(
+            title="Fic",
+            url="https://archiveofourown.org/works/1",
+            author="writer",
+            summary="Jeonghan returns home.",
+            relationships=["Yoon Jeonghan/Choi Seungcheol"],
+        )
+        fallback = "⚠️ ترجمهٔ خلاصه در دسترس نبود؛ متن اصلی AO3:\nJeonghan returns home."
+        self.assertEqual(
+            format_digest("t", [fic], {fic.url: fallback}, "ao3", SPOILER_FULL).split("خلاصه: ", 1)[1],
+            fallback,
+        )
+
     def test_adult_ao3_content_is_preserved_when_model_is_unavailable(self):
         source = "Jeonghan asks Seungcheol to have sex with him."
         fallback = _translate_summary(source)

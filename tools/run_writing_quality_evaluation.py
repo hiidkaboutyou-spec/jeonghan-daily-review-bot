@@ -320,6 +320,24 @@ def evaluate_translation(judge: Judge, api_key: str, model: str) -> dict[str, An
                 "evaluation": judged[case_id],
             }
         )
+    paired_direct = [
+        item for item in comparisons
+        if not item["baseline"]["fallback"]
+        and not item["voice_aware"]["fallback"]
+        and str(item["baseline"]["output_mode"]).startswith("styled_direct")
+        and str(item["voice_aware"]["output_mode"]).startswith("styled_direct")
+    ]
+
+    def paired_means(arm: str) -> dict[str, float]:
+        if not paired_direct:
+            return {}
+        return {
+            key: round(statistics.mean(
+                float(item["evaluation"][f"{arm}_scores"][key]) for item in paired_direct
+            ), 3)
+            for key in _TRANSLATION_SCORE_KEYS
+        }
+
     return {
         "case_count": len(cases),
         "selection": "stable stratified sample of real historical non-Persian channel posts",
@@ -332,6 +350,15 @@ def evaluate_translation(judge: Judge, api_key: str, model: str) -> dict[str, An
         "deterministic_failure_counts": {
             "baseline": sum(bool(value["deterministic_failures"]) for value in baseline.values()),
             "voice_aware": sum(bool(value["deterministic_failures"]) for value in voice.values()),
+        },
+        "paired_direct": {
+            "case_count": len(paired_direct),
+            "baseline_means": paired_means("baseline"),
+            "voice_aware_means": paired_means("voice"),
+            "preference_counts": {
+                label: sum(item["evaluation"]["preferred"] == label for item in paired_direct)
+                for label in ("voice", "baseline", "tie")
+            },
         },
         "comparisons": comparisons,
     }
@@ -435,6 +462,36 @@ def evaluate_fics(judge: Judge, settings: Settings) -> dict[str, Any]:
                 judged[str(item["work_id"])] = item
     if len(judged) != len(fics):
         raise RuntimeError(f"fic evaluator returned {len(judged)}/{len(fics)} works")
+
+    # A model judge must never award a structurally absent feature. Apply exact,
+    # deterministic coverage failures before aggregating the subjective scores.
+    for fic in fics:
+        evaluation = judged[fic.work_id]
+        scores = evaluation.get("scores", {})
+        issues = [str(value) for value in evaluation.get("issues", [])]
+        missing_modes = [
+            mode for mode, value in (
+                ("no_spoiler", fic.summary_fa_nospoiler),
+                ("medium_spoiler", medium.get(fic.url, "")),
+                ("full", fic.summary_fa_full),
+            )
+            if not str(value).strip()
+        ]
+        if missing_modes:
+            issues.append("missing_spoiler_modes:" + ",".join(missing_modes))
+            scores["completeness"] = 1
+            scores["spoiler_mode_correctness"] = 1
+        if not fic.relationship_dynamic_fa:
+            issues.append("missing_relationship_dynamic")
+            scores["relationship_fidelity"] = 1
+        if len(fic.warnings_fa or []) < len(fic.warnings or []) or not fic.emotional_tone:
+            issues.append("missing_warning_or_tone_metadata")
+            scores["warning_theme_fidelity"] = 1
+        if not fic.themes and not fic.tropes:
+            issues.append("missing_theme_and_trope_metadata")
+            scores["warning_theme_fidelity"] = 1
+        evaluation["scores"] = scores
+        evaluation["issues"] = list(dict.fromkeys(issues))
 
     means = {
         key: round(statistics.mean(float(judged[fic.work_id]["scores"][key]) for fic in fics), 3)
