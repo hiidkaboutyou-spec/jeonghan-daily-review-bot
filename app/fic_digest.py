@@ -32,6 +32,16 @@ from .gemini_structured import translation_safety_settings
 from .fic_summary_quality import fic_summary_quality_issues
 
 logger = logging.getLogger(__name__)
+
+# ── Spoiler mode constants ───────────────────────────────────────────────
+SPOILER_NO = "nospoiler"    # premise only, no plot details
+SPOILER_MEDIUM = "medium"   # key details but no ending
+SPOILER_FULL = "full"       # complete summary including ending
+
+# ── Quality tier thresholds (relative ranking within a batch) ────────────
+_TIER_GEM_RATIO = 0.10      # top 10 %
+_TIER_SOLID_RATIO = 0.30    # top 30 %
+_TIER_FRESH_MIN_KUDOS = 5   # new/updated with at least this many kudos
 AO3 = "https://archiveofourown.org"
 HEADERS = {"User-Agent": "JeonghanDailyReviewBot/1.0 (+personal private reading digest; low-rate requests)"}
 JEONGHAN_TERMS = ("jeonghan", "yoon jeonghan", "정한", "윤정한", "ジョンハン")
@@ -78,6 +88,16 @@ class Fic:
     observation_status: str = ""
     warnings: list[str] | None = None
     freeforms: list[str] | None = None
+    # Enhanced metadata for deeper understanding
+    emotional_tone: str = ""       # e.g. angst, fluff, humor, hurt-comfort
+    themes: list[str] | None = None  # e.g. enemies-to-lovers, found-family
+    tropes: list[str] | None = None  # e.g. slow-burn, pining, miscommunication
+    summary_fa: str = ""            # Generated Persian summary (cached)
+    summary_fa_nospoiler: str = ""  # No-spoiler Persian summary
+    summary_fa_full: str = ""       # Full spoiler Persian summary
+    why_read: str = ""              # Short recommendation in Persian
+    quality_score: float = 0.0       # Computed quality score
+    quality_tier: str = ""          # gem, solid, fresh, popular
 
     @property
     def ship(self) -> str:
@@ -447,6 +467,95 @@ def _translate_summary(summary: str) -> str:
     return "⚠️ ترجمهٔ خلاصه در دسترس نبود؛ متن اصلی AO3:\n" + summary
 
 
+def compute_fic_quality_score(fic: Fic, source: str = "") -> tuple[float, str]:
+    """Compute a deterministic quality score and tier for a single Fic.
+
+    Returns (score, tier) where tier is one of: gem, solid, fresh, popular.
+    Scoring is relative to a batch and computed after ranking. The score
+    itself is a float in [0, 100] for cross-batch comparison.
+    """
+    # Engagement: weighted combination of kudos, bookmarks, hits
+    # Kudos are the strongest signal of reader enjoyment on AO3.
+    kudos_score = min(fic.kudos / 50.0, 40.0)       # max 40 pts
+    bookmark_score = min(fic.bookmarks / 20.0, 25.0) # max 25 pts
+    hit_score = min(fic.hits / 500.0, 15.0)          # max 15 pts
+    x_score = min(fic.x_score / 10.0, 10.0) if source == "x" else 0.0
+    engagement = kudos_score + bookmark_score + hit_score + x_score
+
+    # Freshness bonus
+    freshness = 0.0
+    if fic.observation_status == "new":
+        freshness = 10.0
+    elif fic.observation_status == "updated":
+        freshness = 6.0
+
+    # Completion bonus: completed fics are more valuable recommendations
+    completion = 0.0
+    if fic.completion_status == "complete":
+        completion = 5.0
+    elif fic.completion_status == "in_progress":
+        completion = 2.0
+
+    # Word count bonus for substantial fics (3k+ words)
+    word_bonus = 0.0
+    try:
+        word_count = int(fic.words.replace(",", "") or "0")
+        if word_count >= 30000:
+            word_bonus = 5.0
+        elif word_count >= 10000:
+            word_bonus = 3.0
+        elif word_count >= 3000:
+            word_bonus = 1.0
+    except (ValueError, AttributeError):
+        pass
+
+    score = round(engagement + freshness + completion + word_bonus, 1)
+    # Tier is computed relative to the batch in rank_digest_fics;
+    # here we assign based on absolute score ranges.
+    if score >= 50:
+        tier = "gem"
+    elif score >= 25:
+        tier = "solid"
+    elif score >= 10:
+        tier = "popular"
+    else:
+        tier = "fresh" if fic.observation_status in ("new", "updated") else ""
+    return score, tier
+
+
+_TIER_FA = {
+    "gem": "💎",
+    "solid": "⭐",
+    "popular": "🔥",
+    "fresh": "🆕",
+}
+
+
+def _assign_relative_tiers(fics: list[Fic]) -> None:
+    """Re-assign quality tiers based on batch-relative ranking.
+
+    The absolute score from compute_fic_quality_score gives a baseline,
+    but within a batch the top 10% should always be 'gem' and the next
+    20% should be 'solid' regardless of absolute scores.
+    """
+    if not fics:
+        return
+    ranked = sorted(fics, key=lambda f: f.quality_score, reverse=True)
+    n = len(ranked)
+    gem_limit = max(1, int(n * _TIER_GEM_RATIO))
+    solid_limit = max(gem_limit + 1, int(n * _TIER_SOLID_RATIO))
+    for idx, fic in enumerate(ranked):
+        if idx < gem_limit:
+            fic.quality_tier = "gem"
+        elif idx < solid_limit:
+            fic.quality_tier = "solid"
+        elif fic.quality_tier not in ("gem", "solid"):
+            # Keep existing tier if it's already gem/solid; otherwise reset
+            fic.quality_tier = "popular" if fic.quality_score >= 15 else (
+                "fresh" if fic.observation_status in ("new", "updated") else ""
+            )
+
+
 _FIC_NAME_REPLACEMENTS = (
     (re.compile(r"یون\s+جئونگان|جئونگان|جیونگان|جئونگهان|جونگان", re.I), "جونگهان"),
     (re.compile(r"سئونگ\s*چئول|سئونگ\s*چول", re.I), "سونگچول"),
@@ -507,6 +616,8 @@ def _fic_prompt_prefix() -> str:
         "دیالوگ، نقل‌قول، POV و اینکه چه کسی چه کاری می‌کند باید دقیق بماند. نقش شخصیت‌ها، ضمیرها، رابطه، trope، انگیزه یا پایان را حدس نزن و هیچ جزئیات تازه‌ای اختراع نکن. "
         "نام‌ها: Yoon Jeonghan/Jeonghan = جونگهان، Choi Seungcheol/S.Coups = سونگچول، Joshua/Hong Jisoo = جاشوآ، Mingyu = مینگیو، Wonwoo = ونوو، Hoshi/Soonyoung = هوشی، "
         "Jun/Junhui = جون، DK/Seokmin = دوکیوم، The8/Minghao = مینگ‌هائو، Woozi/Jihoon = ووزی، Seungkwan = سونگکوان، Dino/Chan = دینو، Vernon/Hansol = ورنون. "
+        "علاوه بر summary_fa، یک summary_fa_nospoiler بنویس که فقط premise و فضای کلی را بگوید بدون لو دادن جزئیات داستان یا پایان. "
+        "همچنین why_read بنویس: یک جملهٔ کوتاه فارسی دربارهٔ اینکه چرا این فیک ارزش خواندن دارد (مثلاً جذابیت احساسی، کیفیت نوشتار، uniqueness و غیره). "
         "فقط JSON مطابق schema برگردان؛ summary_fa باید خود متن نهایی فارسی باشد و هیچ توضیح اضافی نداشته باشد. "
     )
 
@@ -542,6 +653,8 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
                         "properties": {
                             "url": {"type": "string"},
                             "summary_fa": {"type": "string"},
+                            "summary_fa_nospoiler": {"type": "string"},
+                            "why_read": {"type": "string"},
                         },
                     },
                 },
@@ -649,6 +762,13 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
                         )
                         continue
                     result[url] = candidate
+                    # Store spoiler-safe summary and recommendation on the Fic object
+                    nospoiler = _normalize_fic_summary_names(str(item.get("summary_fa_nospoiler", "")))
+                    if nospoiler:
+                        fic.summary_fa_nospoiler = nospoiler
+                    why = _normalize_fic_summary_names(str(item.get("why_read", "")))
+                    if why:
+                        fic.why_read = why
                 if result:
                     missing = [fic for fic in subset if fic.url not in result]
                     if missing and request_state["calls"] < request_state["max_calls"]:
@@ -798,6 +918,7 @@ def format_digest(title: str, fics: list[Fic], summaries: dict[str, str], source
         lines += [f"━━ {ship} ━━", ""]
         for fic in items:
             status = _STATUS_FA.get(fic.observation_status, "")
+            tier_badge = _TIER_FA.get(fic.quality_tier, "")
             stats = f"کودوس {fic.kudos:,} · بوکمارک {fic.bookmarks:,} · بازدید {fic.hits:,}"
             if source == "x":
                 stats += f" · امتیاز X: {fic.x_score:,}"
@@ -810,7 +931,7 @@ def format_digest(title: str, fics: list[Fic], summaries: dict[str, str], source
                 stats += f" · فصل {fic.chapters}{progress}"
             jh_relationships = _jeonghan_relationships(fic.relationships)
             rel = "; ".join(jh_relationships[:3]) or ship
-            heading = f"{number}) {status + ' · ' if status else ''}{fic.title}"
+            heading = f"{number}) {tier_badge + ' ' if tier_badge else ''}{status + ' · ' if status else ''}{fic.title}"
             lines += [heading, f"نویسنده: {fic.author}", f"رابطه: {rel}"]
             if fic.rating:
                 lines.append("رده‌بندی: " + _RATING_FA.get(fic.rating, fic.rating))
@@ -823,8 +944,10 @@ def format_digest(title: str, fics: list[Fic], summaries: dict[str, str], source
                 stats + (f" · کلمه {fic.words}" if fic.words else ""),
                 fic.url,
                 "خلاصه: " + summaries.get(fic.url, fic.summary),
-                "",
             ]
+            if fic.why_read:
+                lines.append("چرا بخوانیم: " + fic.why_read)
+            lines.append("")
             number += 1
     return "\n".join(lines).strip()
 
@@ -882,6 +1005,11 @@ async def build_digests(settings: Settings, *, fic_store: FicStateStore | None =
         x_summaries = await asyncio.to_thread(summarize_fics_persian, settings, x_fics)
     except Exception as exc:
         logger.warning("X summary translation phase failed: %s", type(exc).__name__)
+    # Compute quality scores relative to the X batch
+    for fic in x_fics:
+        fic.quality_score, fic.quality_tier = compute_fic_quality_score(fic, "x")
+    if x_fics:
+        _assign_relative_tiers(x_fics)
     x_text = format_digest("🌙 فن‌فیک‌های پیشنهادی از X", x_fics, x_summaries, "x")
 
     x_ids = {fic.work_id for fic in x_fics if fic.work_id}
@@ -897,6 +1025,11 @@ async def build_digests(settings: Settings, *, fic_store: FicStateStore | None =
         ao3_summaries = await asyncio.to_thread(summarize_fics_persian, settings, ao3_fics)
     except Exception as exc:
         logger.warning("AO3 summary translation phase failed: %s", type(exc).__name__)
+    # Compute quality scores relative to the AO3 batch
+    for fic in ao3_fics:
+        fic.quality_score, fic.quality_tier = compute_fic_quality_score(fic, "ao3")
+    if ao3_fics:
+        _assign_relative_tiers(ao3_fics)
     ao3_text = format_digest("📚 تازه‌ها و انتخاب‌های محبوب AO3", ao3_fics, ao3_summaries, "ao3")
     logger.info(
         "Fanfic digest built successfully (x=%s ao3_pool=%s ao3_list=%s)",

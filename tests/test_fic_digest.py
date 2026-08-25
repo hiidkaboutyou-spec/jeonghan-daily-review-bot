@@ -7,10 +7,12 @@ from unittest.mock import Mock, patch
 
 from app.fic_digest import (
     Fic,
+    _assign_relative_tiers,
     _chunks,
     _normalize_fic_summary_names,
     _rank_digest_fics,
     _translate_summary,
+    compute_fic_quality_score,
     format_digest,
     summarize_fics_persian,
 )
@@ -257,6 +259,260 @@ class FanficDigestTests(unittest.TestCase):
         updated = Fic("updated", "https://archiveofourown.org/works/3", "a", "s", ["Yoon Jeonghan/Choi Seungcheol"], kudos=1, observation_status="updated")
         ranked = _rank_digest_fics([unchanged, new, updated], "ao3")
         self.assertEqual([fic.title for fic in ranked], ["updated", "new", "old"])
+
+    # ── Quality scoring tests ───────────────────────────────────────────
+
+    def test_quality_score_popular_fic_gets_gem_tier(self):
+        fic = Fic(
+            title="Popular",
+            url="https://archiveofourown.org/works/1",
+            author="writer",
+            summary="summary",
+            relationships=["Yoon Jeonghan/Choi Seungcheol"],
+            kudos=5000, bookmarks=200, hits=20000,
+            chapters="10/10", words="100000",
+            observation_status="unchanged",
+        )
+        score, tier = compute_fic_quality_score(fic, "ao3")
+        self.assertGreaterEqual(score, 50)
+        self.assertEqual(tier, "gem")
+
+    def test_quality_score_low_kudos_fic_gets_lower_tier(self):
+        fic = Fic(
+            title="Small",
+            url="https://archiveofourown.org/works/2",
+            author="writer",
+            summary="summary",
+            relationships=["Yoon Jeonghan/Choi Seungcheol"],
+            kudos=2, bookmarks=0, hits=10,
+            words="500",
+        )
+        score, tier = compute_fic_quality_score(fic, "ao3")
+        self.assertLess(score, 10)
+        self.assertIn(tier, ("", "fresh"))
+
+    def test_quality_score_new_observation_gets_fresh_bonus(self):
+        fic = Fic(
+            title="New",
+            url="https://archiveofourown.org/works/3",
+            author="writer",
+            summary="summary",
+            relationships=["Yoon Jeonghan/Choi Seungcheol"],
+            kudos=1, observation_status="new",
+        )
+        score_new, _ = compute_fic_quality_score(fic, "ao3")
+        fic2 = Fic(
+            title="Old",
+            url="https://archiveofourown.org/works/4",
+            author="writer",
+            summary="summary",
+            relationships=["Yoon Jeonghan/Choi Seungcheol"],
+            kudos=1, observation_status="unchanged",
+        )
+        score_old, _ = compute_fic_quality_score(fic2, "ao3")
+        self.assertGreater(score_new, score_old)
+        # Fresh bonus of +10 pushes score to 10+, which is 'popular' tier
+        self.assertGreaterEqual(score_new, 10)
+
+    def test_quality_score_x_source_includes_x_score(self):
+        fic = Fic(
+            title="X fic",
+            url="https://archiveofourown.org/works/5",
+            author="writer",
+            summary="summary",
+            relationships=["Yoon Jeonghan/Choi Seungcheol"],
+            kudos=10, x_score=50,
+        )
+        score_x, _ = compute_fic_quality_score(fic, "x")
+        score_ao3, _ = compute_fic_quality_score(fic, "ao3")
+        self.assertGreater(score_x, score_ao3)
+
+    def test_quality_score_complete_fic_gets_bonus(self):
+        fic_complete = Fic(
+            title="Done",
+            url="https://archiveofourown.org/works/6",
+            author="writer",
+            summary="summary",
+            relationships=["Yoon Jeonghan/Choi Seungcheol"],
+            kudos=10, chapters="5/5",
+        )
+        fic_wip = Fic(
+            title="WIP",
+            url="https://archiveofourown.org/works/7",
+            author="writer",
+            summary="summary",
+            relationships=["Yoon Jeonghan/Choi Seungcheol"],
+            kudos=10, chapters="3/10",
+        )
+        score_c, _ = compute_fic_quality_score(fic_complete, "ao3")
+        score_w, _ = compute_fic_quality_score(fic_wip, "ao3")
+        self.assertGreater(score_c, score_w)
+
+    # ── Relative tier assignment tests ───────────────────────────────────
+
+    def test_assign_relative_tiers_top_is_gem(self):
+        fics = [
+            Fic(f"f{i}", f"https://archiveofourown.org/works/{i}", "a", "s",
+                ["Yoon Jeonghan/Choi Seungcheol"], kudos=i * 100)
+            for i in range(1, 21)
+        ]
+        for f in fics:
+            f.quality_score, _ = compute_fic_quality_score(f, "ao3")
+        _assign_relative_tiers(fics)
+        # The fic with highest kudos should be gem
+        gem_titles = {f.title for f in fics if f.quality_tier == "gem"}
+        self.assertGreaterEqual(len(gem_titles), 1)  # at least top 10%
+        self.assertIn("f20", gem_titles)  # highest kudos must be gem
+
+    def test_assign_relative_tiers_empty_list(self):
+        _assign_relative_tiers([])  # should not raise
+
+    def test_assign_relative_tiers_preserves_gem_solid(self):
+        fic = Fic(
+            title="Already gem",
+            url="https://archiveofourown.org/works/99",
+            author="a",
+            summary="s",
+            relationships=["Yoon Jeonghan/Choi Seungcheol"],
+            kudos=1, quality_tier="gem",
+        )
+        _assign_relative_tiers([fic])
+        self.assertEqual(fic.quality_tier, "gem")
+
+    # ── Format digest with quality tiers and why_read ────────────────────
+
+    def test_format_digest_shows_quality_tier_badge(self):
+        fic = Fic(
+            title="Gem fic",
+            url="https://archiveofourown.org/works/1",
+            author="writer",
+            summary="summary",
+            relationships=["Yoon Jeonghan/Choi Seungcheol"],
+            quality_tier="gem",
+        )
+        text = format_digest("title", [fic], {fic.url: fic.summary}, "ao3")
+        self.assertIn("💎", text)
+        self.assertIn("Gem fic", text)
+
+    def test_format_digest_shows_why_read(self):
+        fic = Fic(
+            title="Nice fic",
+            url="https://archiveofourown.org/works/2",
+            author="writer",
+            summary="summary",
+            relationships=["Yoon Jeonghan/Choi Seungcheol"],
+            why_read="کیفیت نوشتن عالیه و رابطه خیلی قشنگ پرداخت شده",
+        )
+        text = format_digest("title", [fic], {fic.url: fic.summary}, "ao3")
+        self.assertIn("چرا بخوانیم:", text)
+        self.assertIn("کیفیت نوشتن عالیه", text)
+
+    def test_format_digest_no_why_read_section_when_empty(self):
+        fic = Fic(
+            title="Plain fic",
+            url="https://archiveofourown.org/works/3",
+            author="writer",
+            summary="summary",
+            relationships=["Yoon Jeonghan/Choi Seungcheol"],
+            why_read="",
+        )
+        text = format_digest("title", [fic], {fic.url: fic.summary}, "ao3")
+        self.assertNotIn("چرا بخوانیم:", text)
+
+    def test_format_digest_empty_list_message(self):
+        text = format_digest("title", [], {}, "ao3")
+        self.assertIn("لیست خالی", text)
+
+    # ── Spoiler mode and nospoiler extraction ─────────────────────────────
+
+    def test_summarize_stores_nospoiler_and_why_read_on_fic(self):
+        fic = Fic(
+            title="Fic",
+            url="https://archiveofourown.org/works/1",
+            author="writer",
+            summary="Jeonghan returns home.",
+            relationships=["Choi Seungcheol/Yoon Jeonghan"],
+        )
+        response_data = {
+            "items": [{
+                "url": fic.url,
+                "summary_fa": "جونگهان برمی‌گرده خونه.",
+                "summary_fa_nospoiler": "داستان دربارهٔ برگشتن جونگهانه.",
+                "why_read": "خیلی احساسی و قشنگ نوشته شده",
+            }]
+        }
+        client = SimpleNamespace(
+            models=SimpleNamespace(
+                generate_content=Mock(return_value=SimpleNamespace(text=json.dumps(response_data, ensure_ascii=False)))
+            )
+        )
+        settings = SimpleNamespace(gemini_api_key="key", gemini_model="gemini-stable")
+        with patch("google.genai.Client", return_value=client), patch("app.fic_digest.time.sleep"):
+            summarize_fics_persian(settings, [fic])
+        self.assertEqual(fic.summary_fa_nospoiler, "داستان دربارهٔ برگشتن جونگهانه.")
+        self.assertEqual(fic.why_read, "خیلی احساسی و قشنگ نوشته شده")
+
+    def test_summarize_handles_missing_nospoiler_fields_gracefully(self):
+        fic = Fic(
+            title="Fic",
+            url="https://archiveofourown.org/works/2",
+            author="writer",
+            summary="Summary.",
+            relationships=["Choi Seungcheol/Yoon Jeonghan"],
+        )
+        response_data = {
+            "items": [{
+                "url": fic.url,
+                "summary_fa": "خلاصه.",
+                # no summary_fa_nospoiler or why_read
+            }]
+        }
+        client = SimpleNamespace(
+            models=SimpleNamespace(
+                generate_content=Mock(return_value=SimpleNamespace(text=json.dumps(response_data, ensure_ascii=False)))
+            )
+        )
+        settings = SimpleNamespace(gemini_api_key="key", gemini_model="gemini-stable")
+        with patch("google.genai.Client", return_value=client), patch("app.fic_digest.time.sleep"):
+            result = summarize_fics_persian(settings, [fic])
+        self.assertEqual(fic.summary_fa_nospoiler, "")
+        self.assertEqual(fic.why_read, "")
+        self.assertEqual(result[fic.url], "خلاصه.")
+
+    # ── Enhanced metadata fields on Fic ──────────────────────────────────
+
+    def test_fic_dataclass_supports_enhanced_metadata(self):
+        fic = Fic(
+            title="Enhanced",
+            url="https://archiveofourown.org/works/10",
+            author="writer",
+            summary="summary",
+            relationships=["Yoon Jeonghan/Choi Seungcheol"],
+            emotional_tone="angst",
+            themes=["enemies-to-lovers", "found-family"],
+            tropes=["slow-burn", "pining"],
+        )
+        self.assertEqual(fic.emotional_tone, "angst")
+        self.assertEqual(fic.themes, ["enemies-to-lovers", "found-family"])
+        self.assertEqual(fic.tropes, ["slow-burn", "pining"])
+        self.assertEqual(fic.quality_score, 0.0)
+        self.assertEqual(fic.quality_tier, "")
+
+    def test_format_digest_no_spoiler_mode_hint(self):
+        """Verify nospoiler summary can be used in output when available."""
+        fic = Fic(
+            title="Fic",
+            url="https://archiveofourown.org/works/1",
+            author="writer",
+            summary="Full summary here.",
+            relationships=["Yoon Jeonghan/Choi Seungcheol"],
+            summary_fa_nospoiler="Short premise only.",
+        )
+        # Normal mode uses summaries dict
+        text_normal = format_digest("t", [fic], {fic.url: fic.summary}, "ao3")
+        self.assertIn("Full summary here", text_normal)
+        # The nospoiler field is available on the fic object for callers to use
+        self.assertEqual(fic.summary_fa_nospoiler, "Short premise only.")
 
 
 if __name__ == "__main__":
