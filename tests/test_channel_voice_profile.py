@@ -289,6 +289,18 @@ class PromptStructureTests(unittest.TestCase):
             "Should use getattr for safe memory.root access",
         )
 
+    def test_voice_profile_is_in_actual_production_v2_prompt(self):
+        v2_py = (ROOT / "app" / "channel_translation_v2.py").read_text()
+        style_pos = v2_py.find("CHANNEL STYLE DNA:")
+        voice_pos = v2_py.find("CHANNEL VOICE PROFILE")
+        examples_pos = v2_py.find("PAIRED TRANSLATION DEMONSTRATIONS")
+
+        self.assertGreater(style_pos, 0)
+        self.assertGreater(voice_pos, style_pos)
+        self.assertGreater(examples_pos, voice_pos)
+        self.assertIn('_load_voice_profile(getattr(self.memory, "root", ROOT))', v2_py)
+        self.assertIn('self.last_diagnostics["voice_profile_loaded"]', v2_py)
+
 
 if __name__ == "__main__":
     unittest.main()

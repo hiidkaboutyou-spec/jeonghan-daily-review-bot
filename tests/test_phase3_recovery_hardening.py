@@ -12,6 +12,7 @@ from app import phase3_recovery as phase3
 from app.models import Update
 from app.state import StateStore
 from app.x_client import XCollectionError, XCollector
+from app.x_syndication import SyndicationError
 
 
 class _ScopedIdentityAPI:
@@ -68,6 +69,12 @@ class Phase3RecoveryHardeningTests(unittest.TestCase):
     def setUp(self):
         self.end = datetime(2026, 8, 14, 18, 0, tzinfo=timezone.utc)
         self.start = self.end - timedelta(hours=4)
+        self.syndication = patch(
+            "app.phase3_recovery.collect_syndication_timeline",
+            side_effect=SyndicationError("offline in unit test"),
+        )
+        self.syndication.start()
+        self.addCleanup(self.syndication.stop)
 
     def test_unresolved_checkpoint_does_not_expire_by_age(self):
         checkpoint = phase3._new_checkpoint(

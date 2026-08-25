@@ -21,6 +21,7 @@ from app.state import StateStore
 from app.webhook_aware_assistant import WebhookAwarePersonalAssistant
 from app.x_client import XCollectionError, XCollector
 from app.x_completeness import XCompletenessError
+from app.x_syndication import SyndicationError
 
 
 class _FakeAPI:
@@ -89,6 +90,31 @@ class Phase3RecoveryTests(unittest.TestCase):
     def setUp(self):
         self.end = datetime(2026, 8, 14, 18, 0, tzinfo=timezone.utc)
         self.start = self.end - timedelta(hours=4)
+        self.syndication = patch(
+            "app.phase3_recovery.collect_syndication_timeline",
+            side_effect=SyndicationError("offline in unit test"),
+        )
+        self.syndication.start()
+        self.addCleanup(self.syndication.stop)
+
+    def test_all_provider_paths_failed_returns_authorized_public_fallback(self):
+        recovered = _update("fallback", self.end - timedelta(hours=1))
+        self.syndication.stop()
+        with tempfile.TemporaryDirectory() as temp, patch(
+            "app.phase3_recovery.collect_syndication_timeline",
+            return_value=SimpleNamespace(updates=[recovered], raw_seen=1),
+        ), patch(
+            "app.phase3_recovery._provider_page",
+            new=AsyncMock(side_effect=[TimeoutError("down")] * (MAX_SOURCE_RETRIES + 1)),
+        ), patch("app.phase3_recovery._sleep_for_retry", new=AsyncMock()), patch(
+            "app.source_authority_hardening.asyncio.sleep", new=AsyncMock()
+        ):
+            collector = self._collector_with_state(temp)
+            result = asyncio.run(collector.collect_window(self.start, self.end, max_per_query=20))
+
+        self.assertEqual([item.id for item in result], ["fallback"])
+        self.assertTrue(collector.last_errors)
+        self.assertEqual(collector._phase3_state.data["last_auto_run"], "")
 
     def _collector_with_state(self, temp: str, *, api=None, sources=None, recovery=None):
         collector = _Collector(api or _FakeAPI(), sources=sources, recovery=recovery)

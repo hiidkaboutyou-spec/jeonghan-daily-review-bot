@@ -17,6 +17,9 @@ _FOREIGN_RE = re.compile(r"[A-Za-z\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]")
 _PERSIAN_RE = re.compile(r"[\u0600-\u06ff]")
 _FAILURE_RE = re.compile(r"ترجمه[ٔ‌ ]+(?:خودکار[ ]+)?این پیام ناموفق", re.I)
 _UNAVAILABLE_RE = re.compile(r"ترجمه[ٔ‌ ]+خودکار در دسترس نبود", re.I)
+_MANUAL_TRANSLATION_FALLBACK_RE = re.compile(
+    r"^⚠️ نیاز به بازبینی دستی \(سرویس ترجمه موقتاً در دسترس نیست\)", re.I
+)
 _LITERAL_RE = re.compile(
     r"(?:گوشی را راه[‌ -]?اندازی کنید|مثل یک شراب خوب پیر شده(?: است)?|"
     r"نسخه بد خود را نشان می[‌ ]?دهد|اول تو خانواده من هستی)",
@@ -80,6 +83,11 @@ def metadata_only(update: Update) -> bool:
 def translation_unavailable(value: str) -> bool:
     """Return true for an outage placeholder that must never be delivered as a draft."""
     return bool(_UNAVAILABLE_RE.search(str(value or "")))
+
+
+def manual_translation_fallback(value: str) -> bool:
+    """Return true for a source-preserving outage draft safe for private review."""
+    return bool(_MANUAL_TRANSLATION_FALLBACK_RE.search(str(value or "").strip()))
 
 
 def safe_metadata_body(update: Update) -> str:

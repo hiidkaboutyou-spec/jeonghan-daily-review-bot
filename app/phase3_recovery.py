@@ -17,11 +17,13 @@ from .observability import current_retrieval_attempt_id, new_attempt_id, observe
 from .state import StateStore
 from .x_client import XCollectionError, XCollector, _safe_error, normalize_handle
 from .x_completeness import CompleteWindowXCollector, XCompletenessError
+from .x_syndication import SyndicationError, collect_syndication_timeline
 
 logger = logging.getLogger(__name__)
 
 CHECKPOINT_VERSION = 1
 MAX_SOURCE_RETRIES = 2
+MAX_SYNDICATION_FALLBACKS_PER_WINDOW = 4
 RETRY_DELAYS = (0.25, 0.75)
 CHECKPOINT_TTL = timedelta(days=2)
 CHECKPOINT_LIMIT = 48
@@ -729,6 +731,48 @@ async def _resumable_source_timeline(
     except XCompletenessError:
         raise
     except XCollectionError as exc:
+        fallback_error: Exception | None = None
+        try:
+            fallback_count = int(getattr(self, "_phase3_syndication_fallback_count", 0) or 0)
+            if fallback_count >= MAX_SYNDICATION_FALLBACKS_PER_WINDOW:
+                raise SyndicationError("public X fallback budget exhausted for this window")
+            self._phase3_syndication_fallback_count = fallback_count + 1
+            recovered = await asyncio.to_thread(
+                collect_syndication_timeline,
+                handle,
+                segment_start,
+                end,
+                include_replies=include_replies,
+            )
+            accumulated = _dedupe_updates([*accumulated, *recovered.updates])
+            _remember_partial(self, handle, accumulated)
+            observe(
+                "source_fallback",
+                level="warning",
+                stage="retrieval",
+                status="recovered_partial",
+                source=handle,
+                retrieval_attempt_id=attempt_id,
+                raw_seen=recovered.raw_seen,
+                retained=len(recovered.updates),
+                complete=False,
+                partial=True,
+                error_class=type(exc).__name__,
+            )
+        except (SyndicationError, OSError, ValueError) as recovery_exc:
+            fallback_error = recovery_exc
+            observe(
+                "source_fallback",
+                level="error",
+                stage="retrieval",
+                status="failed",
+                source=handle,
+                retrieval_attempt_id=attempt_id,
+                retained=0,
+                complete=False,
+                partial=True,
+                error_class=type(recovery_exc).__name__,
+            )
         checkpoint["next_cursor"] = cursor
         checkpoint["retry_count"] = int(checkpoint.get("retry_count", 0) or 0) + 1
         _persist_checkpoint(state, checkpoint, accumulated)
@@ -749,7 +793,7 @@ async def _resumable_source_timeline(
             partial=True,
             retry_count=int(checkpoint.get("retry_count", 0) or 0),
             retry_outcome="exhausted",
-            error_class=type(exc).__name__,
+            error_class=type(fallback_error or exc).__name__,
         )
         raise
     except Exception as exc:
@@ -786,10 +830,32 @@ _ORIGINAL_COLLECT_WINDOW = XCollector.collect_window
 async def _resumable_collect_window(self: XCollector, *args, **kwargs) -> list[Update]:
     previous_flag = bool(getattr(self, "_phase3_allow_older_checkpoint", False))
     previous_partial = getattr(self, "_phase3_partial_updates", None)
+    previous_fallback_count = int(
+        getattr(self, "_phase3_syndication_fallback_count", 0) or 0
+    )
     self._phase3_allow_older_checkpoint = True
     self._phase3_partial_updates = {}
+    self._phase3_syndication_fallback_count = 0
     try:
-        result = await _ORIGINAL_COLLECT_WINDOW(self, *args, **kwargs)
+        try:
+            result = await _ORIGINAL_COLLECT_WINDOW(self, *args, **kwargs)
+        except XCollectionError:
+            partial_map = getattr(self, "_phase3_partial_updates", {})
+            recovered = [
+                item
+                for updates in partial_map.values()
+                if isinstance(updates, list)
+                for item in updates
+                if isinstance(item, Update)
+            ] if isinstance(partial_map, dict) else []
+            recovered = _source_authority._configured_only(self, recovered)
+            if not recovered:
+                raise
+            logger.warning(
+                "Core X collection failed, but %s source-authorized public fallback update(s) were recovered; cursor remains retained.",
+                len(recovered),
+            )
+            return recovered
         partial_map = getattr(self, "_phase3_partial_updates", {})
         extras: list[Update] = []
         if isinstance(partial_map, dict):
@@ -800,6 +866,7 @@ async def _resumable_collect_window(self: XCollector, *args, **kwargs) -> list[U
     finally:
         self._phase3_allow_older_checkpoint = previous_flag
         self._phase3_partial_updates = previous_partial if isinstance(previous_partial, dict) else {}
+        self._phase3_syndication_fallback_count = previous_fallback_count
 
 
 def _install_collector_state_binding() -> None:

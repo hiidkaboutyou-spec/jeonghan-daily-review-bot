@@ -17,6 +17,7 @@ from .channel_entities import canonicalize_group, entity_failures
 from .channel_quality import rerank_for_mode
 from .gemini_structured import generate_json_v2
 from .translation_safety import (
+    manual_translation_fallback,
     manual_review_body,
     metadata_only,
     safe_metadata_body,
@@ -83,6 +84,9 @@ def _finalize_output(self, group, copy: GroupCopy) -> GroupCopy:
         body = bodies.get(item.id, item.text)
         if body.startswith("⚠️ ترجمهٔ خودکار در دسترس نبود"):
             manual[item.id] = ["translation model unavailable"]
+            continue
+        if manual_translation_fallback(body):
+            manual[item.id] = ["translation model unavailable; source preserved"]
             continue
         failures = semantic_quality_failures(item, body)
         if failures:

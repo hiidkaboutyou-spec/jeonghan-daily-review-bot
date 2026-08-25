@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from app.ai import GroupCopy
 from app.channel_entities import canonicalize_entities
 from app.channel_translation_v2_install import _finalize_output, _installed_write_group
+from app.channel_translation_playbook import unavailable_translation
 from app.models import EventGroup, MediaItem, Update
 from app.organizer import detect_category, fallback_title
 from app.translation_safety import (
@@ -93,6 +94,21 @@ class TranslationPublishabilityTests(unittest.TestCase):
         result = _finalize_output(writer, group, GroupCopy(group.title, "general", {"1": "گوشی را راه‌اندازی کنید"}))
         self.assertTrue(result.bodies["1"].startswith("⚠️ نیاز به بازبینی دستی"))
         self.assertIn("1", writer.last_manual_review)
+
+    def test_model_outage_preserves_source_as_deliverable_private_review(self):
+        item = update("Jeonghan posted a new photo")
+        group = EventGroup("x", "general", "آپدیت جونگهان", [item])
+        writer = SimpleNamespace(last_diagnostics={})
+        fallback = unavailable_translation(item.text)
+
+        result = _finalize_output(
+            writer, group, GroupCopy(group.title, "general", {item.id: fallback})
+        )
+
+        self.assertIn("جونگهان posted a new photo", result.bodies[item.id])
+        self.assertTrue(result.bodies[item.id].startswith("⚠️ نیاز به بازبینی دستی"))
+        self.assertIn(item.id, writer.last_manual_review)
+        self.assertEqual(writer.last_diagnostics["manual_review_ids"], [item.id])
 
     def test_en_ko_ja_and_mixed_untranslated_output_fail_closed(self):
         cases = (
