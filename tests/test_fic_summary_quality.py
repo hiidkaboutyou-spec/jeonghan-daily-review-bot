@@ -20,6 +20,11 @@ class FicSummaryQualityTests(unittest.TestCase):
         candidate = "جونگهان درصدد آن است که وانمود نماید دیدن دوبارهٔ سونگچول بر او اثری ندارد."
         self.assertIn("bookish_register", fic_summary_quality_issues(source, candidate))
 
+    def test_rejects_awkward_machine_translation_syntax(self):
+        source = "Jeonghan unexpectedly starts falling for Seungcheol."
+        candidate = "جونگهان خودش را در حال عاشق شدن به سونگچول می‌یابد."
+        self.assertIn("awkward_machine_syntax", fic_summary_quality_issues(source, candidate))
+
     def test_accepts_natural_colloquial_persian(self):
         source = "Jeonghan thinks this is only a normal date until Seungcheol appears again after years."
         candidate = "جونگهان فکر می‌کنه این فقط یه قرار معمولیه، تا وقتی سونگچول بعد از سال‌ها دوباره جلوی روش ظاهر می‌شه."
@@ -31,6 +36,24 @@ class FicSummaryQualityTests(unittest.TestCase):
                   "old feelings surface, along with the reasons they stopped talking in the first place. "
                   "Neither of them is ready to admit how much has changed or how much has not.")
         self.assertIn("overcompressed", fic_summary_quality_issues(source, "جونگهان دوباره سونگچول رو می‌بینه."))
+
+    def test_rejects_sanitization_of_explicit_fictional_content(self):
+        source = "Jeonghan and Seungcheol have sex after discussing their relationship."
+        candidate = "جونگهان و سونگچول بعد از حرف زدن دربارهٔ رابطه‌شون کنار هم وقت می‌گذرونن."
+        self.assertIn("sanitized_explicit_content", fic_summary_quality_issues(source, candidate))
+
+    def test_accepts_accurate_unsanitized_adult_summary(self):
+        source = "Jeonghan and Seungcheol have sex after discussing their relationship."
+        candidate = "جونگهان و سونگچول بعد از حرف زدن دربارهٔ رابطه‌شون با هم سکس دارن."
+        self.assertNotIn("sanitized_explicit_content", fic_summary_quality_issues(source, candidate))
+
+    def test_no_spoiler_mode_may_omit_an_explicit_plot_detail(self):
+        source = "Jeonghan and Seungcheol have sex after a long argument."
+        candidate = "یک بحث طولانی، رابطهٔ جونگهان و سونگچول رو وارد مرحلهٔ تازه‌ای می‌کنه."
+        self.assertNotIn(
+            "sanitized_explicit_content",
+            fic_summary_quality_issues(source, candidate, preserve_explicit_content=False),
+        )
 
     def test_bad_model_output_falls_back_instead_of_shipping(self):
         fic = Fic(

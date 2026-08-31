@@ -49,9 +49,11 @@ class VoiceProfileLoaderTests(unittest.TestCase):
 
     def test_contains_key_sections(self):
         result = _load_voice_profile(ROOT)
+        self.assertIn("متن عادیِ غیر فارسی را کامل ترجمه کن", result)
+        self.assertIn("ساختار جمله را به فارسی طبیعی بساز", result)
         self.assertIn("فعل‌های عامیانه:", result, "Should list colloquial verb forms")
         self.assertIn("شکل طبیعی:", result, "Should list natural-vs-formal pairs")
-        self.assertIn("ممنوع:", result, "Should list forbidden patterns")
+        self.assertNotIn("Using English when Persian transliteration exists", result)
 
     def test_returns_empty_for_nonexistent_root(self):
         result = _load_voice_profile(Path("/nonexistent/path"))
@@ -300,6 +302,12 @@ class PromptStructureTests(unittest.TestCase):
         self.assertGreater(examples_pos, voice_pos)
         self.assertIn('_load_voice_profile(getattr(self.memory, "root", ROOT))', v2_py)
         self.assertIn('self.last_diagnostics["voice_profile_loaded"]', v2_py)
+
+    def test_evaluation_backed_fidelity_rules_override_voice_flourish(self):
+        v2_py = (ROOT / "app" / "channel_translation_v2.py").read_text()
+        self.assertIn("food/meal باید «غذا» بماند، نه «چیزمیز»", v2_py)
+        self.assertIn("نسبت‌های دستوری مثل with/by/for", v2_py)
+        self.assertIn("علامت‌ها و تزئین‌های Unicode منبع", v2_py)
 
 
 if __name__ == "__main__":

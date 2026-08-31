@@ -402,8 +402,13 @@ def _load_voice_profile(root) -> str:
         tone = data.get("tone", {})
         sentence = data.get("sentence_patterns", {})
         vocab = data.get("vocabulary_dna", {}).get("natural_persian_over_formal", {})
-        forbidden = data.get("forbidden_patterns", [])
-        parts = []
+        # Keep this payload about voice only. Content/terminology prohibitions
+        # belong to the production fidelity prompt and deterministic gates; mixing
+        # them here previously conflicted with preservation of official English
+        # titles and made the voice arm less accurate in the live 50-post A/B.
+        parts = [
+            "اولویت: متن عادیِ غیر فارسی را کامل ترجمه کن؛ فقط واقعیت‌ها، معنی دقیق و نام‌های رسمی را حفظ کن؛ ساختار جمله را به فارسی طبیعی بساز و لحن را آخر اعمال کن"
+        ]
         parts.append("صدا: " + str(tone.get("primary", "")))
         # Extract just the Persian verb forms from keys like "is_ـه", "does_میکنه"
         if sentence.get("sentence_endings_colloquial"):
@@ -424,8 +429,6 @@ def _load_voice_profile(root) -> str:
                 # val looks like "ـه (not است)" — keep as-is for clarity
                 pairs.append(str(val))
             parts.append("شکل طبیعی: " + "، ".join(pairs))
-        if forbidden:
-            parts.append("ممنوع: " + ", ".join(str(f)[:60] for f in forbidden[:4]))
         return " | ".join(parts)
     except (OSError, json.JSONDecodeError):
         return ""

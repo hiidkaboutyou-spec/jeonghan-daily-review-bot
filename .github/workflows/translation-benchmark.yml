@@ -15,6 +15,15 @@ on:
       - "requirements.txt"
       - ".github/workflows/translation-benchmark.yml"
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "Editorial evaluation to run"
+        required: true
+        default: translation-human
+        type: choice
+        options:
+          - translation-human
+          - writing-quality-finalization
 
 permissions:
   contents: read
@@ -88,8 +97,11 @@ jobs:
       - name: Live EN KO JA production translation smoke
         run: python -m tools.run_translation_production_smoke
 
+      - name: Live fic digest production writer smoke
+        run: python -m tools.run_fic_digest_production_smoke
+
   human-benchmark:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'translation-human'
     runs-on: ubuntu-latest
     timeout-minutes: 55
     env:
@@ -172,5 +184,74 @@ jobs:
         with:
           name: part4-real-translation-benchmark
           path: .state/part4-real-benchmark.json
+          if-no-files-found: error
+          retention-days: 14
+
+  writing-quality-finalization:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'writing-quality-finalization'
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      PYTHONUNBUFFERED: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: gemini-3.5-flash-lite
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade "pip>=26.1.2"
+          python -m pip install -r requirements.txt
+          python -m pip check
+
+      - name: Validate evaluation tooling
+        run: |
+          python -m compileall -q app tests tools
+          python -m app --check
+
+      - name: Run 50-post translation A/B and 20-work fic evaluation
+        run: >-
+          python -m tools.run_writing_quality_evaluation
+          --output .state/writing-quality-evaluation.json
+          --section all
+          --pace-seconds 4.5
+
+      - name: Publish evaluation summary
+        if: always() && hashFiles('.state/writing-quality-evaluation.json') != ''
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(Path('.state/writing-quality-evaluation.json').read_text(encoding='utf-8'))
+          translation = payload.get('translation', {})
+          fic = payload.get('fic', {})
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a', encoding='utf-8') as out:
+              out.write('## Writing quality finalization\n\n')
+              out.write(f"- Translation cases: {translation.get('case_count', 0)}\n")
+              out.write(f"- Translation preferences: {translation.get('preference_counts', {})}\n")
+              out.write(f"- Baseline means: {translation.get('baseline_means', {})}\n")
+              out.write(f"- Voice-aware means: {translation.get('voice_aware_means', {})}\n")
+              out.write(f"- Fic metadata samples: {fic.get('case_count', 0)}\n")
+              out.write(f"- Fic means: {fic.get('score_means', {})}\n")
+              out.write(f"- Fic hallucinations: {fic.get('hallucination_count', 0)}\n")
+              out.write(f"- Fic sanitization findings: {fic.get('sanitization_count', 0)}\n")
+          PY
+
+      - name: Upload writing quality evaluation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: writing-quality-evaluation-${{ github.sha }}
+          path: .state/writing-quality-evaluation.json
           if-no-files-found: error
           retention-days: 14

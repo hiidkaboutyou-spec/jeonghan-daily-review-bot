@@ -36,7 +36,8 @@ logger = logging.getLogger(__name__)
 # ── Spoiler mode constants ───────────────────────────────────────────────
 SPOILER_NO = "nospoiler"    # premise only, no plot details
 SPOILER_MEDIUM = "medium"   # key details but no ending
-SPOILER_FULL = "full"       # complete summary including ending
+SPOILER_FULL = "full"       # all spoilers actually present in public metadata
+SPOILER_MODES = frozenset({SPOILER_NO, SPOILER_MEDIUM, SPOILER_FULL})
 
 # ── Quality tier thresholds (relative ranking within a batch) ────────────
 _TIER_GEM_RATIO = 0.10      # top 10 %
@@ -94,7 +95,10 @@ class Fic:
     tropes: list[str] | None = None  # e.g. slow-burn, pining, miscommunication
     summary_fa: str = ""            # Generated Persian summary (cached)
     summary_fa_nospoiler: str = ""  # No-spoiler Persian summary
+    summary_fa_medium: str = ""     # Key conflict/details without an ending
     summary_fa_full: str = ""       # Full spoiler Persian summary
+    relationship_dynamic_fa: str = ""
+    warnings_fa: list[str] | None = None
     why_read: str = ""              # Short recommendation in Persian
     quality_score: float = 0.0       # Computed quality score
     quality_tier: str = ""          # gem, solid, fresh, popular
@@ -586,6 +590,22 @@ def _fallback_summaries(fics: list[Fic]) -> dict[str, str]:
     return {fic.url: _translate_summary(fic.summary) for fic in fics}
 
 
+def _validate_spoiler_mode(spoiler_mode: str) -> str:
+    mode = str(spoiler_mode or "").strip().casefold()
+    if mode not in SPOILER_MODES:
+        raise ValueError(f"unsupported fic spoiler mode: {spoiler_mode!r}")
+    return mode
+
+
+def _summary_for_mode(fic: Fic, fallback: str, spoiler_mode: str) -> str:
+    mode = _validate_spoiler_mode(spoiler_mode)
+    if mode == SPOILER_NO:
+        return fic.summary_fa_nospoiler or fallback
+    if mode == SPOILER_FULL:
+        return fic.summary_fa_full or fallback
+    return fic.summary_fa_medium or fic.summary_fa or fallback
+
+
 def _fic_response_object(response: object) -> dict[str, Any]:
     parsed = getattr(response, "parsed", None)
     if isinstance(parsed, dict):
@@ -608,21 +628,32 @@ def _fic_block_reason(response: object) -> str:
 
 def _fic_prompt_prefix() -> str:
     return (
-        "برای هر آیتم، summary رسمی AO3 را به فارسی طبیعی و خوش‌خوان بازنویسی کن. هدف ترجمهٔ کلمه‌به‌کلمه نیست؛ همان معنا را با جمله‌بندی واقعی فارسی منتقل کن. "
+        "برای هر آیتم، فقط بر اساس metadata عمومی AO3 سه خلاصهٔ فارسی دقیق و خوش‌خوان بنویس. ترتیب اولویت قطعی است: معنای منبع، context و metadata، ترجمهٔ دقیق، فارسی طبیعی، و بعد تنظیم اختیاری لحن. "
+        "title، summary، relationships، rating، warnings و tags تنها منبع حقیقت‌اند؛ متن داستان در اختیار تو نیست. هیچ پایان، اتفاق، نقش، هویت، ضمیر، رابطه، هشدار، theme یا trope تازه‌ای حدس نزن. "
+        "هدف ترجمهٔ کلمه‌به‌کلمه نیست؛ همان معنا را با جمله‌بندی واقعی فارسی منتقل کن. "
         "اول کل summary را بفهم، بعد جمله‌ها را با ترتیب طبیعی فارسی از نو بساز. ساختار انگلیسی، نثر کتابی و عبارت‌های ماشینی مثل «می‌باشد»، «می‌نماید» و «درصدد» ممنوع‌اند. "
         "لحن باید امروزی و مناسب معرفی فن‌فیک باشد؛ کمی محاوره‌ای و صمیمی اشکالی ندارد، اما معنی را عوض نکن و متن را لوس یا اغراق‌آمیز نکن. "
         "اگر summary کوتاه است معمولاً 1 تا 3 جمله کافی است؛ اگر بلند است می‌توانی 2 تا 4 جمله بنویسی. فقط وقتی کوتاه کن که premise، رابطه، تنش، شوخی یا نکتهٔ اصلی از بین نرود. "
         "شوخی، angst، yearning، awkwardness، romance، tension و صراحت جنسی را با همان شدت متن اصلی حفظ کن. محتوای بزرگسالانه را سانسور، ملایم یا حذف نکن. "
-        "دیالوگ، نقل‌قول، POV و اینکه چه کسی چه کاری می‌کند باید دقیق بماند. نقش شخصیت‌ها، ضمیرها، رابطه، trope، انگیزه یا پایان را حدس نزن و هیچ جزئیات تازه‌ای اختراع نکن. "
+        "دیالوگ، نقل‌قول، POV و اینکه چه کسی چه کاری می‌کند باید دقیق بماند. relationships، warnings و tags را برای فهم رابطه و زمینه به کار ببر، اما آن‌ها را به اتفاق قطعی داستان تبدیل نکن. "
         "نام‌ها: Yoon Jeonghan/Jeonghan = جونگهان، Choi Seungcheol/S.Coups = سونگچول، Joshua/Hong Jisoo = جاشوآ، Mingyu = مینگیو، Wonwoo = ونوو، Hoshi/Soonyoung = هوشی، "
         "Jun/Junhui = جون، DK/Seokmin = دوکیوم، The8/Minghao = مینگ‌هائو، Woozi/Jihoon = ووزی، Seungkwan = سونگکوان، Dino/Chan = دینو، Vernon/Hansol = ورنون. "
-        "علاوه بر summary_fa، یک summary_fa_nospoiler بنویس که فقط premise و فضای کلی را بگوید بدون لو دادن جزئیات داستان یا پایان. "
-        "همچنین why_read بنویس: یک جملهٔ کوتاه فارسی دربارهٔ اینکه چرا این فیک ارزش خواندن دارد (مثلاً جذابیت احساسی، کیفیت نوشتار، uniqueness و غیره). "
-        "فقط JSON مطابق schema برگردان؛ summary_fa باید خود متن نهایی فارسی باشد و هیچ توضیح اضافی نداشته باشد. "
+        "summary_fa_nospoiler فقط premise، رابطه و فضای کلی را نگه دارد و جزئیات بعدی یا پایان را لو ندهد. "
+        "summary_fa_medium باید conflict و جزئیات مهمی را که خود metadata گفته نگه دارد، اما پایان را نگوید. "
+        "summary_fa_full باید همهٔ اطلاعات و spoilerهای موجود در metadata را نگه دارد؛ چون متن داستان را ندیده‌ای، پایان دیده‌نشده را هرگز نساز. "
+        "relationship_dynamic_fa را فقط از summary و relationships توصیف کن. در تگ AO3، `/` رابطهٔ عاشقانه/جنسی و `&` رابطهٔ غیرعاشقانه یا افلاطونی است؛ این دو را هرگز جابه‌جا تفسیر نکن. warnings_fa ترجمهٔ دقیق warnings است؛ حذف یا ملایم‌سازی هشدار ممنوع است. "
+        "emotional_tone، themes و tropes فقط از summary/tags استخراج شوند و اگر شاهدی نیست آرایهٔ خالی یا رشتهٔ خالی برگردان. "
+        "همچنین why_read بنویس: یک جملهٔ کوتاه فارسی که فقط به premise، رابطه، فضا، theme یا trope موجود در metadata اشاره کند. دربارهٔ کیفیت نثر، اجرای داستان، محبوبیت یا خاص‌بودن ادعایی نکن چون متن فیک را ندیده‌ای. "
+        "فقط JSON مطابق schema برگردان؛ هر فیلد summary_fa_* باید خود متن نهایی فارسی باشد و هیچ توضیح اضافی نداشته باشد. "
     )
 
 
-def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str]:
+def summarize_fics_persian(
+    settings: Settings,
+    fics: list[Fic],
+    spoiler_mode: str = SPOILER_MEDIUM,
+) -> dict[str, str]:
+    spoiler_mode = _validate_spoiler_mode(spoiler_mode)
     if not fics:
         return {}
     if not settings.gemini_api_key:
@@ -649,11 +680,24 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
                     "type": "array",
                     "items": {
                         "type": "object",
-                        "required": ["url", "summary_fa"],
+                        "required": [
+                            "url", "summary_fa_nospoiler", "summary_fa_medium",
+                            "summary_fa_full", "relationship_dynamic_fa", "warnings_fa",
+                            "emotional_tone", "themes", "tropes", "why_read",
+                        ],
                         "properties": {
                             "url": {"type": "string"},
+                            # Accepted for compatibility with an in-flight response
+                            # from the pre-spoiler-mode schema; new prompts use medium.
                             "summary_fa": {"type": "string"},
                             "summary_fa_nospoiler": {"type": "string"},
+                            "summary_fa_medium": {"type": "string"},
+                            "summary_fa_full": {"type": "string"},
+                            "relationship_dynamic_fa": {"type": "string"},
+                            "warnings_fa": {"type": "array", "items": {"type": "string"}},
+                            "emotional_tone": {"type": "string"},
+                            "themes": {"type": "array", "items": {"type": "string"}},
+                            "tropes": {"type": "array", "items": {"type": "string"}},
                             "why_read": {"type": "string"},
                         },
                     },
@@ -687,7 +731,15 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
             if not subset or request_state["calls"] >= request_state["max_calls"]:
                 return {}, False
             payload = [
-                {"url": fic.url, "title": fic.title, "summary": fic.summary}
+                {
+                    "url": fic.url,
+                    "title": fic.title,
+                    "summary": fic.summary,
+                    "relationships": fic.relationships,
+                    "rating": fic.rating,
+                    "warnings": fic.warnings or [],
+                    "tags": fic.freeforms or [],
+                }
                 for fic in subset
             ]
             prompt = prompt_prefix + json.dumps(payload, ensure_ascii=False)
@@ -750,22 +802,61 @@ def summarize_fics_persian(settings: Settings, fics: list[Fic]) -> dict[str, str
                     fic = by_url.get(url)
                     if fic is None:
                         continue
-                    candidate = _normalize_fic_summary_names(str(item.get("summary_fa", "")))
-                    if not candidate:
-                        continue
-                    issues = fic_summary_quality_issues(fic.summary, candidate)
-                    if issues:
+                    generated = {
+                        SPOILER_NO: _normalize_fic_summary_names(str(item.get("summary_fa_nospoiler", ""))),
+                        SPOILER_MEDIUM: _normalize_fic_summary_names(
+                            str(item.get("summary_fa_medium") or item.get("summary_fa", ""))
+                        ),
+                        SPOILER_FULL: _normalize_fic_summary_names(str(item.get("summary_fa_full", ""))),
+                    }
+                    issues_by_mode = {
+                        mode: fic_summary_quality_issues(
+                            fic.summary,
+                            candidate,
+                            preserve_explicit_content=mode != SPOILER_NO,
+                        )
+                        for mode, candidate in generated.items()
+                    }
+                    is_complete_schema = "summary_fa_medium" in item
+                    relationship_dynamic = _normalize_fic_summary_names(
+                        str(item.get("relationship_dynamic_fa", ""))
+                    )
+                    warnings_fa = [
+                        _normalize_fic_summary_names(str(value))
+                        for value in item.get("warnings_fa", [])
+                        if str(value).strip()
+                    ]
+                    if is_complete_schema and (
+                        (fic.relationships and not relationship_dynamic)
+                        or len(warnings_fa) < len(fic.warnings or [])
+                    ):
                         logger.warning(
-                            "Fic summary quality gate rejected generated output for work %s: %s",
+                            "Fic grounded metadata fields were incomplete for work %s",
                             fic.work_id or "unknown",
-                            ",".join(issues),
+                        )
+                        continue
+                    candidate = generated[spoiler_mode]
+                    if issues_by_mode[spoiler_mode]:
+                        logger.warning(
+                            "Fic %s summary quality gate rejected generated output for work %s: %s",
+                            spoiler_mode,
+                            fic.work_id or "unknown",
+                            ",".join(issues_by_mode[spoiler_mode]),
                         )
                         continue
                     result[url] = candidate
-                    # Store spoiler-safe summary and recommendation on the Fic object
-                    nospoiler = _normalize_fic_summary_names(str(item.get("summary_fa_nospoiler", "")))
-                    if nospoiler:
-                        fic.summary_fa_nospoiler = nospoiler
+                    if not issues_by_mode[SPOILER_NO]:
+                        fic.summary_fa_nospoiler = generated[SPOILER_NO]
+                    if not issues_by_mode[SPOILER_MEDIUM]:
+                        fic.summary_fa_medium = generated[SPOILER_MEDIUM]
+                        fic.summary_fa = generated[SPOILER_MEDIUM]
+                    if not issues_by_mode[SPOILER_FULL]:
+                        fic.summary_fa_full = generated[SPOILER_FULL]
+                    fic.relationship_dynamic_fa = relationship_dynamic
+                    fic.warnings_fa = warnings_fa
+                    fic.emotional_tone = _normalize_fic_summary_names(str(item.get("emotional_tone", "")))
+                    fic.themes = [str(value).strip() for value in item.get("themes", []) if str(value).strip()]
+                    fic.tropes = [str(value).strip() for value in item.get("tropes", []) if str(value).strip()]
                     why = _normalize_fic_summary_names(str(item.get("why_read", "")))
                     if why:
                         fic.why_read = why
@@ -898,7 +989,14 @@ def _status_counts(fics: list[Fic]) -> str:
     return f"تازه: {counts['new']} · آپدیت‌شده: {counts['updated']} · انتخاب ثابت: {counts['unchanged']}"
 
 
-def format_digest(title: str, fics: list[Fic], summaries: dict[str, str], source: str) -> str:
+def format_digest(
+    title: str,
+    fics: list[Fic],
+    summaries: dict[str, str],
+    source: str,
+    spoiler_mode: str = SPOILER_MEDIUM,
+) -> str:
+    spoiler_mode = _validate_spoiler_mode(spoiler_mode)
     if not fics:
         return title + "\n\nاین نوبت نتیجهٔ قابل‌اعتماد پیدا نشد؛ لیست خالی به معنی نبودن فن‌فیک نیست و اجرای بعدی دوباره بررسی می‌کند."
     lines = [title, "", f"تعداد انتخاب‌ها: {len(fics)} · زبان: انگلیسی"]
@@ -943,7 +1041,9 @@ def format_digest(title: str, fics: list[Fic], summaries: dict[str, str], source
             lines += [
                 stats + (f" · کلمه {fic.words}" if fic.words else ""),
                 fic.url,
-                "خلاصه: " + summaries.get(fic.url, fic.summary),
+                "خلاصه: " + _summary_for_mode(
+                    fic, summaries.get(fic.url, fic.summary), spoiler_mode
+                ),
             ]
             if fic.why_read:
                 lines.append("چرا بخوانیم: " + fic.why_read)
@@ -975,7 +1075,13 @@ def _delivery_run_scope(day: str, *, manual_request: bool) -> str:
     return f"{day}:{revision}" if revision else day
 
 
-async def build_digests(settings: Settings, *, fic_store: FicStateStore | None = None) -> tuple[str, str]:
+async def build_digests(
+    settings: Settings,
+    *,
+    fic_store: FicStateStore | None = None,
+    spoiler_mode: str = SPOILER_MEDIUM,
+) -> tuple[str, str]:
+    spoiler_mode = _validate_spoiler_mode(spoiler_mode)
     # Build the authoritative AO3 pool once, then reuse its parsed work metadata
     # for X recommendations. The old order reopened every recommended work page
     # before doing the AO3 search, so a handful of stale/slow links could consume
@@ -1002,7 +1108,9 @@ async def build_digests(settings: Settings, *, fic_store: FicStateStore | None =
     x_fics = _rank_digest_fics(x_fics, "x")
     x_summaries: dict[str, str] = {}
     try:
-        x_summaries = await asyncio.to_thread(summarize_fics_persian, settings, x_fics)
+        x_summaries = await asyncio.to_thread(
+            summarize_fics_persian, settings, x_fics, spoiler_mode
+        )
     except Exception as exc:
         logger.warning("X summary translation phase failed: %s", type(exc).__name__)
     # Compute quality scores relative to the X batch
@@ -1010,7 +1118,9 @@ async def build_digests(settings: Settings, *, fic_store: FicStateStore | None =
         fic.quality_score, fic.quality_tier = compute_fic_quality_score(fic, "x")
     if x_fics:
         _assign_relative_tiers(x_fics)
-    x_text = format_digest("🌙 فن‌فیک‌های پیشنهادی از X", x_fics, x_summaries, "x")
+    x_text = format_digest(
+        "🌙 فن‌فیک‌های پیشنهادی از X", x_fics, x_summaries, "x", spoiler_mode
+    )
 
     x_ids = {fic.work_id for fic in x_fics if fic.work_id}
     ao3_fics = [fic for fic in ao3_candidates if not fic.work_id or fic.work_id not in x_ids][:36]
@@ -1022,7 +1132,9 @@ async def build_digests(settings: Settings, *, fic_store: FicStateStore | None =
     ao3_fics = _rank_digest_fics(ao3_fics, "ao3")
     ao3_summaries: dict[str, str] = {}
     try:
-        ao3_summaries = await asyncio.to_thread(summarize_fics_persian, settings, ao3_fics)
+        ao3_summaries = await asyncio.to_thread(
+            summarize_fics_persian, settings, ao3_fics, spoiler_mode
+        )
     except Exception as exc:
         logger.warning("AO3 summary translation phase failed: %s", type(exc).__name__)
     # Compute quality scores relative to the AO3 batch
@@ -1030,7 +1142,9 @@ async def build_digests(settings: Settings, *, fic_store: FicStateStore | None =
         fic.quality_score, fic.quality_tier = compute_fic_quality_score(fic, "ao3")
     if ao3_fics:
         _assign_relative_tiers(ao3_fics)
-    ao3_text = format_digest("📚 تازه‌ها و انتخاب‌های محبوب AO3", ao3_fics, ao3_summaries, "ao3")
+    ao3_text = format_digest(
+        "📚 تازه‌ها و انتخاب‌های محبوب AO3", ao3_fics, ao3_summaries, "ao3", spoiler_mode
+    )
     logger.info(
         "Fanfic digest built successfully (x=%s ao3_pool=%s ao3_list=%s)",
         len(x_fics),
