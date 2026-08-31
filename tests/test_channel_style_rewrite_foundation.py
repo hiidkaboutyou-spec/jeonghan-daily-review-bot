@@ -621,8 +621,9 @@ print(json.dumps(blocked))
             if item.get("enabled", True)
         ]
         self.assertIs(settings["runtime"]["review_only"], True)
-        self.assertEqual(len(enabled), 24)
-        self.assertEqual(len(set(enabled)), 24)
+        self.assertEqual(len(enabled), 23)
+        self.assertEqual(len(set(enabled)), 23)
+        self.assertNotIn("flamehanie", enabled)
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("REALTIME_SHADOW_MODE", None)
             self.assertFalse(realtime_shadow_enabled())

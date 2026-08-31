@@ -591,9 +591,10 @@ class Phase3RecoveryTests(unittest.TestCase):
     def test_source_expansion_config_still_has_24_unique_sources(self):
         data = json.loads((ROOT / "config" / "sources.json").read_text(encoding="utf-8"))
         sources = data["sources"] if isinstance(data, dict) else data
-        handles = [str(item["handle"]).casefold() for item in sources if item.get("enabled", True)]
+        handles = [str(item["handle"]).casefold() for item in sources]
         self.assertEqual(len(handles), 24)
         self.assertEqual(len(handles), len(set(handles)))
+        self.assertEqual(sum(bool(item.get("enabled", True)) for item in sources), 23)
         self.assertIn("honeyya_hanihae", handles)
         self.assertIn("yoon_1004_hani", handles)
 

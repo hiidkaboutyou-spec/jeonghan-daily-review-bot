@@ -395,8 +395,9 @@ print(json.dumps(blocked))
         sources = json.loads((ROOT / "config" / "sources.json").read_text(encoding="utf-8"))
         enabled = [str(item["handle"]).lstrip("@").casefold() for item in sources["sources"] if item.get("enabled", True)]
         self.assertIs(settings["runtime"]["review_only"], True)
-        self.assertEqual(len(enabled), 24)
-        self.assertEqual(len(set(enabled)), 24)
+        self.assertEqual(len(sources["sources"]), 24)
+        self.assertEqual(len(enabled), 23)
+        self.assertEqual(len(set(enabled)), 23)
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("REALTIME_SHADOW_MODE", None)
             self.assertFalse(realtime_shadow_enabled())

@@ -296,12 +296,16 @@ class DirectUserStyleRulesFoundationTests(unittest.TestCase):
         self.assertNotIn("final_edit_capture", init)
         self.assertNotIn("direct_style_rules", fic)
 
-    def test_24_sources_private_review_and_free_constraints(self):
+    def test_configured_sources_private_review_and_free_constraints(self):
         sources = json.loads((ROOT / "config" / "sources.json").read_text(encoding="utf-8"))["sources"]
         settings = json.loads((ROOT / "config" / "settings.json").read_text(encoding="utf-8"))
         requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8").casefold()
         self.assertEqual(len(sources), 24)
-        self.assertTrue(all(item.get("enabled", True) for item in sources))
+        self.assertEqual(sum(bool(item.get("enabled", True)) for item in sources), 23)
+        self.assertEqual(
+            [item["handle"] for item in sources if not item.get("enabled", True)],
+            ["flamehanie"],
+        )
         self.assertTrue(settings["runtime"]["review_only"])
         self.assertTrue(all(name not in requirements for name in ("redis", "celery", "pinecone", "qdrant", "weaviate")))
 
