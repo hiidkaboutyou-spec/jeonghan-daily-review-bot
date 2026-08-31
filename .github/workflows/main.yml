@@ -248,7 +248,6 @@ jobs:
 
       - name: Diagnose configured X source without delivery
         if: github.event_name == 'workflow_dispatch' && inputs.mode == 'x-source-diagnostic'
-        continue-on-error: true
         env:
           X_COOKIE: ${{ secrets.X_COOKIE }}
         run: python -m tools.x_profile_diagnostic flamehanie
