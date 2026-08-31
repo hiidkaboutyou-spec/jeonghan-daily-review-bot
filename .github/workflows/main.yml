@@ -40,6 +40,7 @@ on:
         options:
           - check
           - live
+          - x-source-diagnostic
   schedule:
     # Offset from the top of the hour because GitHub documents heavier schedule
     # congestion around minute 0. Five minutes is GitHub's minimum cron interval.
@@ -238,11 +239,19 @@ jobs:
         if: >-
           github.event_name == 'push' ||
           github.event_name == 'pull_request' ||
-          (github.event_name == 'workflow_dispatch' && inputs.mode == 'check')
+          (github.event_name == 'workflow_dispatch' &&
+           (inputs.mode == 'check' || inputs.mode == 'x-source-diagnostic'))
         run: |
           python -m compileall -q app tests tools
           python -m app --check
           python -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Diagnose configured X source without delivery
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'x-source-diagnostic'
+        continue-on-error: true
+        env:
+          X_COOKIE: ${{ secrets.X_COOKIE }}
+        run: python -m tools.x_profile_diagnostic flamehanie
 
       - name: Runtime smoke check
         if: env.LIVE_RUN == 'true'
