@@ -55,6 +55,9 @@ def _install_source_collection_hooks() -> None:
             disabled=len(disabled),
         )
 
+        # Capture cursor state before collection
+        before = str(self.state.data.get("last_auto_run", "") or "")
+
         # Record per-source outcomes from collector errors
         try:
             result = await original_scheduled(self)
@@ -85,10 +88,16 @@ def _install_source_collection_hooks() -> None:
         if not last_errors and attempted_handles:
             builder.mark_collection_complete()
 
-        # Record cursor state
-        before = str(self.state.data.get("last_auto_run", "") or "")
-        # (cursor state already recorded by zero_silent_miss cursor hook)
-        # But we can check the errors to set fallback count
+        # Record cursor state — compute from state before/after scan
+        after = str(self.state.data.get("last_auto_run", "") or "")
+        cursor_advanced = bool(after and after != before)
+        cursor_reason = (
+            "complete_window" if cursor_advanced
+            else "partial_window" if last_errors
+            else "not_due_or_no_advance"
+        )
+        builder.set_cursor(advanced=cursor_advanced, reason=cursor_reason)
+
         if last_errors:
             builder.set_fallback_source_count(len(last_errors))
 
