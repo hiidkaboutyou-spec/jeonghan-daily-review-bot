@@ -47,7 +47,8 @@ async def diagnose(handle: str) -> int:
     if not cookies:
         raise SystemExit("X_COOKIE is required")
     with tempfile.TemporaryDirectory(prefix="x-profile-diagnostic-") as temp:
-        collector = XCollector(cookies, [], [], db_path=Path(temp) / "x.sqlite3")
+        collector = XCollector(cookies, [], [])
+        collector.db_path = Path(temp) / "x.sqlite3"
         api = await collector._get_api()
         response = await api.user_by_login_raw(normalize_handle(handle))
         payload = response if isinstance(response, Mapping) else response.json()
