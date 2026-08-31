@@ -406,7 +406,9 @@ def _load_voice_profile(root) -> str:
         # belong to the production fidelity prompt and deterministic gates; mixing
         # them here previously conflicted with preservation of official English
         # titles and made the voice arm less accurate in the live 50-post A/B.
-        parts = ["اولویت: فقط لحن؛ معنی، واژگان دقیق و ساختار منبع را تغییر نده"]
+        parts = [
+            "اولویت: متن عادیِ غیر فارسی را کامل ترجمه کن؛ فقط واقعیت‌ها، معنی دقیق و نام‌های رسمی را حفظ کن؛ ساختار جمله را به فارسی طبیعی بساز و لحن را آخر اعمال کن"
+        ]
         parts.append("صدا: " + str(tone.get("primary", "")))
         # Extract just the Persian verb forms from keys like "is_ـه", "does_میکنه"
         if sentence.get("sentence_endings_colloquial"):

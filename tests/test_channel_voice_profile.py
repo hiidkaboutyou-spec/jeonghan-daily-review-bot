@@ -49,7 +49,8 @@ class VoiceProfileLoaderTests(unittest.TestCase):
 
     def test_contains_key_sections(self):
         result = _load_voice_profile(ROOT)
-        self.assertIn("اولویت: فقط لحن", result)
+        self.assertIn("متن عادیِ غیر فارسی را کامل ترجمه کن", result)
+        self.assertIn("ساختار جمله را به فارسی طبیعی بساز", result)
         self.assertIn("فعل‌های عامیانه:", result, "Should list colloquial verb forms")
         self.assertIn("شکل طبیعی:", result, "Should list natural-vs-formal pairs")
         self.assertNotIn("Using English when Persian transliteration exists", result)
