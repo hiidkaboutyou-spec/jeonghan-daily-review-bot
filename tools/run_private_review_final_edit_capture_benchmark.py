@@ -136,7 +136,12 @@ def main() -> int:
         cases.append(("27 Daily-only install boundary", lambda: "final_edit_capture_runtime" in (ROOT / "app" / "sentry_runtime.py").read_text(encoding="utf-8") and "final_edit_capture" not in (ROOT / "app" / "__init__.py").read_text(encoding="utf-8")))
 
         sources = json.loads((ROOT / "config" / "sources.json").read_text(encoding="utf-8"))["sources"]
-        cases.append(("28 configured sources remain 24", lambda: len(sources) == 24 and sum(bool(item.get("enabled", True)) for item in sources) == 24))
+        cases.append((
+            "28 configured sources remain 24 with only verified suspension disabled",
+            lambda: len(sources) == 24
+            and sum(bool(item.get("enabled", True)) for item in sources) == 23
+            and [item.get("handle") for item in sources if not item.get("enabled", True)] == ["flamehanie"],
+        ))
         requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8").casefold()
         cases.append(("29 no paid/new infra dependency", lambda: all(token not in requirements for token in ("supabase", "redis", "celery", "pinecone", "qdrant", "weaviate"))))
         cases.append(("30 no synthetic production seed", lambda: "INSERT INTO final_edits" not in runtime_source and "seed" not in runtime_source.casefold()))
