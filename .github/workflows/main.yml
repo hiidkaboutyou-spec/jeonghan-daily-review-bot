@@ -354,6 +354,18 @@ jobs:
           retention-days: 3
           compression-level: 0
 
+      - name: Upload production outcome artifact
+        if: >-
+          always() &&
+          hashFiles('production-outcome.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-outcome
+          path: production-outcome.json
+          if-no-files-found: ignore
+          retention-days: 14
+          compression-level: 6
+
       - name: Save bot state cache
         if: >-
           always() &&
