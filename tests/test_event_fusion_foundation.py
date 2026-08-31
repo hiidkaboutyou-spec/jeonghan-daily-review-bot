@@ -275,11 +275,12 @@ class EventFusionFoundationTests(unittest.TestCase):
             os.environ.pop("REALTIME_SHADOW_MODE", None)
             self.assertFalse(realtime_shadow_enabled())
 
-    def test_exactly_24_unique_enabled_configured_sources(self):
+    def test_exactly_24_unique_configured_sources(self):
         data = json.loads((ROOT / "config" / "sources.json").read_text(encoding="utf-8"))
-        enabled = [str(item["handle"]).lstrip("@").casefold() for item in data["sources"] if item.get("enabled", True)]
-        self.assertEqual(len(enabled), 24)
-        self.assertEqual(len(set(enabled)), 24)
+        handles = [str(item["handle"]).lstrip("@").casefold() for item in data["sources"]]
+        self.assertEqual(len(handles), 24)
+        self.assertEqual(len(set(handles)), 24)
+        self.assertEqual(sum(bool(item.get("enabled", True)) for item in data["sources"]), 23)
 
     def test_processing_event_key_is_not_semantic_event_id(self):
         with tempfile.TemporaryDirectory() as tmp:

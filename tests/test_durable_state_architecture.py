@@ -278,12 +278,16 @@ class DurableStateArchitectureTests(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True):
             self.assertFalse(realtime_shadow_enabled())
 
-    def test_configured_source_set_remains_24_unique_enabled_sources(self):
+    def test_configured_source_set_remains_24_unique_sources(self):
         raw = json.loads(Path("config/sources.json").read_text(encoding="utf-8"))
         sources = raw["sources"]
-        handles = [str(item["handle"]).lower() for item in sources if item.get("enabled", True)]
+        handles = [str(item["handle"]).lower() for item in sources]
         self.assertEqual(len(handles), 24)
         self.assertEqual(len(set(handles)), 24)
+        self.assertEqual(
+            [str(item["handle"]).lower() for item in sources if not item.get("enabled", True)],
+            ["flamehanie"],
+        )
 
     def test_private_review_boundary_remains_enabled(self):
         settings = json.loads(Path("config/settings.json").read_text(encoding="utf-8"))

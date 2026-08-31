@@ -505,7 +505,8 @@ class RuntimeBoundaryTests(unittest.TestCase):
     def test_configured_sources_remain_24(self):
         config = json.loads((ROOT / "config" / "sources.json").read_text(encoding="utf-8"))
         enabled = [item for item in config["sources"] if item.get("enabled", True)]
-        self.assertEqual(len(enabled), 24)
+        self.assertEqual(len(config["sources"]), 24)
+        self.assertEqual(len(enabled), 23)
 
     def test_no_paid_or_new_infrastructure_dependency(self):
         paths = [ROOT / "app" / "final_edit_capture.py", ROOT / "app" / "final_edit_capture_runtime.py"]

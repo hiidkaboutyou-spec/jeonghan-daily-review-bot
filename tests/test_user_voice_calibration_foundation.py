@@ -264,10 +264,24 @@ class RepositoryRegressionTests(unittest.TestCase):
         settings = json.loads((ROOT / "config" / "settings.json").read_text(encoding="utf-8"))
         self.assertIs(settings["runtime"]["review_only"], True)
 
-    def test_24_configured_sources_remain_enabled(self):
+    def test_24_sources_remain_configured_with_only_verified_suspension_disabled(self):
         sources = json.loads((ROOT / "config" / "sources.json").read_text(encoding="utf-8"))["sources"]
         self.assertEqual(len(sources), 24)
-        self.assertEqual(sum(bool(item.get("enabled", True)) for item in sources), 24)
+        disabled = [item for item in sources if not bool(item.get("enabled", True))]
+        self.assertEqual(
+            disabled,
+            [
+                {
+                    "handle": "flamehanie",
+                    "label": "flamehanie",
+                    "enabled": False,
+                    "disabled_reason": "x_suspended_2026-08-31",
+                    "priority": 10,
+                    "include_replies": True,
+                    "mode": "full_feed",
+                }
+            ],
+        )
 
     def test_realtime_shadow_mode_remains_off_by_default(self):
         from app.realtime_ingest import realtime_shadow_enabled
