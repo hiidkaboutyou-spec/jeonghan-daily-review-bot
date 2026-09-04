@@ -161,6 +161,7 @@ class SourceLedgerStore:
                         attempt_id=excluded.attempt_id,
                         last_attempted_at=excluded.last_attempted_at,
                         attempt_count=source_windows.attempt_count + 1,
+                        retry_count=source_windows.retry_count + 1,
                         error_class='',
                         error_summary=''
                     """,
@@ -210,7 +211,7 @@ class SourceLedgerStore:
                         attempt_id=excluded.attempt_id,
                         raw_observation_count=excluded.raw_observation_count,
                         retained_count=excluded.retained_count,
-                        retry_count=excluded.retry_count,
+                        retry_count=MAX(source_windows.retry_count, excluded.retry_count),
                         error_class=excluded.error_class,
                         error_summary=excluded.error_summary,
                         provider_cursor=excluded.provider_cursor,
