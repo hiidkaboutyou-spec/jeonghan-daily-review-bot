@@ -73,6 +73,39 @@ def test_complete_cursor_is_monotonic(tmp_path):
     assert store.cursor("alpha")["complete_through"] == newer_end
 
 
+def test_complete_cursor_metadata_does_not_regress_with_older_complete(tmp_path):
+    store = SourceLedgerStore(tmp_path / "state.sqlite3")
+    newer_start = "2026-09-04T10:00:00+00:00"
+    newer_end = "2026-09-04T11:00:00+00:00"
+    older_start = "2026-09-04T08:00:00+00:00"
+    older_end = "2026-09-04T09:00:00+00:00"
+
+    store.start_attempt(source_handle="alpha", window_start=newer_start, window_end=newer_end)
+    _finish(
+        store,
+        "alpha",
+        newer_start,
+        newer_end,
+        SourceWindowStatus.COMPLETE,
+        provider_cursor="cursor-new",
+    )
+    store.start_attempt(source_handle="alpha", window_start=older_start, window_end=older_end)
+    _finish(
+        store,
+        "alpha",
+        older_start,
+        older_end,
+        SourceWindowStatus.COMPLETE,
+        provider_cursor="cursor-old",
+    )
+
+    cursor = store.cursor("alpha")
+    assert cursor["complete_through"] == newer_end
+    assert cursor["provider_cursor"] == "cursor-new"
+    assert cursor["last_complete_window_start"] == newer_start
+    assert cursor["last_complete_window_end"] == newer_end
+
+
 def test_counts_and_proof_are_preserved(tmp_path):
     store = SourceLedgerStore(tmp_path / "state.sqlite3")
     start = "2026-09-04T10:00:00+00:00"
