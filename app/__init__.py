@@ -14,6 +14,11 @@ from . import channel_part4_benchmark_hook as _channel_part4_benchmark_hook  # n
 from . import source_authority_hardening as _source_authority_hardening  # noqa: F401,E402
 from . import configured_source_subclasses as _configured_source_subclasses  # noqa: F401,E402
 
+# Phase 1 captures configured-source provider observations before source-mode/relevance
+# filtering can erase them from downstream state. It is additive truth storage only;
+# existing delivery/filtering remains the compatibility authority during rollout.
+from . import raw_observation_runtime as _raw_observation_runtime  # noqa: F401,E402
+
 # Protect runnable legacy/private/webhook boundaries and stale durable state too:
 # external historical rows/queued items must not bypass the collector policy.
 from . import configured_source_runtime as _configured_source_runtime  # noqa: F401,E402
