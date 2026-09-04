@@ -19,9 +19,81 @@ The admin should be able to open one private Telegram assistant and complete the
 7. preserve the original source text;
 8. produce accurate, natural Persian translation;
 9. produce a channel-ready caption and visual/title styling that matches the admin's taste;
-10. let the admin approve, edit, regenerate, reveal hidden items, skip, retry, and continue without leaving Telegram.
+10. let the admin approve, edit, regenerate, reveal hidden items, skip, retry, and continue without leaving Telegram;
+11. learn the admin's own writing voice, humor, fangirl reactions, recurring expressions, emotional intensity, formatting habits and visual taste from explicit feedback and approved channel history;
+12. progressively handle routine editorial and styling decisions without requiring the admin to manually rewrite or restyle every post from scratch.
 
-Success means the admin no longer needs to open X merely to check whether the assistant missed something.
+Success means the admin no longer needs to open X merely to check whether the assistant missed something, and no longer needs to manually reconstruct their own voice and channel aesthetic on every post.
+
+## Product identity: a personal editorial twin, not a generic caption bot
+
+The assistant should behave like a learned editorial extension of the admin, not like a generic social-media writer.
+
+It must gradually understand distinctions such as:
+
+- how the admin sounds when excited, emotional, teasing, affectionate, dramatic, sarcastic, amused, nostalgic or simply informative;
+- what kinds of fangirl reactions feel natural versus forced;
+- which jokes, exaggerations, punctuation patterns, emoji habits and sentence rhythms feel like the admin;
+- when the admin prefers a clean factual translation and when a post should feel more playful or emotionally expressive;
+- how much decoration is appropriate for a particular post type;
+- which titles, symbol combinations, whitespace patterns and decorative structures look beautiful to the admin and which feel cluttered, generic or artificial;
+- differences between the admin's voice and the original source's voice, so translation fidelity is never sacrificed merely to sound personal.
+
+The system must learn these preferences from behavior over time rather than repeatedly asking the admin to restate them.
+
+### Voice learning hierarchy
+
+Use evidence in this order:
+
+1. explicit admin corrections, instructions and rejected/approved alternatives — highest authority;
+2. final versions actually approved or posted by the admin;
+3. historical channel corpus and recurring language patterns;
+4. context-specific patterns inferred from repeated behavior;
+5. Tumblr visual-language inspiration for styling only;
+6. model priors and generic creativity — lowest authority.
+
+The assistant must never fabricate a permanent preference from one isolated choice. Stable preferences should require repeated evidence or explicit instruction.
+
+### Personal style memory should capture
+
+- common Persian phrasing and colloquial structures;
+- English/Korean/Japanese terms the admin keeps untranslated or translates consistently;
+- preferred nicknames and fandom terminology;
+- recurring fangirl expressions and reaction styles;
+- preferred humor and teasing patterns;
+- emoji and emoticon habits;
+- punctuation, ellipsis, repetition and capitalization tendencies;
+- phrases the admin dislikes or considers too formal, too AI-like, too cringe or too generic;
+- preferred intensity by context;
+- title/header habits;
+- symbol families and separator combinations;
+- compact versus decorative layouts;
+- styling differences for X updates, interviews, magazine shoots, airport photos, official posts, fan content, memes, sentimental posts, shipping content and other recurring categories.
+
+### Feedback loop
+
+Every meaningful admin action should become structured style evidence rather than disappearing after one interaction.
+
+Examples:
+
+- `Ready` with no edits -> positive evidence for the generated form;
+- manual text edit -> high-value correction pair: generated -> accepted final;
+- `Retranslate` -> translation-quality negative signal, not necessarily style rejection;
+- `Rewrite` -> caption/style negative signal;
+- `too formal`, `too much`, `less symbols`, `more fangirl`, `softer`, `funnier`, etc. -> explicit tagged preference evidence;
+- repeated deletion of a symbol or phrase -> emerging negative preference;
+- repeated addition of the same structure -> emerging positive preference.
+
+The memory layer must distinguish global preferences from context-specific preferences. For example, liking decorative symbols for magazine posts does not imply using them on every factual update.
+
+### Safety against style drift
+
+- Do not overwrite established style from a single Tumblr trend or one unusual post.
+- Keep explicit admin rules versioned and inspectable.
+- Preserve examples of rejected outputs so the system can avoid repeating them.
+- Separate factual translation fidelity from personal caption voice.
+- Never imitate a specific external creator's distinctive writing verbatim.
+- Prefer learning reusable patterns and combinations rather than cloning another channel.
 
 ## Product invariants
 
@@ -34,6 +106,8 @@ Success means the admin no longer needs to open X merely to check whether the as
 - An incomplete or unproven source must not advance its durable source cursor as if the window were complete.
 - Green CI/runtime health is not equivalent to complete collection.
 - Original content and provenance must remain recoverable even when translation, caption generation, media extraction, or Telegram delivery fails.
+- Personal style learning must be explainable through approved examples/corrections, not opaque one-off guesses.
+- Translation fidelity and source meaning always outrank stylistic imitation.
 - Public auto-publishing remains out of scope unless the admin explicitly changes that policy later.
 - Changes must preserve repository isolation, avoid credential mutation, avoid force-push to main, and use branch/test/PR workflows.
 
@@ -45,7 +119,11 @@ X -> inspect sources -> download media through another Telegram bot -> send text
 
 Target workflow:
 
-Jeonghan Editorial Assistant -> source-by-source review -> media + original + Persian translation + styled channel caption -> approve/edit/skip -> next item
+Jeonghan Editorial Assistant -> source-by-source review -> media + original + Persian translation + learned personal caption + learned visual styling -> approve/edit/skip -> next item
+
+Long-term target:
+
+Jeonghan Editorial Assistant -> understands the update -> prepares everything in the admin's established voice and channel aesthetic -> admin usually only reviews exceptions.
 
 ## Target review UX
 
@@ -110,7 +188,8 @@ Introduce Rust incrementally for stateful behavior where silent ambiguity is una
 - deduplication/idempotency contracts;
 - editorial queue state machine;
 - delivery receipts;
-- explicit invariants and state transitions.
+- explicit invariants and state transitions;
+- durable structured style-feedback events and versioned preference state where deterministic behavior matters.
 
 Initial Rust/Python integration should prefer a versioned JSON contract or similarly explicit process boundary. Do not introduce PyO3/native extension coupling until there is evidence that IPC is a real bottleneck.
 
@@ -164,6 +243,11 @@ Useful derived states include:
 - NEEDS_REVIEW
 
 The admin should be able to regenerate translation or caption without recollecting the source post.
+
+The caption generator must have two separate responsibilities:
+
+1. preserve the factual meaning and context supplied by the translation/source pipeline;
+2. express the final channel caption in the admin's learned voice and visual language when appropriate.
 
 ## Tumblr inspiration and visual-language learning
 
@@ -253,23 +337,65 @@ Give each media asset stable identity, provenance, checksum/metadata where pract
 
 Separate original, translation and caption states. Make provider outages explicit and recoverable. Preserve channel corpus/glossary/style work that already exists.
 
-### Phase 9 — Tumblr Inspiration Layer
+### Phase 9 — Personal Voice & Editorial Memory
 
-Add admin-configured Tumblr inspiration sources and a collector that stores style examples separately from news sources. Distill reusable visual/style features into an admin-owned style memory. Add feedback loops from approve/edit/reject behavior.
+Build a dedicated learning layer for the admin's writing identity rather than relying on one static prompt or undifferentiated corpus.
 
-### Phase 10 — Editorial Inbox v2
+Requirements:
 
-Expose source progress, post progress, completeness badges, original, translation, styled caption, media and actions such as Ready/Edit/Retranslate/Rewrite/Original/Skip/Show hidden/Retry source.
+- record structured approve/edit/reject feedback;
+- store generated-to-final correction pairs;
+- distinguish translation feedback from caption/style feedback;
+- infer stable preferences only from repeated evidence or explicit rules;
+- maintain global and context-specific preferences separately;
+- retrieve the most relevant approved examples for each new post;
+- track negative examples so rejected wording and formatting are less likely to recur;
+- provide a way to inspect, correct and reset learned preferences;
+- never allow learned style to alter factual source meaning.
 
-### Phase 11 — Faster Telegram Control Plane
+Acceptance gate: on a held-out set of real historical posts, the personalized generator should require materially fewer admin edits than the current generic/channel-style path.
+
+### Phase 10 — Tumblr Inspiration Layer
+
+Add admin-configured Tumblr inspiration sources and a collector that stores style examples separately from news sources. Distill reusable visual/style features into an admin-owned style memory. Feed Tumblr features into the personalized style generator below direct admin evidence.
+
+### Phase 11 — Context-aware Theme Engine
+
+Turn styling into a deliberate channel design system rather than random symbol insertion.
+
+The engine should choose among learned layouts/themes based on content type and mood, while preserving overall channel coherence. Examples include official update, magazine/editorial, soft/romantic, funny/fangirl, sentimental, dark, minimalist, shipping/fandom and photo-focused treatments.
+
+It should be able to evolve the channel aesthetic gradually while preventing abrupt style drift.
+
+### Phase 12 — Editorial Inbox v2
+
+Expose source progress, post progress, completeness badges, original, translation, personalized styled caption, media and actions such as Ready/Edit/Retranslate/Rewrite/Original/Skip/Show hidden/Retry source.
+
+Feedback actions should feed the style/voice memory automatically.
+
+### Phase 13 — Assisted Autonomy
+
+After enough validated style evidence exists, reduce repetitive manual work without removing control.
+
+Possible behavior:
+
+- high-confidence routine posts arrive already formatted in the most likely accepted style;
+- low-confidence or unusual posts receive alternatives or request review;
+- repetitive safe choices can be remembered automatically;
+- the assistant can suggest a channel theme treatment for a cluster/event;
+- the admin remains the authority and can override any learned behavior.
+
+Do not enable public auto-publishing as part of this phase unless separately and explicitly authorized.
+
+### Phase 14 — Faster Telegram Control Plane
 
 Separate interactive Telegram control from best-effort scheduled collection where appropriate. Preserve GitHub Actions for validation, backup/recovery and suitable scheduled jobs; do not treat scheduled workflow success as the sole proof of source completeness.
 
-### Phase 12 — Optional Telegram Rust Migration
+### Phase 15 — Optional Telegram Rust Migration
 
 Only after the Rust editorial core is stable and feature parity is proven, evaluate moving Telegram control-plane components to Rust/teloxide. No big-bang rewrite.
 
-### Phase 13 — Continuous Coverage Verification
+### Phase 16 — Continuous Coverage & Personalization Verification
 
 Track product KPIs that measure whether the assistant actually replaces manual work:
 
@@ -280,9 +406,14 @@ Track product KPIs that measure whether the assistant actually replaces manual w
 - media success rate;
 - translation/caption readiness;
 - duplicate-delivery rate;
-- number of times the admin still has to open X to verify completeness.
+- caption first-pass acceptance rate;
+- average manual edits per accepted caption;
+- style-regeneration rate;
+- repeated-error rate after explicit correction;
+- number of times the admin still has to open X to verify completeness;
+- number of routine posts the admin still has to manually restyle from scratch.
 
-The final metric is a core North Star metric: needing X for verification means the product still has work to do.
+The last two metrics are core North Star metrics: needing X for verification or repeatedly rebuilding style manually means the product still has work to do.
 
 ## Implementation discipline
 
@@ -302,4 +433,6 @@ The final metric is a core North Star metric: needing X for verification means t
 
 The product is not done because CI is green or because all services are technically running.
 
-It is done when the admin can trust one private assistant to tell them what happened, prove what was checked, prepare the media and text in their own channel style, and complete the review workflow without manually reproducing the old X -> downloader -> AI -> styling pipeline.
+It is done when the admin can trust one private assistant to tell them what happened, prove what was checked, prepare the media and text in their own learned voice and channel aesthetic, and complete the review workflow without manually reproducing the old X -> downloader -> AI -> styling pipeline.
+
+Long-term success means the assistant is recognizably aligned with the admin's editorial identity: it understands how they usually speak, joke, fangirl, react, title, decorate and structure posts well enough that routine content normally needs review rather than reconstruction.
