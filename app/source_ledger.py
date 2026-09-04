@@ -248,12 +248,18 @@ class SourceLedgerStore:
                             last_error_summary, updated_at
                         ) VALUES(?,?,?,?,?,?,?,?,?,?)
                         ON CONFLICT(source_handle) DO UPDATE SET
+                            provider_cursor=CASE
+                                WHEN source_cursors.complete_through='' OR excluded.complete_through >= source_cursors.complete_through
+                                THEN excluded.provider_cursor ELSE source_cursors.provider_cursor END,
+                            last_complete_window_start=CASE
+                                WHEN source_cursors.complete_through='' OR excluded.complete_through >= source_cursors.complete_through
+                                THEN excluded.last_complete_window_start ELSE source_cursors.last_complete_window_start END,
+                            last_complete_window_end=CASE
+                                WHEN source_cursors.complete_through='' OR excluded.complete_through >= source_cursors.complete_through
+                                THEN excluded.last_complete_window_end ELSE source_cursors.last_complete_window_end END,
                             complete_through=CASE
                                 WHEN source_cursors.complete_through='' OR excluded.complete_through > source_cursors.complete_through
                                 THEN excluded.complete_through ELSE source_cursors.complete_through END,
-                            provider_cursor=excluded.provider_cursor,
-                            last_complete_window_start=excluded.last_complete_window_start,
-                            last_complete_window_end=excluded.last_complete_window_end,
                             last_status=excluded.last_status,
                             last_attempt_id=excluded.last_attempt_id,
                             last_error_class='',
