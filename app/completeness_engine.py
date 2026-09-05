@@ -31,6 +31,53 @@ def core_request(op: str, **fields):
     return reply["result"]
 
 
+def proof_inputs(evidence: TraversalEvidence, error_class: str = "") -> tuple[dict[str, Any], dict[str, Any]]:
+    """Convert raw traversal facts into the conservative Rust proof contract.
+
+    The Rust v1 contract already understands a generic terminal bit. Python may set
+    that bit from provider exhaustion OR a structurally proven lower boundary, but
+    only after every top-level in-window ID exposed by those raw pages has reached
+    the Phase 1 observation path.
+    """
+    expected = {str(value) for value in evidence.expected_window_ids if str(value)}
+    observed = {str(value) for value in evidence.observation_ids if str(value)}
+    missing = expected - observed
+    coverage_complete = not missing
+    ordered_boundary = bool(
+        evidence.lower_boundary_proven
+        and evidence.timeline_order_valid
+        and coverage_complete
+    )
+    terminal_proven = bool(
+        evidence.timeline_order_valid
+        and coverage_complete
+        and (evidence.exhausted or ordered_boundary)
+    )
+    unresolved_boundary = bool(evidence.lower_boundary and not ordered_boundary)
+    proof = {
+        "pages": max(0, int(evidence.pages)),
+        "raw_count": max(0, int(evidence.raw_count)),
+        "valid_response": bool(evidence.valid_response),
+        "exhausted": terminal_proven,
+        "resumed": bool(evidence.resumed),
+        "lower_boundary": unresolved_boundary,
+        "failed": bool(error_class),
+    }
+    detail = {
+        "provider_exhausted": bool(evidence.exhausted),
+        "lower_boundary_observed": bool(evidence.lower_boundary),
+        "lower_boundary_proven": bool(evidence.lower_boundary_proven),
+        "timeline_order_valid": bool(evidence.timeline_order_valid),
+        "expected_window_ids": sorted(expected),
+        "expected_window_count": len(expected),
+        "observed_expected_count": len(expected & observed),
+        "missing_expected_ids": sorted(missing),
+        "expected_coverage_complete": coverage_complete,
+        "terminal_proven": terminal_proven,
+    }
+    return proof, detail
+
+
 class CompletenessEngine:
     def __init__(self, ledger: SourceLedgerStore):
         self.conn = ledger.conn
@@ -67,10 +114,20 @@ class CompletenessEngine:
         """)
 
     def checkpoint(self, attempt_id, evidence):
-        payload = {key: getattr(evidence, key) for key in ("pages", "raw_count", "provider_cursor", "valid_response")}
+        payload = {
+            "pages": max(0, int(evidence.pages)),
+            "raw_count": max(0, int(evidence.raw_count)),
+            "provider_cursor": str(evidence.provider_cursor or "")[:4096],
+            "valid_response": bool(evidence.valid_response),
+            "expected_window_ids": sorted(str(value) for value in evidence.expected_window_ids)[:5000],
+            "lower_boundary_proven": bool(evidence.lower_boundary_proven),
+            "timeline_order_valid": bool(evidence.timeline_order_valid),
+        }
         with self.conn:
-            self.conn.execute("UPDATE completeness_attempts SET evidence=? WHERE attempt_id=? AND finalized=0",
-                              (json.dumps(payload), attempt_id))
+            self.conn.execute(
+                "UPDATE completeness_attempts SET evidence=? WHERE attempt_id=? AND finalized=0",
+                (json.dumps(payload, sort_keys=True), attempt_id),
+            )
 
     def link_observation(self, attempt_id, post_id):
         with self.conn:
@@ -111,19 +168,29 @@ class CompletenessEngine:
         return row["attempt_id"]
 
     def finish(self, attempt_id: str, evidence: TraversalEvidence, retained: int, error_class: str = ""):
-        proof = {key: getattr(evidence, key) for key in
-                 ("pages", "raw_count", "valid_response", "exhausted", "resumed", "lower_boundary")}
-        proof["failed"] = bool(error_class)
+        proof, proof_detail = proof_inputs(evidence, error_class)
         try:
             status = core_request("evaluate_completeness", proof=proof)
             if status not in ("complete", "partial", "unproven"):
                 raise ValueError("Invalid completeness state")
         except (OSError, ValueError, KeyError, subprocess.SubprocessError):
             status, error_class = "unproven", "EditorialCoreUnavailable"
-        payload = {**proof, "provider_cursor": evidence.provider_cursor,
-                   "raw_observation_count": len(evidence.observation_ids),
-                   "observation_ids": sorted(evidence.observation_ids),
-                   "proof_kind": "validated_terminal_page" if status == "complete" else "bounded_window_unproven"}
+
+        if status == "complete" and proof_detail["provider_exhausted"]:
+            proof_kind = "validated_provider_exhaustion"
+        elif status == "complete" and proof_detail["lower_boundary_proven"]:
+            proof_kind = "validated_ordered_lower_boundary"
+        else:
+            proof_kind = "bounded_window_unproven"
+        payload = {
+            **proof,
+            **proof_detail,
+            "provider_cursor": evidence.provider_cursor,
+            "raw_observation_count": len(evidence.observation_ids),
+            "observation_ids": sorted(evidence.observation_ids),
+            "proof_kind": proof_kind,
+        }
+
         # Serialize writers before reading the cursor; rollback covers both rows.
         with self.conn:
             self.conn.execute("BEGIN IMMEDIATE")
