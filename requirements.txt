@@ -1,5 +1,6 @@
-# Upstream PR #328: accept X's 16-hex webpack hashes introduced 2026-08-24.
-twscrape @ git+https://github.com/vladkens/twscrape.git@3f47af40bc2036fe96562e82edf52b92b7fc2574
+# twscrape v0.20.1: includes X's 16-hex webpack hash fix plus direct responsive-web script discovery.
+# Install the optional curl backend so production can use browser-TLS impersonation instead of plain httpx.
+twscrape[curl] @ git+https://github.com/vladkens/twscrape.git@5271cbdc5da1095b765a2a7ec750b4ac686d581f
 google-genai>=2.13,<3
 requests>=2.33,<3
 beautifulsoup4>=4.12,<5
