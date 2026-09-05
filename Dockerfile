@@ -1,3 +1,9 @@
+FROM rust:1.98-slim AS editorial-core
+WORKDIR /build
+COPY Cargo.toml Cargo.lock ./
+COPY rust ./rust
+RUN cargo build --locked --release --workspace
+
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -10,6 +16,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+COPY --from=editorial-core /build/target/release/jeonghan-editorial-core /usr/local/bin/jeonghan-editorial-core
 COPY requirements.txt requirements-optional-media.txt ./
 RUN python -m pip install --no-cache-dir --upgrade "pip>=26.1.2" \
     && python -m pip install --no-cache-dir -r requirements.txt \

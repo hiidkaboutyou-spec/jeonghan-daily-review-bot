@@ -4,6 +4,33 @@ use thiserror::Error;
 
 pub const CONTRACT_VERSION: u32 = 1;
 
+#[derive(Debug, Deserialize)]
+pub struct TraversalProof {
+    pub pages: u64,
+    pub raw_count: u64,
+    pub valid_response: bool,
+    pub exhausted: bool,
+    pub resumed: bool,
+    pub lower_boundary: bool,
+    pub failed: bool,
+}
+
+pub fn evaluate_completeness(proof: &TraversalProof) -> CompletenessState {
+    if !proof.failed
+        && proof.pages > 0
+        && proof.valid_response
+        && proof.exhausted
+        && !proof.resumed
+        && !proof.lower_boundary
+    {
+        CompletenessState::Complete
+    } else if proof.raw_count > 0 {
+        CompletenessState::Partial
+    } else {
+        CompletenessState::Unproven
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CompletenessState {
@@ -149,6 +176,39 @@ pub fn transition_queue(item: &mut QueueItem, to: QueueState) -> Result<(), Core
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn completeness_requires_raw_terminal_proof() {
+        for bits in 0..64 {
+            let proof = TraversalProof {
+                pages: 1,
+                raw_count: 0,
+                valid_response: bits & 1 != 0,
+                exhausted: bits & 2 != 0,
+                resumed: bits & 4 != 0,
+                lower_boundary: bits & 8 != 0,
+                failed: bits & 16 != 0,
+            };
+            let expected = if bits & 31 == 3 {
+                CompletenessState::Complete
+            } else {
+                CompletenessState::Unproven
+            };
+            assert_eq!(evaluate_completeness(&proof), expected);
+        }
+        let mut proof = TraversalProof {
+            pages: 0,
+            raw_count: 0,
+            valid_response: true,
+            exhausted: true,
+            resumed: false,
+            lower_boundary: false,
+            failed: false,
+        };
+        assert_eq!(evaluate_completeness(&proof), CompletenessState::Unproven);
+        proof.raw_count = 3;
+        assert_eq!(evaluate_completeness(&proof), CompletenessState::Partial);
+    }
 
     fn window(state: CompletenessState, through: Option<&str>) -> SourceWindowState {
         SourceWindowState {

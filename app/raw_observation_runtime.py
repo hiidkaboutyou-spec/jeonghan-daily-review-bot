@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import Update
+from .completeness_evidence import record_observation
 from .observability import current_retrieval_attempt_id
 from .raw_observation import RawObservation, RawObservationStore
 from .x_client import XCollector
@@ -225,6 +226,7 @@ def install() -> None:
             )
             if observation is not None:
                 _store_for(self).record(observation)
+                record_observation(observation.external_post_id)
             raise
 
         observation = _build_observation(
@@ -236,6 +238,7 @@ def install() -> None:
         )
         if observation is not None:
             _store_for(self).record(observation)
+            record_observation(observation.external_post_id)
         return update
 
     XCollector._convert_tweet = convert_tweet
