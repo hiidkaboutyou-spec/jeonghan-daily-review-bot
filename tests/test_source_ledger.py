@@ -136,6 +136,18 @@ def test_source_statuses_are_separate_and_sorted(tmp_path):
     assert [row["source_handle"] for row in store.source_statuses()] == ["alpha", "beta"]
 
 
+def test_ledger_attempt_identity_is_nonempty_and_unique():
+    from app.source_ledger_runtime import _new_ledger_attempt_id
+
+    first = _new_ledger_attempt_id()
+    second = _new_ledger_attempt_id()
+    assert first
+    assert second
+    assert first != second
+    assert len(first) <= 40
+    assert len(second) <= 40
+
+
 def test_runtime_hook_is_installed_after_recovery_layer():
     from app.x_completeness import CompleteWindowXCollector
     assert CompleteWindowXCollector.__dict__.get("_source_ledger_installed", False) is True
