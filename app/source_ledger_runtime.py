@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import os
+import uuid
 from pathlib import Path
 from typing import Any
 
-from .observability import current_retrieval_attempt_id
 from .raw_observation import RawObservationStore
 from .source_ledger import SourceLedgerStore, SourceWindowResult, SourceWindowStatus
 from .x_client import _safe_error, normalize_handle
@@ -33,21 +33,32 @@ def _ledger_for(collector: Any) -> SourceLedgerStore:
     return store
 
 
+def _new_ledger_attempt_id() -> str:
+    """Create a ledger-owned attempt ID independent of legacy observability layers."""
+    return uuid.uuid4().hex[:20]
+
+
 def _raw_count(collector: Any, handle: str, start_iso: str, end_iso: str) -> int:
     store = getattr(collector, "raw_observation_store", None)
+    temporary_store = False
     if not isinstance(store, RawObservationStore):
         try:
             store = RawObservationStore(_db_path(collector))
+            temporary_store = True
         except Exception:
             return 0
-    row = store.conn.execute(
-        """
-        SELECT count(*) FROM raw_observations
-        WHERE source_handle=? AND created_at>=? AND created_at<?
-        """,
-        (normalize_handle(handle).casefold(), start_iso, end_iso),
-    ).fetchone()
-    return int(row[0]) if row else 0
+    try:
+        row = store.conn.execute(
+            """
+            SELECT count(*) FROM raw_observations
+            WHERE source_handle=? AND created_at>=? AND created_at<?
+            """,
+            (normalize_handle(handle).casefold(), start_iso, end_iso),
+        ).fetchone()
+        return int(row[0]) if row else 0
+    finally:
+        if temporary_store:
+            store.close()
 
 
 def install() -> None:
@@ -62,7 +73,7 @@ def install() -> None:
         source = normalize_handle(handle)
         start_iso = start.isoformat() if hasattr(start, "isoformat") else str(start)
         end_iso = end.isoformat() if hasattr(end, "isoformat") else str(end)
-        attempt_id = str(current_retrieval_attempt_id() or "")
+        attempt_id = _new_ledger_attempt_id()
         ledger = _ledger_for(self)
         ledger.start_attempt(
             source_handle=source,
