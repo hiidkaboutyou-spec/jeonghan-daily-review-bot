@@ -1,6 +1,6 @@
 use jeonghan_editorial_core::{
-    advance_complete_through, assert_unique_items, source_first_order, transition_queue, QueueItem,
-    QueueState, SourceWindowState, CONTRACT_VERSION,
+    advance_complete_through, assert_unique_items, evaluate_completeness, source_first_order,
+    transition_queue, QueueItem, QueueState, SourceWindowState, TraversalProof, CONTRACT_VERSION,
 };
 use serde::{Deserialize, Serialize};
 use std::io::{self, BufRead};
@@ -8,6 +8,9 @@ use std::io::{self, BufRead};
 #[derive(Debug, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 enum Request {
+    EvaluateCompleteness {
+        proof: TraversalProof,
+    },
     AdvanceCursor {
         state: SourceWindowState,
         candidate: String,
@@ -73,6 +76,12 @@ fn main() {
             }
         };
         match request {
+            Request::EvaluateCompleteness { proof } => emit(Response {
+                contract_version: CONTRACT_VERSION,
+                ok: true,
+                result: Some(evaluate_completeness(&proof)),
+                error: None,
+            }),
             Request::AdvanceCursor { state, candidate } => {
                 match advance_complete_through(&state, &candidate) {
                     Ok(value) => emit(Response {

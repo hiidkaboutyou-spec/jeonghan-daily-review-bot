@@ -63,3 +63,7 @@ _event_timeline_runtime.install(_event_fusion)
 # lazy-loaded inside that Daily-only hook so importing/running app.fic_digest does not
 # acquire a non-Fanfic Translation Fusion runtime dependency.
 from . import event_fusion_private_runtime as _event_fusion_private_runtime  # noqa: F401,E402
+
+# Phase 4 shadow completeness wraps the final runtime bindings. Legacy production
+# health and delivery remain authoritative until real source evidence is reviewed.
+from . import completeness_runtime as _completeness_runtime  # noqa: F401,E402

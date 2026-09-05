@@ -9,6 +9,8 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust/**"
+      - "app/completeness*.py"
+      - "tests/test_completeness_engine.py"
       - ".github/workflows/rust-editorial-core.yml"
   pull_request:
     branches:
@@ -17,6 +19,8 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust/**"
+      - "app/completeness*.py"
+      - "tests/test_completeness_engine.py"
       - ".github/workflows/rust-editorial-core.yml"
   workflow_dispatch:
 
@@ -48,3 +52,16 @@ jobs:
 
       - name: Test workspace
         run: cargo test --workspace --all-features
+
+      - name: Build JSONL executable
+        run: cargo build --locked --workspace
+
+      - name: Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Python Rust completeness integration
+        run: |
+          python -m pip install -r requirements.txt
+          python -m unittest discover -s tests -p test_completeness_engine.py -v

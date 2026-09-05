@@ -13,6 +13,7 @@ from . import state as _state_module
 from . import source_authority_hardening as _source_authority
 from .main import Application
 from .models import Update, ensure_utc
+from .completeness_evidence import active_evidence, record_page
 from .observability import current_retrieval_attempt_id, new_attempt_id, observe
 from .state import StateStore
 from .x_client import XCollectionError, XCollector, _safe_error, normalize_handle
@@ -46,6 +47,7 @@ class _ProviderPage:
     tweets: list[Any]
     next_cursor: str | None
     exhausted: bool
+    valid_response: bool = False
 
 
 def _now() -> datetime:
@@ -298,7 +300,18 @@ async def _provider_page(
     if not callable(get_cursor):
         raise RuntimeError("provider cursor helper unavailable")
     next_cursor = get_cursor(payload, "Bottom")
-    return _ProviderPage(tweets=tweets, next_cursor=str(next_cursor) if next_cursor else None, exhausted=not next_cursor)
+    # A missing response or an error-shaped payload is not timeline exhaustion.
+    # Retain legacy return behavior while giving shadow truth stronger evidence.
+    def has_instructions(value):
+        if isinstance(value, dict):
+            return (value.get("type") == "TimelineAddEntries" and isinstance(value.get("entries"), list)
+                    or any(has_instructions(child) for child in value.values()))
+        if isinstance(value, list):
+            return any(has_instructions(child) for child in value)
+        return False
+
+    valid = isinstance(payload, dict) and not payload.get("errors") and has_instructions(payload.get("data"))
+    return _ProviderPage(tweets=tweets, next_cursor=str(next_cursor) if next_cursor else None, exhausted=not next_cursor, valid_response=valid)
 
 
 async def _sleep_for_retry(retry_number: int) -> None:
@@ -606,6 +619,7 @@ async def _resumable_source_timeline(
                 attempt_id=attempt_id,
                 page_index=page_index,
             )
+            record_page(count=len(page.tweets), cursor=page.next_cursor, valid=page.valid_response)
 
             for tweet in page.tweets:
                 run_raw_seen += 1
@@ -654,6 +668,11 @@ async def _resumable_source_timeline(
                     continue
 
                 _clear_checkpoint(state, checkpoint_id)
+                evidence = active_evidence.get()
+                if evidence is not None:
+                    evidence.resumed = resumed
+                    evidence.lower_boundary = crossed_lower_boundary
+                    evidence.exhausted = bool(page.valid_response and not next_cursor)
                 result = _dedupe_updates(accumulated)
                 observe(
                     "source_fetch_end",
