@@ -11,6 +11,7 @@ from .config import ConfigError, Settings
 from .observability import capture_technical_exception, init_optional_sentry
 from . import final_edit_capture_runtime as _final_edit_capture_runtime
 from . import production_outcome_runtime as _outcome_runtime
+from . import source_first_runtime as _source_first_runtime
 
 # Final Edit Capture is deliberately installed only on the normal Daily/private-review
 # entrypoint. app.fic_digest imports neither this module nor the capture runtime.
@@ -18,6 +19,11 @@ _final_edit_capture_runtime.install()
 _outcome_runtime.install()
 
 from .webhook_aware_assistant import WebhookAwarePersonalAssistant
+
+# Product Roadmap Phase 5 changes only the private editorial navigation layer. Install
+# it on the final normal-Daily application class so Fanfic/AO3 and lower-level reusable
+# classes keep their established behavior.
+_source_first_runtime.install(WebhookAwarePersonalAssistant)
 
 
 async def async_main() -> int:
