@@ -8,14 +8,20 @@ from typing import Callable
 
 @dataclass
 class TraversalEvidence:
+    source_handle: str = ""
+    window_start: str = ""
+    window_end: str = ""
     pages: int = 0
     raw_count: int = 0
     observation_ids: set[str] = field(default_factory=set)
+    expected_window_ids: set[str] = field(default_factory=set)
     provider_cursor: str = ""
     exhausted: bool = False
     valid_response: bool = False
     resumed: bool = False
     lower_boundary: bool = False
+    lower_boundary_proven: bool = False
+    timeline_order_valid: bool = True
     checkpoint: Callable | None = None
     link_observation: Callable | None = None
 
