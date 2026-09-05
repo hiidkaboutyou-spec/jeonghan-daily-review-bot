@@ -22,17 +22,25 @@ class TraversalEvidence:
     lower_boundary: bool = False
     lower_boundary_proven: bool = False
     timeline_order_valid: bool = True
+    newest_top_level_at: str = ""
+    oldest_top_level_at: str = ""
+    previous_page_oldest_at: str = ""
+    top_level_ids_seen: set[str] = field(default_factory=set)
     checkpoint: Callable | None = None
     link_observation: Callable | None = None
 
 
-active_evidence: ContextVar[TraversalEvidence | None] = ContextVar("completeness_evidence", default=None)
+active_evidence: ContextVar[TraversalEvidence | None] = ContextVar(
+    "completeness_evidence", default=None
+)
 
 
 def record_page(*, count: int, cursor: str | None, valid: bool) -> None:
     evidence = active_evidence.get()
     if evidence is not None:
-        evidence.valid_response = valid if evidence.pages == 0 else evidence.valid_response and valid
+        evidence.valid_response = (
+            valid if evidence.pages == 0 else evidence.valid_response and valid
+        )
         evidence.pages += 1
         evidence.raw_count += count
         evidence.provider_cursor = str(cursor or "")[:4096]
