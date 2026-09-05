@@ -89,8 +89,12 @@ class SourceModeTests(unittest.TestCase):
 
     def test_project_configuration_loads_priority_sources_with_explicit_modes(self):
         settings = Settings.load(require_secrets=False)
-        self.assertEqual(len(settings.sources), 32)
+        self.assertEqual(len(settings.sources), 33)
         by_handle = {item["handle"]: item for item in settings.sources}
+        self.assertEqual(settings.sources[0]["handle"], "hanniezones")
+        self.assertEqual(by_handle["hanniezones"]["mode"], "full_feed")
+        self.assertTrue(by_handle["hanniezones"]["include_replies"])
+        self.assertEqual(by_handle["hanniezones"]["priority"], 1)
         self.assertEqual(by_handle["hani_berry_1004"]["mode"], "full_feed")
         self.assertEqual(by_handle["pledis_17"]["mode"], "keyword_filter")
         self.assertEqual(by_handle["ayecheol"]["mode"], "keyword_filter")
