@@ -45,7 +45,8 @@ def _timeline_structure(payload: Any) -> tuple[list[dict[str, Any]], list[str], 
     for group in _instruction_lists(payload):
         instructions.extend(item for item in group if isinstance(item, dict))
 
-    ordered_ids: list[str] = []
+    # Collect pins first so instruction ordering cannot accidentally let a pinned ID
+    # enter the normal lower-bound sequence.
     pinned_ids: set[str] = set()
     terminated_bottom = False
     for instruction in instructions:
@@ -54,15 +55,20 @@ def _timeline_structure(payload: Any) -> tuple[list[dict[str, Any]], list[str], 
             post_id = _post_id(instruction.get("entry"))
             if post_id:
                 pinned_ids.add(post_id)
-        elif kind == "TimelineAddEntries":
-            entries = instruction.get("entries", [])
-            if isinstance(entries, list):
-                for entry in entries:
-                    post_id = _post_id(entry)
-                    if post_id and post_id not in pinned_ids:
-                        ordered_ids.append(post_id)
         elif kind == "TimelineTerminateTimeline" and str(instruction.get("direction", "")) == "Bottom":
             terminated_bottom = True
+
+    ordered_ids: list[str] = []
+    for instruction in instructions:
+        if str(instruction.get("type", "") or "") != "TimelineAddEntries":
+            continue
+        entries = instruction.get("entries", [])
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            post_id = _post_id(entry)
+            if post_id and post_id not in pinned_ids:
+                ordered_ids.append(post_id)
     return instructions, ordered_ids, pinned_ids, terminated_bottom
 
 
@@ -189,16 +195,14 @@ async def _provider_page(
     next_cursor = get_cursor(payload, "Bottom")
 
     instructions, ordered_ids, pinned_ids, terminated_bottom = _timeline_structure(payload)
-    recognized = any(
-        str(item.get("type", "")) in {
-            "TimelineAddEntries",
-            "TimelinePinEntry",
-            "TimelineTerminateTimeline",
-            "TimelineReplaceEntry",
-        }
-        for item in instructions
+    has_add_entries = any(str(item.get("type", "") or "") == "TimelineAddEntries" for item in instructions)
+    # Pin/replace instructions alone are not sufficient terminal proof. A normal
+    # timeline page or an explicit Bottom termination is required.
+    valid = bool(
+        isinstance(payload, dict)
+        and not payload.get("errors")
+        and (has_add_entries or terminated_bottom)
     )
-    valid = isinstance(payload, dict) and not payload.get("errors") and recognized
     if valid:
         valid = _record_structural_proof(
             tweets=tweets,
@@ -209,16 +213,12 @@ async def _provider_page(
     # The pinned twscrape paginator itself treats absence of a Bottom cursor as the
     # end of a non-error page. An explicit Bottom termination is even stronger.
     exhausted = bool(valid and (terminated_bottom or not next_cursor))
-    page = recovery._ProviderPage(
+    return recovery._ProviderPage(
         tweets=tweets,
         next_cursor=str(next_cursor) if next_cursor else None,
         exhausted=exhausted,
         valid_response=valid,
     )
-    page.ordered_tweet_ids = tuple(ordered_ids)
-    page.pinned_tweet_ids = frozenset(pinned_ids)
-    page.terminated_bottom = terminated_bottom
-    return page
 
 
 def install() -> None:
