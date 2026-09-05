@@ -15,41 +15,28 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Diagnose validation commands
+      - name: Diagnose exact validation commands
         env:
           ALLOW_TEST_PLACEHOLDERS: "true"
+          PYTHONUNBUFFERED: "1"
         shell: bash
         run: |
           set +e
-          python -m compileall -q app >compile.log 2>&1
-          compile_rc=$?
-          python -m app.check >app-check.log 2>&1
-          check_rc=$?
-          python -m unittest discover -s tests -v >unittest.log 2>&1
-          test_rc=$?
 
-          {
-            echo '## Phase 3 Python validation diagnostic'
-            echo
-            echo "- compileall exit: $compile_rc"
-            echo "- app.check exit: $check_rc"
-            echo "- unittest exit: $test_rc"
-            echo
-            echo '### app.check tail'
-            echo '```text'
-            tail -n 80 app-check.log
-            echo '```'
-            echo
-            echo '### unittest failure-focused output'
-            echo '```text'
-            grep -E -B 6 -A 18 '^(FAIL|ERROR):|FAILED \(|Traceback \(most recent call last\):|AssertionError|ModuleNotFoundError|ImportError' unittest.log | tail -n 220 || tail -n 120 unittest.log
-            echo '```'
-            echo
-            echo '### unittest tail'
-            echo '```text'
-            tail -n 100 unittest.log
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo '=== compileall: app tests tools ==='
+          python -m compileall -q app tests tools
+          compile_rc=$?
+          echo "compileall exit=$compile_rc"
+
+          echo '=== app --check ==='
+          python -m app --check
+          check_rc=$?
+          echo "app --check exit=$check_rc"
+
+          echo '=== unittest discover ==='
+          python -m unittest discover -s tests -p "test_*.py" -v
+          test_rc=$?
+          echo "unittest exit=$test_rc"
 
           if [ "$compile_rc" -ne 0 ] || [ "$check_rc" -ne 0 ] || [ "$test_rc" -ne 0 ]; then
             exit 1
