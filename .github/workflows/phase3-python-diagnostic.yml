@@ -15,29 +15,37 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Diagnose exact validation commands
+
+      - name: Compile Python
+        id: compile
+        continue-on-error: true
+        run: python -m compileall -q app tests tools
+
+      - name: App configuration check
+        id: appcheck
+        continue-on-error: true
         env:
           ALLOW_TEST_PLACEHOLDERS: "true"
           PYTHONUNBUFFERED: "1"
+        run: python -m app --check
+
+      - name: Unit tests
+        id: unittest
+        continue-on-error: true
+        env:
+          ALLOW_TEST_PLACEHOLDERS: "true"
+          PYTHONUNBUFFERED: "1"
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Fail if validation failed
+        if: always()
         shell: bash
         run: |
-          set +e
-
-          echo '=== compileall: app tests tools ==='
-          python -m compileall -q app tests tools
-          compile_rc=$?
-          echo "compileall exit=$compile_rc"
-
-          echo '=== app --check ==='
-          python -m app --check
-          check_rc=$?
-          echo "app --check exit=$check_rc"
-
-          echo '=== unittest discover ==='
-          python -m unittest discover -s tests -p "test_*.py" -v
-          test_rc=$?
-          echo "unittest exit=$test_rc"
-
-          if [ "$compile_rc" -ne 0 ] || [ "$check_rc" -ne 0 ] || [ "$test_rc" -ne 0 ]; then
+          echo "compile outcome: ${{ steps.compile.outcome }}"
+          echo "app-check outcome: ${{ steps.appcheck.outcome }}"
+          echo "unittest outcome: ${{ steps.unittest.outcome }}"
+          if [ "${{ steps.compile.outcome }}" != "success" ] || \
+             [ "${{ steps.appcheck.outcome }}" != "success" ] || \
+             [ "${{ steps.unittest.outcome }}" != "success" ]; then
             exit 1
           fi
