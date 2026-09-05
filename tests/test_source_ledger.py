@@ -81,23 +81,9 @@ def test_complete_cursor_metadata_does_not_regress_with_older_complete(tmp_path)
     older_end = "2026-09-04T09:00:00+00:00"
 
     store.start_attempt(source_handle="alpha", window_start=newer_start, window_end=newer_end)
-    _finish(
-        store,
-        "alpha",
-        newer_start,
-        newer_end,
-        SourceWindowStatus.COMPLETE,
-        provider_cursor="cursor-new",
-    )
+    _finish(store, "alpha", newer_start, newer_end, SourceWindowStatus.COMPLETE, provider_cursor="cursor-new")
     store.start_attempt(source_handle="alpha", window_start=older_start, window_end=older_end)
-    _finish(
-        store,
-        "alpha",
-        older_start,
-        older_end,
-        SourceWindowStatus.COMPLETE,
-        provider_cursor="cursor-old",
-    )
+    _finish(store, "alpha", older_start, older_end, SourceWindowStatus.COMPLETE, provider_cursor="cursor-old")
 
     cursor = store.cursor("alpha")
     assert cursor["complete_through"] == newer_end
