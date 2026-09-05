@@ -20,7 +20,7 @@ def _post_id(entry: Any) -> str:
         return ""
     value = str(entry.get("entryId", "") or "")
     if value.startswith("tweet-"):
-        return value[len("tweet-"):].strip()
+        return value[len("tweet-") :].strip()
     return ""
 
 
@@ -28,7 +28,8 @@ def _instruction_lists(value: Any):
     if isinstance(value, dict):
         instructions = value.get("instructions")
         if isinstance(instructions, list) and any(
-            isinstance(item, dict) and str(item.get("type", "")).startswith("Timeline")
+            isinstance(item, dict)
+            and str(item.get("type", "")).startswith("Timeline")
             for item in instructions
         ):
             yield instructions
@@ -39,14 +40,14 @@ def _instruction_lists(value: Any):
             yield from _instruction_lists(child)
 
 
-def _timeline_structure(payload: Any) -> tuple[list[dict[str, Any]], list[str], set[str], bool]:
+def _timeline_structure(
+    payload: Any,
+) -> tuple[list[dict[str, Any]], list[str], set[str], bool]:
     """Return timeline instructions, ordered normal IDs, pinned IDs, bottom termination."""
     instructions: list[dict[str, Any]] = []
     for group in _instruction_lists(payload):
         instructions.extend(item for item in group if isinstance(item, dict))
 
-    # Collect pins first so instruction ordering cannot accidentally let a pinned ID
-    # enter the normal lower-bound sequence.
     pinned_ids: set[str] = set()
     terminated_bottom = False
     for instruction in instructions:
@@ -55,7 +56,10 @@ def _timeline_structure(payload: Any) -> tuple[list[dict[str, Any]], list[str], 
             post_id = _post_id(instruction.get("entry"))
             if post_id:
                 pinned_ids.add(post_id)
-        elif kind == "TimelineTerminateTimeline" and str(instruction.get("direction", "")) == "Bottom":
+        elif (
+            kind == "TimelineTerminateTimeline"
+            and str(instruction.get("direction", "")) == "Bottom"
+        ):
             terminated_bottom = True
 
     ordered_ids: list[str] = []
@@ -73,12 +77,19 @@ def _timeline_structure(payload: Any) -> tuple[list[dict[str, Any]], list[str], 
 
 
 def _tweet_id(tweet: Any) -> str:
-    return str(getattr(tweet, "id_str", "") or getattr(tweet, "id", "") or "").strip()
+    return str(
+        getattr(tweet, "id_str", "") or getattr(tweet, "id", "") or ""
+    ).strip()
 
 
 def _tweet_author(tweet: Any) -> str:
     user = getattr(tweet, "user", None)
-    return str(getattr(user, "username", "") or "").lstrip("@").strip().casefold()
+    return (
+        str(getattr(user, "username", "") or "")
+        .lstrip("@")
+        .strip()
+        .casefold()
+    )
 
 
 def _tweet_time(tweet: Any) -> datetime | None:
@@ -100,6 +111,10 @@ def _parse_bound(value: str) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _iso(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat(timespec="microseconds")
+
+
 def _record_structural_proof(
     *,
     tweets: list[Any],
@@ -108,9 +123,9 @@ def _record_structural_proof(
 ) -> bool:
     """Attach safe page expectations to the active attempt.
 
-    Returns False when a top-level timeline tweet cannot be parsed/attributed. Such
-    a page may still be extracted by the compatibility collector, but it cannot be
-    completeness proof.
+    COMPLETE lower-bound proof needs ordering across the whole traversal, not merely
+    within each page. Cursor pagination may overlap IDs, so cross-page ordering is
+    checked only across newly observed top-level IDs.
     """
     evidence = active_evidence.get()
     if evidence is None:
@@ -124,7 +139,7 @@ def _record_structural_proof(
 
     by_id = {_tweet_id(tweet): tweet for tweet in tweets if _tweet_id(tweet)}
     structure_valid = True
-    ordered_times: list[datetime] = []
+    ordered_pairs: list[tuple[str, datetime]] = []
 
     for post_id in ordered_ids:
         tweet = by_id.get(post_id)
@@ -135,12 +150,10 @@ def _record_structural_proof(
         if created is None:
             structure_valid = False
             continue
-        ordered_times.append(created)
+        ordered_pairs.append((post_id, created))
         if start <= created < end:
             evidence.expected_window_ids.add(post_id)
 
-    # A pinned entry is an observation when it falls inside the requested window,
-    # but it is deliberately never a lower-bound witness.
     for post_id in pinned_ids:
         tweet = by_id.get(post_id)
         if tweet is None or _tweet_author(tweet) != source:
@@ -149,12 +162,47 @@ def _record_structural_proof(
         if created is not None and start <= created < end:
             evidence.expected_window_ids.add(post_id)
 
-    monotonic = all(left >= right for left, right in zip(ordered_times, ordered_times[1:]))
-    if ordered_times and monotonic and any(created < start for created in ordered_times):
-        evidence.lower_boundary_proven = True
-    elif ordered_times and not monotonic:
+    ordered_times = [created for _, created in ordered_pairs]
+    within_page_monotonic = all(
+        left >= right for left, right in zip(ordered_times, ordered_times[1:])
+    )
+    if ordered_times and not within_page_monotonic:
         evidence.timeline_order_valid = False
         structure_valid = False
+
+    new_pairs = [
+        (post_id, created)
+        for post_id, created in ordered_pairs
+        if post_id not in evidence.top_level_ids_seen
+    ]
+    previous_oldest = _parse_bound(evidence.previous_page_oldest_at)
+    if within_page_monotonic and new_pairs and previous_oldest is not None:
+        next_newest = new_pairs[0][1]
+        if next_newest > previous_oldest:
+            evidence.timeline_order_valid = False
+            structure_valid = False
+
+    if ordered_pairs:
+        newest = max(created for _, created in ordered_pairs)
+        oldest = min(created for _, created in ordered_pairs)
+        prior_newest = _parse_bound(evidence.newest_top_level_at)
+        prior_oldest = _parse_bound(evidence.oldest_top_level_at)
+        if prior_newest is None or newest > prior_newest:
+            evidence.newest_top_level_at = _iso(newest)
+        if prior_oldest is None or oldest < prior_oldest:
+            evidence.oldest_top_level_at = _iso(oldest)
+
+    if within_page_monotonic and new_pairs:
+        evidence.previous_page_oldest_at = _iso(new_pairs[-1][1])
+    evidence.top_level_ids_seen.update(post_id for post_id, _ in ordered_pairs)
+
+    if (
+        ordered_times
+        and within_page_monotonic
+        and evidence.timeline_order_valid
+        and any(created < start for created in ordered_times)
+    ):
+        evidence.lower_boundary_proven = True
 
     return structure_valid
 
@@ -166,7 +214,9 @@ async def _provider_page(
     include_replies: bool,
     cursor: str | None,
 ):
-    method_name = "user_tweets_and_replies_raw" if include_replies else "user_tweets_raw"
+    method_name = (
+        "user_tweets_and_replies_raw" if include_replies else "user_tweets_raw"
+    )
     method = getattr(api, method_name, None)
     if not callable(method):
         raise AttributeError(method_name)
@@ -194,10 +244,13 @@ async def _provider_page(
         raise RuntimeError("provider cursor helper unavailable")
     next_cursor = get_cursor(payload, "Bottom")
 
-    instructions, ordered_ids, pinned_ids, terminated_bottom = _timeline_structure(payload)
-    has_add_entries = any(str(item.get("type", "") or "") == "TimelineAddEntries" for item in instructions)
-    # Pin/replace instructions alone are not sufficient terminal proof. A normal
-    # timeline page or an explicit Bottom termination is required.
+    instructions, ordered_ids, pinned_ids, terminated_bottom = _timeline_structure(
+        payload
+    )
+    has_add_entries = any(
+        str(item.get("type", "") or "") == "TimelineAddEntries"
+        for item in instructions
+    )
     valid = bool(
         isinstance(payload, dict)
         and not payload.get("errors")
@@ -210,8 +263,6 @@ async def _provider_page(
             pinned_ids=pinned_ids,
         )
 
-    # The pinned twscrape paginator itself treats absence of a Bottom cursor as the
-    # end of a non-error page. An explicit Bottom termination is even stronger.
     exhausted = bool(valid and (terminated_bottom or not next_cursor))
     return recovery._ProviderPage(
         tweets=tweets,
