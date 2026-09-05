@@ -73,7 +73,11 @@ pub fn advance_complete_through(
 }
 
 pub fn idempotency_key(source_handle: &str, external_post_id: &str) -> String {
-    format!("{}:{}", source_handle.trim().trim_start_matches('@').to_lowercase(), external_post_id.trim())
+    format!(
+        "{}:{}",
+        source_handle.trim().trim_start_matches('@').to_lowercase(),
+        external_post_id.trim()
+    )
 }
 
 pub fn assert_unique_items(items: &[QueueItem]) -> Result<(), CoreError> {
@@ -89,8 +93,18 @@ pub fn assert_unique_items(items: &[QueueItem]) -> Result<(), CoreError> {
 
 pub fn source_first_order(items: &mut [QueueItem]) {
     items.sort_by(|a, b| {
-        (a.source_order, a.post_order, &a.source_handle, &a.external_post_id)
-            .cmp(&(b.source_order, b.post_order, &b.source_handle, &b.external_post_id))
+        (
+            a.source_order,
+            a.post_order,
+            &a.source_handle,
+            &a.external_post_id,
+        )
+            .cmp(&(
+                b.source_order,
+                b.post_order,
+                &b.source_handle,
+                &b.external_post_id,
+            ))
     });
 }
 
@@ -108,7 +122,10 @@ pub fn transition_queue(item: &mut QueueItem, to: QueueState) -> Result<(), Core
             | (Deferred, Reviewing)
     ) || item.state == to;
     if !allowed {
-        return Err(CoreError::InvalidQueueTransition { from: item.state, to });
+        return Err(CoreError::InvalidQueueTransition {
+            from: item.state,
+            to,
+        });
     }
     item.state = to;
     Ok(())
@@ -140,42 +157,80 @@ mod tests {
 
     #[test]
     fn only_complete_can_advance_cursor() {
-        for state in [CompletenessState::Attempting, CompletenessState::Partial, CompletenessState::Unproven] {
-            assert_eq!(advance_complete_through(&window(state, None), "b"), Err(CoreError::CursorAdvanceWithoutProof));
+        for state in [
+            CompletenessState::Attempting,
+            CompletenessState::Partial,
+            CompletenessState::Unproven,
+        ] {
+            assert_eq!(
+                advance_complete_through(&window(state, None), "b"),
+                Err(CoreError::CursorAdvanceWithoutProof)
+            );
         }
-        assert_eq!(advance_complete_through(&window(CompletenessState::Complete, None), "b").unwrap(), "b");
+        assert_eq!(
+            advance_complete_through(&window(CompletenessState::Complete, None), "b").unwrap(),
+            "b"
+        );
     }
 
     #[test]
     fn complete_cursor_is_monotonic() {
-        assert!(matches!(advance_complete_through(&window(CompletenessState::Complete, Some("b")), "a"), Err(CoreError::CursorRegression { .. })));
-        assert_eq!(advance_complete_through(&window(CompletenessState::Complete, Some("b")), "b").unwrap(), "b");
-        assert_eq!(advance_complete_through(&window(CompletenessState::Complete, Some("b")), "c").unwrap(), "c");
+        assert!(matches!(
+            advance_complete_through(&window(CompletenessState::Complete, Some("b")), "a"),
+            Err(CoreError::CursorRegression { .. })
+        ));
+        assert_eq!(
+            advance_complete_through(&window(CompletenessState::Complete, Some("b")), "b").unwrap(),
+            "b"
+        );
+        assert_eq!(
+            advance_complete_through(&window(CompletenessState::Complete, Some("b")), "c").unwrap(),
+            "c"
+        );
     }
 
     #[test]
     fn idempotency_key_normalizes_source() {
-        assert_eq!(idempotency_key(" @HannieZone ", " 123 "), "hanniezone:123");
+        assert_eq!(
+            idempotency_key(" @HannieZone ", " 123 "),
+            "hanniezone:123"
+        );
     }
 
     #[test]
     fn duplicate_items_are_rejected() {
         let items = vec![item("Alpha", "1", 0, 0), item("@alpha", "1", 0, 1)];
-        assert!(matches!(assert_unique_items(&items), Err(CoreError::DuplicateIdempotencyKey(_))));
+        assert!(matches!(
+            assert_unique_items(&items),
+            Err(CoreError::DuplicateIdempotencyKey(_))
+        ));
     }
 
     #[test]
     fn ordering_is_source_first_and_deterministic() {
-        let mut items = vec![item("beta", "2", 1, 0), item("alpha", "2", 0, 1), item("alpha", "1", 0, 0)];
+        let mut items = vec![
+            item("beta", "2", 1, 0),
+            item("alpha", "2", 0, 1),
+            item("alpha", "1", 0, 0),
+        ];
         source_first_order(&mut items);
-        let ids: Vec<_> = items.iter().map(|x| (x.source_handle.as_str(), x.external_post_id.as_str())).collect();
-        assert_eq!(ids, vec![("alpha", "1"), ("alpha", "2"), ("beta", "2")]);
+        let ids: Vec<_> = items
+            .iter()
+            .map(|x| (x.source_handle.as_str(), x.external_post_id.as_str()))
+            .collect();
+        assert_eq!(
+            ids,
+            vec![("alpha", "1"), ("alpha", "2"), ("beta", "2")]
+        );
     }
 
     #[test]
     fn invalid_queue_transition_is_rejected() {
         let mut x = item("alpha", "1", 0, 0);
-        assert!(matches!(transition_queue(&mut x, QueueState::Ready), Err(CoreError::InvalidQueueTransition { .. })));
+        assert!(matches!(
+            transition_queue(&mut x, QueueState::Ready),
+            Err(CoreError::InvalidQueueTransition { .. })
+        ));
         transition_queue(&mut x, QueueState::Reviewing).unwrap();
         transition_queue(&mut x, QueueState::Ready).unwrap();
     }
