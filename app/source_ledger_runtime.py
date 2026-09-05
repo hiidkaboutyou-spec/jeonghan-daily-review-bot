@@ -62,12 +62,21 @@ def _raw_count(collector: Any, handle: str, start_iso: str, end_iso: str) -> int
 
 
 def install() -> None:
+    """Wrap the effective completeness collector exactly once.
+
+    The callable marker is the authority rather than the module-global flag. This
+    keeps installation idempotent while also surviving test/runtime module reloads
+    that can replace the collector method after this module has already imported.
+    """
     global _INSTALLED
-    if _INSTALLED or CompleteWindowXCollector.__dict__.get("_source_ledger_installed", False):
+
+    current = CompleteWindowXCollector._collect_source_timeline
+    if getattr(current, "_source_ledger_hook", False):
+        CompleteWindowXCollector._source_ledger_installed = True
         _INSTALLED = True
         return
 
-    original = CompleteWindowXCollector._collect_source_timeline
+    original = current
 
     async def wrapped(self, handle, start, end, *, limit: int, include_replies: bool):
         source = normalize_handle(handle)
@@ -129,6 +138,7 @@ def install() -> None:
         ))
         return updates
 
+    wrapped._source_ledger_hook = True
     CompleteWindowXCollector._collect_source_timeline = wrapped
     CompleteWindowXCollector._source_ledger_installed = True
     _INSTALLED = True
