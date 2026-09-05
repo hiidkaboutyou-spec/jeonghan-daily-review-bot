@@ -1,0 +1,42 @@
+name: Runtime Integrity
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Verify checkout and clean runtime audit
+        run: |
+          git rev-parse HEAD
+          git status --short
+          sha256sum app/phase3_recovery.py
+          sed -n '1,35p' app/phase3_recovery.py
+          python -m app --check
+
+      - name: Run existing unit suite
+        run: python -m unittest discover -s tests -p 'test*.py' -v
+
+      - name: Verify tests did not mutate runtime source
+        run: |
+          git status --short
+          sha256sum app/phase3_recovery.py
+          sed -n '1,35p' app/phase3_recovery.py
+          python -m app --check
