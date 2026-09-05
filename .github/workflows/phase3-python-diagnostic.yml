@@ -1,0 +1,56 @@
+name: Phase 3 Python Diagnostic
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  diagnose-python-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Diagnose validation commands
+        env:
+          ALLOW_TEST_PLACEHOLDERS: "true"
+        shell: bash
+        run: |
+          set +e
+          python -m compileall -q app >compile.log 2>&1
+          compile_rc=$?
+          python -m app.check >app-check.log 2>&1
+          check_rc=$?
+          python -m unittest discover -s tests -v >unittest.log 2>&1
+          test_rc=$?
+
+          {
+            echo '## Phase 3 Python validation diagnostic'
+            echo
+            echo "- compileall exit: $compile_rc"
+            echo "- app.check exit: $check_rc"
+            echo "- unittest exit: $test_rc"
+            echo
+            echo '### app.check tail'
+            echo '```text'
+            tail -n 80 app-check.log
+            echo '```'
+            echo
+            echo '### unittest failure-focused output'
+            echo '```text'
+            grep -E -B 6 -A 18 '^(FAIL|ERROR):|FAILED \(|Traceback \(most recent call last\):|AssertionError|ModuleNotFoundError|ImportError' unittest.log | tail -n 220 || tail -n 120 unittest.log
+            echo '```'
+            echo
+            echo '### unittest tail'
+            echo '```text'
+            tail -n 100 unittest.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$compile_rc" -ne 0 ] || [ "$check_rc" -ne 0 ] || [ "$test_rc" -ne 0 ]; then
+            exit 1
+          fi
