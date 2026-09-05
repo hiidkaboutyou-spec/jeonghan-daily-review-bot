@@ -1,0 +1,56 @@
+name: X Provider Recovery Probe
+
+on:
+  push:
+    branches:
+      - agent/x-provider-403-recovery
+    paths:
+      - requirements.txt
+      - app/x_client.py
+      - tools/x_profile_diagnostic.py
+      - .github/workflows/x-provider-recovery-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      PYTHONUNBUFFERED: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      TWS_HTTP_BACKEND: curl
+      X_COOKIE: ${{ secrets.X_COOKIE }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install project dependencies
+        run: |
+          python -m pip install --upgrade "pip>=26.1.2"
+          python -m pip install -r requirements.txt
+          python -m pip check
+
+      - name: Verify curl backend is available
+        run: |
+          python - <<'PY'
+          from twscrape.http import make_client
+
+          client = make_client()
+          try:
+              assert client.backend == "curl", client.backend
+              print("twscrape backend=curl")
+          finally:
+              import asyncio
+              asyncio.run(client.aclose())
+          PY
+
+      - name: Probe one stable X profile without delivery
+        run: python -m tools.x_profile_diagnostic pledis_17
