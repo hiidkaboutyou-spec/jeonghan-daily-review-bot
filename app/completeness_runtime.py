@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 from contextvars import ContextVar
-import os
 import logging
+import os
 
-from .completeness_engine import CompletenessEngine
+from .completeness_engine import CompletenessEngine, utc
 from .completeness_evidence import TraversalEvidence, active_evidence
 from .source_ledger_runtime import _ledger_for
-from .x_client import XCollector
+from .x_client import XCollector, normalize_handle
 from .x_completeness import CompleteWindowXCollector
 
 _run: ContextVar[tuple | None] = ContextVar("completeness_run", default=None)
@@ -62,6 +62,9 @@ def install():
             _, engine, run_id = current
         attempt_id = engine.start(run_id, handle)
         evidence = TraversalEvidence(
+            source_handle=normalize_handle(handle).casefold(),
+            window_start=utc(start),
+            window_end=utc(end),
             checkpoint=lambda value: engine.checkpoint(attempt_id, value),
             link_observation=lambda post_id: engine.link_observation(attempt_id, post_id),
         )
