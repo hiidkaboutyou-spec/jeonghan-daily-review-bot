@@ -8,6 +8,8 @@ The initial boundary is newline-delimited, versioned JSON over stdin/stdout. It 
 
 SQLite remains the application persistence format established by Phases 1–2. The Rust foundation does not create a second database or fork source truth.
 
+The existing Python recovery/checkpoint modules (`phase3_recovery` and its hardening layer) remain compatibility-critical collection infrastructure. The Rust core does not replace, rename, or bypass them in this phase.
+
 ## Rust invariants introduced
 
 - only `COMPLETE` source windows can advance a complete-through cursor;
@@ -24,4 +26,4 @@ This phase is shadow/foundation only. Existing Python production behavior remain
 
 ## Validation gate
 
-`cargo test --workspace` must pass in CI before merge. Phase 3 does not close merely because the Rust crate compiles: tests must demonstrate the invalid transitions above are impossible through the core API.
+`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, and `cargo test --workspace --all-features` must pass in CI before merge. Existing Python runtime audit/tests must also remain green. Phase 3 does not close merely because the Rust crate compiles: tests must demonstrate the invalid transitions above are impossible through the core API.
