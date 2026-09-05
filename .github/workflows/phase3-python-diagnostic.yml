@@ -5,7 +5,36 @@ on:
     branches: [ main ]
 
 jobs:
-  diagnose-python-validation:
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Python
+        run: python -m compileall -q app tests tools
+
+  app-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: App configuration check
+        env:
+          ALLOW_TEST_PLACEHOLDERS: "true"
+          PYTHONUNBUFFERED: "1"
+        run: python -m app --check
+
+  unittest:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -15,37 +44,18 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: pip install -r requirements.txt
-
-      - name: Compile Python
-        id: compile
-        continue-on-error: true
-        run: python -m compileall -q app tests tools
-
-      - name: App configuration check
-        id: appcheck
-        continue-on-error: true
+      - name: Unit tests with surfaced failure lines
         env:
           ALLOW_TEST_PLACEHOLDERS: "true"
           PYTHONUNBUFFERED: "1"
-        run: python -m app --check
-
-      - name: Unit tests
-        id: unittest
-        continue-on-error: true
-        env:
-          ALLOW_TEST_PLACEHOLDERS: "true"
-          PYTHONUNBUFFERED: "1"
-        run: python -m unittest discover -s tests -p "test_*.py" -v
-
-      - name: Fail if validation failed
-        if: always()
         shell: bash
         run: |
-          echo "compile outcome: ${{ steps.compile.outcome }}"
-          echo "app-check outcome: ${{ steps.appcheck.outcome }}"
-          echo "unittest outcome: ${{ steps.unittest.outcome }}"
-          if [ "${{ steps.compile.outcome }}" != "success" ] || \
-             [ "${{ steps.appcheck.outcome }}" != "success" ] || \
-             [ "${{ steps.unittest.outcome }}" != "success" ]; then
-            exit 1
+          set +e
+          python -m unittest discover -s tests -p "test_*.py" -v 2>&1 | tee unittest.log
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then
+            echo '=== failing-test summary ==='
+            grep -E '^(FAIL|ERROR):|^FAILED|Traceback|AssertionError|ImportError|ModuleNotFoundError' unittest.log | tail -n 120 || true
+            echo "::error title=Python unit tests failed::unittest exit code $rc; see failing-test summary above"
           fi
+          exit "$rc"
