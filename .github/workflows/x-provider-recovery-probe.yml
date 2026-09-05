@@ -8,6 +8,7 @@ on:
       - requirements.txt
       - app/x_client.py
       - tools/x_profile_diagnostic.py
+      - tools/x_transport_diagnostic.py
       - .github/workflows/x-provider-recovery-probe.yml
 
 permissions:
@@ -51,6 +52,9 @@ jobs:
               import asyncio
               asyncio.run(client.aclose())
           PY
+
+      - name: Classify X transport before GraphQL
+        run: python -m tools.x_transport_diagnostic
 
       - name: Probe one stable X profile without delivery
         run: python -m tools.x_profile_diagnostic pledis_17
