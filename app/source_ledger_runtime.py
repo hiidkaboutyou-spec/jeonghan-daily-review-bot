@@ -7,7 +7,7 @@ from typing import Any
 
 from .raw_observation import RawObservationStore
 from .source_ledger import SourceLedgerStore, SourceWindowResult, SourceWindowStatus
-from .x_client import _safe_error, normalize_handle
+from .x_client import XCollector, _safe_error, normalize_handle
 from .x_completeness import CompleteWindowXCollector, XCompletenessError
 
 _INSTALLED = False
@@ -72,6 +72,7 @@ def install() -> None:
 
     current = CompleteWindowXCollector._collect_source_timeline
     if getattr(current, "_source_ledger_hook", False):
+        XCollector._collect_source_timeline = current
         CompleteWindowXCollector._source_ledger_installed = True
         _INSTALLED = True
         return
@@ -140,6 +141,9 @@ def install() -> None:
 
     wrapped._source_ledger_hook = True
     CompleteWindowXCollector._collect_source_timeline = wrapped
+    # Recovery binds both classes explicitly; keep the runtime base collector on
+    # the same ledger-aware path, including when install repairs a stale binding.
+    XCollector._collect_source_timeline = wrapped
     CompleteWindowXCollector._source_ledger_installed = True
     _INSTALLED = True
 

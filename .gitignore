@@ -5,6 +5,9 @@ __pycache__/
 .venv/
 venv/
 
+# Rust
+target/
+
 # Bot runtime/state
 .state/
 *.tmp
