@@ -109,6 +109,7 @@ class CompletenessEngineTests(unittest.TestCase):
 
     def test_provider_structure_ignores_pinned_boundary_and_proves_ordered_normal_boundary(self):
         from app.phase3_recovery import _provider_page
+        from app.completeness_provider_proof import _timeline_structure
 
         payload = {
             "data": {
@@ -152,10 +153,11 @@ class CompletenessEngineTests(unittest.TestCase):
         finally:
             active_evidence.reset(token)
 
+        _, ordered_ids, pinned_ids, _ = _timeline_structure(payload)
         self.assertTrue(page.valid_response)
         self.assertFalse(page.exhausted)
-        self.assertEqual(page.ordered_tweet_ids, ("30", "20"))
-        self.assertEqual(page.pinned_tweet_ids, frozenset({"10"}))
+        self.assertEqual(ordered_ids, ["30", "20"])
+        self.assertEqual(pinned_ids, {"10"})
         self.assertTrue(evidence.lower_boundary_proven)
         self.assertEqual(evidence.expected_window_ids, {"30"})
 
@@ -263,6 +265,7 @@ class CompletenessEngineTests(unittest.TestCase):
             (None, False),
             ({"errors": [{"message": "unavailable"}]}, False),
             ({"data": {}}, False),
+            ({"data": {"timeline": {"instructions": [{"type": "TimelinePinEntry", "entry": {"entryId": "tweet-1"}}]}}}, False),
             ({"data": {"timeline": {"instructions": [{"type": "TimelineAddEntries", "entries": []}]}}}, True),
             ({"data": {"timeline": {"instructions": [{"type": "TimelineTerminateTimeline", "direction": "Bottom"}]}}}, True),
         ]:
