@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import unittest
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.models import MediaItem, Update
 from app.x_client import XCollectionError, XCollector
@@ -267,6 +267,32 @@ class SourceAuthorityHardeningTests(unittest.TestCase):
             XCollector._collect_source_timeline,
             CompleteWindowXCollector._collect_source_timeline,
         )
+
+    def test_runtime_timeline_records_ledger_once_and_install_repairs_binding(self):
+        from app import source_ledger_runtime as runtime
+        from app.source_ledger import SourceWindowStatus
+
+        original = AsyncMock(return_value=[])
+        original._source_ledger_hook = False
+        ledger = MagicMock()
+        with patch.object(CompleteWindowXCollector, "_collect_source_timeline", original), \
+                patch.object(XCollector, "_collect_source_timeline", original), \
+                patch.object(runtime, "_ledger_for", return_value=ledger), \
+                patch.object(runtime, "_raw_count", return_value=0):
+            runtime.install()
+            wrapped = CompleteWindowXCollector._collect_source_timeline
+            XCollector._collect_source_timeline = original
+            runtime.install()
+            self.assertIs(XCollector._collect_source_timeline, wrapped)
+            self.assertIs(CompleteWindowXCollector._collect_source_timeline, wrapped)
+            asyncio.run(self.collector._collect_source_timeline(
+                "trustedsource", self.start, self.now, limit=20, include_replies=True,
+            ))
+
+        original.assert_awaited_once()
+        ledger.start_attempt.assert_called_once()
+        ledger.finish.assert_called_once()
+        self.assertEqual(ledger.finish.call_args.args[0].status, SourceWindowStatus.COMPLETE)
 
 
 if __name__ == "__main__":

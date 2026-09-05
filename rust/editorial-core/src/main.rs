@@ -21,6 +21,22 @@ enum Request {
     },
 }
 
+#[derive(Debug, Deserialize)]
+struct Envelope {
+    contract_version: u32,
+    #[serde(flatten)]
+    request: Request,
+}
+
+fn parse_request(line: &str) -> Result<Request, String> {
+    let envelope: Envelope =
+        serde_json::from_str(line).map_err(|err| format!("invalid_request: {err}"))?;
+    if envelope.contract_version != CONTRACT_VERSION {
+        return Err("unsupported_contract_version".into());
+    }
+    Ok(envelope.request)
+}
+
 #[derive(Debug, Serialize)]
 struct Response<T: Serialize> {
     contract_version: u32,
@@ -44,14 +60,14 @@ fn main() {
                 continue;
             }
         };
-        let request: Request = match serde_json::from_str(&line) {
+        let request = match parse_request(&line) {
             Ok(request) => request,
             Err(err) => {
                 emit(Response::<serde_json::Value> {
                     contract_version: CONTRACT_VERSION,
                     ok: false,
                     result: None,
-                    error: Some(format!("invalid_request: {err}")),
+                    error: Some(err),
                 });
                 continue;
             }
@@ -114,4 +130,16 @@ fn emit<T: Serialize>(response: Response<T>) {
         "{}",
         serde_json::to_string(&response).expect("response must serialize")
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn request_version_is_required_and_checked() {
+        assert!(parse_request(r#"{"contract_version":1,"op":"order_queue","items":[]}"#).is_ok());
+        assert!(parse_request(r#"{"contract_version":2,"op":"order_queue","items":[]}"#).is_err());
+        assert!(parse_request(r#"{"op":"order_queue","items":[]}"#).is_err());
+    }
 }

@@ -44,6 +44,10 @@ pub struct QueueItem {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum CoreError {
+    #[error("invalid RFC3339 timestamp")]
+    InvalidTimestamp,
+    #[error("cursor must be within the proven source window")]
+    CursorOutsideWindow,
     #[error("only COMPLETE source windows may advance a cursor")]
     CursorAdvanceWithoutProof,
     #[error("cursor regression from {current} to {candidate}")]
@@ -61,8 +65,17 @@ pub fn advance_complete_through(
     if state.completeness != CompletenessState::Complete {
         return Err(CoreError::CursorAdvanceWithoutProof);
     }
+    let parse = |value: &str| {
+        chrono::DateTime::parse_from_rfc3339(value).map_err(|_| CoreError::InvalidTimestamp)
+    };
+    let candidate_time = parse(candidate)?;
+    let start = parse(&state.window_start)?;
+    let end = parse(&state.window_end)?;
+    if start >= end || candidate_time < start || candidate_time > end {
+        return Err(CoreError::CursorOutsideWindow);
+    }
     if let Some(current) = state.complete_through.as_deref() {
-        if candidate < current {
+        if candidate_time < parse(current)? {
             return Err(CoreError::CursorRegression {
                 current: current.to_owned(),
                 candidate: candidate.to_owned(),
@@ -95,12 +108,14 @@ pub fn source_first_order(items: &mut [QueueItem]) {
     items.sort_by(|a, b| {
         (
             a.source_order,
+            idempotency_key(&a.source_handle, ""),
             a.post_order,
             &a.source_handle,
             &a.external_post_id,
         )
             .cmp(&(
                 b.source_order,
+                idempotency_key(&b.source_handle, ""),
                 b.post_order,
                 &b.source_handle,
                 &b.external_post_id,
@@ -163,29 +178,65 @@ mod tests {
             CompletenessState::Unproven,
         ] {
             assert_eq!(
-                advance_complete_through(&window(state, None), "b"),
+                advance_complete_through(&window(state, None), "2026-09-05T00:30:00Z"),
                 Err(CoreError::CursorAdvanceWithoutProof)
             );
         }
         assert_eq!(
-            advance_complete_through(&window(CompletenessState::Complete, None), "b").unwrap(),
-            "b"
+            advance_complete_through(
+                &window(CompletenessState::Complete, None),
+                "2026-09-05T00:30:00Z"
+            )
+            .unwrap(),
+            "2026-09-05T00:30:00Z"
         );
     }
 
     #[test]
     fn complete_cursor_is_monotonic() {
         assert!(matches!(
-            advance_complete_through(&window(CompletenessState::Complete, Some("b")), "a"),
+            advance_complete_through(
+                &window(CompletenessState::Complete, Some("2026-09-05T00:30:00Z")),
+                "2026-09-05T00:00:00Z"
+            ),
             Err(CoreError::CursorRegression { .. })
         ));
         assert_eq!(
-            advance_complete_through(&window(CompletenessState::Complete, Some("b")), "b").unwrap(),
-            "b"
+            advance_complete_through(
+                &window(CompletenessState::Complete, Some("2026-09-05T00:30:00Z")),
+                "2026-09-05T00:30:00Z"
+            )
+            .unwrap(),
+            "2026-09-05T00:30:00Z"
         );
         assert_eq!(
-            advance_complete_through(&window(CompletenessState::Complete, Some("b")), "c").unwrap(),
-            "c"
+            advance_complete_through(
+                &window(CompletenessState::Complete, Some("2026-09-05T00:30:00Z")),
+                "2026-09-05T01:00:00Z"
+            )
+            .unwrap(),
+            "2026-09-05T01:00:00Z"
+        );
+    }
+
+    #[test]
+    fn timestamps_compare_instants_and_reject_unproven_bounds() {
+        let state = window(
+            CompletenessState::Complete,
+            Some("2026-09-05T01:30:00+01:00"),
+        );
+        assert!(matches!(
+            advance_complete_through(&state, "2026-09-05T00:15:00Z"),
+            Err(CoreError::CursorRegression { .. })
+        ));
+        assert!(advance_complete_through(&state, "2026-09-05T00:45:00Z").is_ok());
+        assert_eq!(
+            advance_complete_through(&state, "invalid"),
+            Err(CoreError::InvalidTimestamp)
+        );
+        assert_eq!(
+            advance_complete_through(&state, "2026-09-05T02:00:00Z"),
+            Err(CoreError::CursorOutsideWindow)
         );
     }
 
@@ -227,6 +278,24 @@ mod tests {
         ));
         transition_queue(&mut x, QueueState::Reviewing).unwrap();
         transition_queue(&mut x, QueueState::Ready).unwrap();
+    }
+
+    #[test]
+    fn tied_source_ranks_still_keep_each_source_together() {
+        let mut items = vec![
+            item("beta", "1", 0, 0),
+            item("alpha", "2", 0, 1),
+            item("@Alpha", "1", 0, 0),
+        ];
+        source_first_order(&mut items);
+        assert_eq!(
+            items
+                .iter()
+                .map(|x| x.external_post_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["1", "2", "1"]
+        );
+        assert_eq!(items[2].source_handle, "beta");
     }
 
     #[test]
