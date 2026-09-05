@@ -191,10 +191,7 @@ mod tests {
 
     #[test]
     fn idempotency_key_normalizes_source() {
-        assert_eq!(
-            idempotency_key(" @HannieZone ", " 123 "),
-            "hanniezone:123"
-        );
+        assert_eq!(idempotency_key(" @HannieZone ", " 123 "), "hanniezone:123");
     }
 
     #[test]
@@ -218,10 +215,7 @@ mod tests {
             .iter()
             .map(|x| (x.source_handle.as_str(), x.external_post_id.as_str()))
             .collect();
-        assert_eq!(
-            ids,
-            vec![("alpha", "1"), ("alpha", "2"), ("beta", "2")]
-        );
+        assert_eq!(ids, vec![("alpha", "1"), ("alpha", "2"), ("beta", "2")]);
     }
 
     #[test]
