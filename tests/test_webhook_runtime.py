@@ -78,6 +78,36 @@ class WebhookRuntimeTests(unittest.TestCase):
 
         app.collector.collect_window.assert_not_awaited()
 
+    def test_provider_wide_preflight_outage_skips_collection_without_advancing_cursor(self):
+        now = datetime.now(timezone.utc)
+        previous_cursor = (now - timedelta(hours=1)).isoformat()
+        app = object.__new__(WebhookAwarePersonalAssistant)
+        app.state = SimpleNamespace(
+            data={
+                "last_auto_run": previous_cursor,
+                "last_auto_attempt": (now - timedelta(minutes=30)).isoformat(),
+            }
+        )
+        app.settings = SimpleNamespace(
+            runtime={"scheduled_min_interval_minutes": 12, "scheduled_lookback_hours": 24}
+        )
+        app.collector = SimpleNamespace(
+            provider_preflight_blocked=Mock(return_value=True),
+            collect_window=AsyncMock(),
+            last_errors=["@alpha: provider_preflight_offline"],
+        )
+        app._notify_x_failure_if_due = Mock()
+
+        asyncio.run(app.run_scheduled_scan())
+
+        app.collector.collect_window.assert_not_awaited()
+        self.assertEqual(app.state.data["last_auto_run"], previous_cursor)
+        self.assertEqual(app.state.data["x_scan_failure_streak"], 1)
+        self.assertEqual(
+            app.state.data["last_failed_sources"],
+            ["@alpha: provider_preflight_offline"],
+        )
+
     def test_partial_source_fetch_queues_recovery_but_does_not_advance_success_cursor(self):
         now = datetime.now(timezone.utc)
         previous_cursor = (now - timedelta(hours=1)).isoformat()

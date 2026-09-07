@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from app.config import ConfigError
-from app.production_preflight import _check_gemini, _check_telegram, _check_x
+from app.production_preflight import (
+    _check_gemini,
+    _check_telegram,
+    _check_x,
+    _publish_github_provider_state,
+)
 from app.telegram import TelegramPermanentError
 from app.x_client import XCollectionError
 
@@ -27,6 +35,20 @@ def settings(**overrides):
 
 
 class ProductionPreflightTests(unittest.TestCase):
+    def test_github_env_records_offline_x_without_error_detail(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "github-env"
+            with patch.dict(os.environ, {"GITHUB_ENV": str(path)}):
+                _publish_github_provider_state({"x": "offline (XCollectionError)"})
+            self.assertEqual(path.read_text(encoding="utf-8"), "X_PROVIDER_PREFLIGHT=offline\n")
+
+    def test_github_env_records_online_x(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "github-env"
+            with patch.dict(os.environ, {"GITHUB_ENV": str(path)}):
+                _publish_github_provider_state({"x": "ok"})
+            self.assertEqual(path.read_text(encoding="utf-8"), "X_PROVIDER_PREFLIGHT=online\n")
+
     @patch("app.production_preflight.TelegramBot")
     def test_telegram_is_the_hard_dependency(self, bot_class):
         bot_class.return_value.api.side_effect = TelegramPermanentError("bad token")

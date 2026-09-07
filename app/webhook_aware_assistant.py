@@ -168,6 +168,13 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
 
         lookback = max(2, int(self.settings.runtime.get("scheduled_lookback_hours", 24)))
         start = max(last - timedelta(minutes=30), now - timedelta(hours=lookback))
+        if getattr(self.collector, "provider_preflight_blocked", lambda: False)():
+            logger.warning(
+                "Scheduled X scan skipped because the immediately preceding provider probe was offline."
+            )
+            self.state.data["last_failed_sources"] = list(self.collector.last_errors)[:10]
+            self._record_x_scan_failure(now)
+            return
         try:
             updates = await self.collector.collect_window(start, now, max_per_query=200)
         except XCollectionError as exc:
