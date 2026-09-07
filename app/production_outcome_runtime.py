@@ -67,6 +67,17 @@ def _install_source_collection_hooks(application_cls: type[Application] = Applic
         # After collection, examine collector state
         collector = getattr(self, "collector", None)
         last_errors = list(getattr(collector, "last_errors", []) or [])
+        # A throttled/not-due scan can return before the collector populates
+        # ``last_errors``.  The live preflight still proved that every active X
+        # source was unreachable, so preserve that provider-wide truth in the
+        # outcome instead of mislabelling all sources complete.
+        if os.environ.get("X_PROVIDER_PREFLIGHT", "").strip().casefold() == "offline":
+            last_errors = [
+                f"@{str(source.get('handle', '')).lstrip('@').strip().lower()}: "
+                "provider_preflight_offline"
+                for source in enabled
+                if str(source.get("handle", "")).lstrip("@").strip()
+            ]
 
         # Parse source-level outcomes from errors
         attempted_handles: set[str] = set()
