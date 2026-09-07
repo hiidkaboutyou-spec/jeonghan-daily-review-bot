@@ -20,6 +20,10 @@ _outcome_runtime.install()
 
 from .webhook_aware_assistant import WebhookAwarePersonalAssistant
 
+# The concrete production class overrides ``run_scheduled_scan``.  Attach the
+# outcome hooks there as well as on the reusable base Application class.
+_outcome_runtime.install_application_hooks(WebhookAwarePersonalAssistant)
+
 # Product Roadmap Phase 5 changes only the private editorial navigation layer. Install
 # it on the final normal-Daily application class so Fanfic/AO3 and lower-level reusable
 # classes keep their established behavior.

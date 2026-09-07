@@ -34,12 +34,12 @@ def _get_builder() -> OutcomeBuilder | None:
     return _MODULE_BUILDER
 
 
-def _install_source_collection_hooks() -> None:
+def _install_source_collection_hooks(application_cls: type[Application] = Application) -> None:
     """Hook into scheduled scan to record source collection outcomes."""
-    if Application.__dict__.get("_outcome_source_hooks_installed", False):
+    if application_cls.__dict__.get("_outcome_source_hooks_installed", False):
         return
 
-    original_scheduled = Application.run_scheduled_scan
+    original_scheduled = application_cls.run_scheduled_scan
 
     async def run_scheduled_scan(self: Application) -> None:
         builder = _get_builder()
@@ -103,8 +103,8 @@ def _install_source_collection_hooks() -> None:
 
         return result
 
-    Application.run_scheduled_scan = run_scheduled_scan
-    Application._outcome_source_hooks_installed = True
+    application_cls.run_scheduled_scan = run_scheduled_scan
+    application_cls._outcome_source_hooks_installed = True
 
 
 def _install_discovery_hooks() -> None:
@@ -230,12 +230,12 @@ def _install_state_hooks() -> None:
     _state_module.StateStore._outcome_state_installed = True
 
 
-def _patch_application_run() -> None:
+def _patch_application_run(application_cls: type[Application] = Application) -> None:
     """Wrap Application.run to build and emit the outcome."""
-    if Application.__dict__.get("_outcome_run_patched", False):
+    if application_cls.__dict__.get("_outcome_run_patched", False):
         return
 
-    original_run = Application.run
+    original_run = application_cls.run
 
     async def run(self: Application) -> None:
         global _MODULE_BUILDER
@@ -271,8 +271,19 @@ def _patch_application_run() -> None:
 
         return result
 
-    Application.run = run
-    Application._outcome_run_patched = True
+    application_cls.run = run
+    application_cls._outcome_run_patched = True
+
+
+def install_application_hooks(application_cls: type[Application]) -> None:
+    """Install outcome hooks on the concrete production application class.
+
+    The normal Daily entrypoint uses a subclass that overrides the scheduled
+    scan.  Hooking only the base class therefore misses the real collection
+    result and can incorrectly report an incomplete run as healthy 0/0.
+    """
+    _install_source_collection_hooks(application_cls)
+    _patch_application_run(application_cls)
 
 
 def install() -> None:
