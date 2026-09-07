@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from app import production_outcome_runtime as runtime
 from app.production_outcome import OutcomeStatus, load_outcome
@@ -21,10 +22,9 @@ class ProductionOutcomeRuntimeTests(unittest.IsolatedAsyncioTestCase):
                     data={"last_auto_run": "2026-09-07T00:00:00+00:00"}
                 )
                 self.collector = SimpleNamespace(
-                    last_errors=[
-                        "@source_one: provider_preflight_offline",
-                        "@source_two: provider_preflight_offline",
-                    ]
+                    # A not-due scan returns before the collector can populate
+                    # errors; live preflight must still govern the outcome.
+                    last_errors=[]
                 )
 
             async def run_scheduled_scan(self):
@@ -39,7 +39,8 @@ class ProductionOutcomeRuntimeTests(unittest.IsolatedAsyncioTestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 runtime._OUTCOME_PATH = Path(tmp) / "outcome.json"
                 runtime.start_run(run_id="concrete-app-test", trigger_event="test")
-                await ConcreteApplication().run()
+                with patch.dict("os.environ", {"X_PROVIDER_PREFLIGHT": "offline"}):
+                    await ConcreteApplication().run()
                 outcome = load_outcome(runtime._OUTCOME_PATH)
         finally:
             runtime._OUTCOME_PATH = old_path
