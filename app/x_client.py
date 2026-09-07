@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -137,6 +138,20 @@ class XCollector:
             if item.get("enabled", True)
             and str(item.get("mode", "")).strip().lower() == SourceMode.FULL_FEED.value
         }
+
+    def provider_preflight_blocked(self) -> bool:
+        """Stop a known provider-wide outage before retrying every source."""
+        if os.environ.get("X_PROVIDER_PREFLIGHT", "").strip().lower() != "offline":
+            return False
+        errors: list[str] = []
+        for source in self.sources:
+            if not source.get("enabled", True):
+                continue
+            handle = normalize_handle(str(source.get("handle", "")))
+            if handle:
+                errors.append(f"@{handle}: provider_preflight_offline")
+        self.last_errors = errors or ["provider_preflight_offline"]
+        return True
 
     async def _get_api(self):
         if self.api is not None:

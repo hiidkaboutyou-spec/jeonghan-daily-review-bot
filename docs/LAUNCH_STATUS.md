@@ -1,6 +1,19 @@
 # Production Launch Status
 
-آخرین به‌روزرسانی: 2026-08-12
+آخرین به‌روزرسانی: 2026-09-07
+
+## هشدار عملیاتی فعلی
+
+- اجرای اصلی Daily روی GitHub Actions از 2026-09-06/07 در لبهٔ `x.com` با پاسخ
+  Cloudflare `403` روبه‌رو است؛ این failure پیش از دریافت GraphQL و مستقل از اعتبار cookie
+  مشاهده شده است.
+- Nightly Fanfic Digest در همین بازه سالم اجرا شده، بنابراین outage به runtime اصلی X
+  محدود است و به‌عنوان COMPLETE یا پنجرهٔ خالی معتبر ثبت نمی‌شود.
+- نسخهٔ curl/browser-TLS کتابخانه نیز روی GitHub-hosted runner همان Cloudflare challenge را
+  دریافت کرده است؛ بنابراین ارتقای dependency به‌تنهایی recovery محسوب نمی‌شود.
+- تا زمان اثبات یک egress سالم، preflight آفلاین باید اسکن X را fail-fast کند، cursor را جلو
+  نبرد و همهٔ منابع را صریحاً failed/unproven نگه دارد. آزمایش میزبان جایگزین فقط به‌صورت
+  ناشناس و بدون انتقال cookie/secret انجام می‌شود.
 
 ## وضعیت
 

@@ -135,6 +135,23 @@ class OrganizerAuditTests(unittest.TestCase):
 
 
 class XAuditTests(unittest.TestCase):
+    def test_offline_provider_preflight_names_every_enabled_source(self):
+        collector = XCollector(
+            {},
+            [
+                {"handle": "alpha", "enabled": True},
+                {"handle": "beta", "enabled": True},
+                {"handle": "disabled", "enabled": False},
+            ],
+            [],
+        )
+        with patch.dict(os.environ, {"X_PROVIDER_PREFLIGHT": "offline"}):
+            self.assertTrue(collector.provider_preflight_blocked())
+        self.assertEqual(
+            collector.last_errors,
+            ["@alpha: provider_preflight_offline", "@beta: provider_preflight_offline"],
+        )
+
     def test_keyword_synonyms_are_combined_into_one_query_per_group(self):
         queries = _keyword_queries(
             [

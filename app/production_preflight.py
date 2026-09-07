@@ -2,12 +2,25 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+from pathlib import Path
 
 from .config import ConfigError, Settings
 from .telegram import TelegramBot, TelegramError
 from .x_client import XCollectionError, XCollector
 
 logger = logging.getLogger(__name__)
+
+
+def _publish_github_provider_state(report: dict[str, str]) -> None:
+    """Expose the live X probe to later steps without making X a hard dependency."""
+    github_env = os.environ.get("GITHUB_ENV", "").strip()
+    if not github_env:
+        return
+    x_status = str(report.get("x", "offline (missing status)"))
+    state = "online" if x_status == "ok" else "offline"
+    with Path(github_env).open("a", encoding="utf-8") as stream:
+        stream.write(f"X_PROVIDER_PREFLIGHT={state}\n")
 
 
 def _check_telegram(settings: Settings) -> str:
@@ -92,6 +105,7 @@ def main() -> int:
 
     for provider, status in report.items():
         print(f"Production preflight: {provider}={status}")
+    _publish_github_provider_state(report)
     return 0
 
 
