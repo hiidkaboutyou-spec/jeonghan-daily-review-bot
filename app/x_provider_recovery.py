@@ -220,15 +220,12 @@ async def _collect_source_with_provider_recovery(
     if not normalized:
         raise XCollectionError("Source handle is invalid.")
 
+    # Provider recovery must be a no-op while authenticated X is not explicitly
+    # degraded. This preserves stronger collector contracts such as
+    # CompleteWindowXCollector, where an XCompletenessError must remain visible
+    # rather than being silently converted into a partial public-feed result.
     if not _degraded():
-        try:
-            return await _ORIGINAL_COLLECT_SOURCE(self, normalized, start, end)
-        except XCollectionError as original_error:
-            logger.warning(
-                "Authenticated X source read failed for @%s; trying one public syndication recovery: %s",
-                normalized,
-                _safe_error(original_error),
-            )
+        return await _ORIGINAL_COLLECT_SOURCE(self, normalized, start, end)
 
     try:
         result = await asyncio.to_thread(
@@ -240,10 +237,10 @@ async def _collect_source_with_provider_recovery(
         )
     except (SyndicationError, OSError, ValueError) as exc:
         raise XCollectionError(
-            f"Could not read @{normalized} from authenticated X or public fallback: {_safe_error(exc)}"
+            f"Could not read @{normalized} from public fallback while authenticated X is degraded: {_safe_error(exc)}"
         ) from exc
 
-    self.last_errors = ["authenticated_x_degraded: public_syndication_fallback"] if _degraded() else []
+    self.last_errors = ["authenticated_x_degraded: public_syndication_fallback"]
     return _dedupe(list(result.updates))[:1000]
 
 
