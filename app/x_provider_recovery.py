@@ -45,14 +45,21 @@ def _positive_int_env(name: str, default: int, maximum: int) -> int:
     return max(1, min(value, maximum))
 
 
+def _source_priority(item: dict[str, Any]) -> int:
+    """Return a stable integer priority without demoting the valid priority value 0."""
+    value = item.get("priority", 100)
+    try:
+        return int(value if value is not None else 100)
+    except (TypeError, ValueError):
+        return 100
+
+
 def _enabled_sources(self: XCollector) -> list[dict[str, Any]]:
     items = [item for item in self.sources if item.get("enabled", True)]
     # Preserve configured order inside the same priority while making the most
-    # important sources first in every rotation cycle.
-    return sorted(
-        items,
-        key=lambda item: int(item.get("priority", 100) or 100),
-    )
+    # important sources first in every rotation cycle. Priority 0 is valid and
+    # must remain ahead of priorities 1+.
+    return sorted(items, key=_source_priority)
 
 
 def _rotation_start(self: XCollector, source_count: int, batch_size: int) -> int:
