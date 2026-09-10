@@ -28,6 +28,11 @@ from . import configured_source_complete_windows as _configured_source_complete_
 from . import phase3_recovery as _phase3_recovery  # noqa: F401,E402
 from . import phase3_recovery_hardening as _phase3_recovery_hardening  # noqa: F401,E402
 
+# A provider-wide authenticated X outage is degraded, not fatal. This layer sits after
+# Phase 3 so it can bypass expensive authenticated retries and use the existing public
+# syndication recovery path while retaining the full-success cursor for later backfill.
+from . import x_provider_recovery as _x_provider_recovery  # noqa: F401,E402
+
 # Product Roadmap Phase 2 records the final completeness result source-by-source.
 # Import after recovery so the ledger wraps the effective resumable collector rather
 # than an obsolete method. COMPLETE advances only that source's durable watermark.
