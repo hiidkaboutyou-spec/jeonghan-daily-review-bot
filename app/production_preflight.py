@@ -18,7 +18,12 @@ def _publish_github_provider_state(report: dict[str, str]) -> None:
     if not github_env:
         return
     x_status = str(report.get("x", "offline (missing status)"))
-    state = "online" if x_status == "ok" else "offline"
+    if x_status == "ok":
+        state = "online"
+    elif x_status.startswith("degraded"):
+        state = "degraded"
+    else:
+        state = "offline"
     with Path(github_env).open("a", encoding="utf-8") as stream:
         stream.write(f"X_PROVIDER_PREFLIGHT={state}\n")
 
@@ -74,10 +79,13 @@ async def _check_x(settings: Settings) -> str:
     collector = XCollector(settings.x_cookies, settings.sources, settings.keyword_groups)
     try:
         await collector.healthcheck()
-    except XCollectionError as exc:
-        return f"offline ({type(exc).__name__})"
-    except Exception as exc:
-        return f"offline ({type(exc).__name__})"
+    except XCollectionError:
+        # Valid auth material exists, so a provider-wide web/client failure should not
+        # disable collection completely. Runtime switches to bounded public syndication
+        # and keeps the full-success cursor unchanged for later authenticated backfill.
+        return "degraded (authenticated X unavailable; public fallback enabled)"
+    except Exception:
+        return "degraded (authenticated X unavailable; public fallback enabled)"
     return "ok"
 
 

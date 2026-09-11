@@ -39,8 +39,17 @@ class ProductionPreflightTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "github-env"
             with patch.dict(os.environ, {"GITHUB_ENV": str(path)}):
-                _publish_github_provider_state({"x": "offline (XCollectionError)"})
+                _publish_github_provider_state({"x": "offline (missing auth_token)"})
             self.assertEqual(path.read_text(encoding="utf-8"), "X_PROVIDER_PREFLIGHT=offline\n")
+
+    def test_github_env_records_degraded_x(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "github-env"
+            with patch.dict(os.environ, {"GITHUB_ENV": str(path)}):
+                _publish_github_provider_state(
+                    {"x": "degraded (authenticated X unavailable; public fallback enabled)"}
+                )
+            self.assertEqual(path.read_text(encoding="utf-8"), "X_PROVIDER_PREFLIGHT=degraded\n")
 
     def test_github_env_records_online_x(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -74,14 +83,15 @@ class ProductionPreflightTests(unittest.TestCase):
         self.assertIn("offline", asyncio.run(_check_x(settings())))
 
     @patch("app.production_preflight.XCollector")
-    def test_x_failure_is_reported_without_raising(self, collector_class):
+    def test_x_failure_becomes_degraded_without_raising(self, collector_class):
         collector_class.return_value.healthcheck = AsyncMock(
             side_effect=XCollectionError("expired")
         )
         result = asyncio.run(
             _check_x(settings(x_cookies={"auth_token": "a", "ct0": "b"}))
         )
-        self.assertIn("offline", result)
+        self.assertIn("degraded", result)
+        self.assertIn("public fallback", result)
 
 
 if __name__ == "__main__":
