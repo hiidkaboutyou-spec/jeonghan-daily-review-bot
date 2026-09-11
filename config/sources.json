@@ -1,5 +1,6 @@
 {
   "sources": [
+    {"handle":"hanniezones","label":"Hannie Zones","enabled":true,"priority":1,"include_replies":true,"mode":"full_feed"},
     {"handle":"hani_berry_1004","label":"hani_berry_1004","enabled":true,"priority":10,"include_replies":true,"mode":"full_feed"},
     {"handle":"honeyya_hanihae","label":"honeyya_hanihae","enabled":true,"priority":10,"include_replies":true,"mode":"full_feed"},
     {"handle":"yoon_1004_hani","label":"yoon_1004_hani","enabled":true,"priority":10,"include_replies":true,"mode":"full_feed"},
