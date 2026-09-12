@@ -11,6 +11,9 @@ backup key exists, the established Telegram-token-derived key is used in process
 The wrapper refuses dirty, non-`main`, or out-of-date checkouts, takes a non-blocking
 single-writer lock, validates state, runs provider preflight, executes one monitor pass,
 and uploads an encrypted pinned Telegram recovery snapshot only when durable state changed.
+An authenticated-X outage marked `degraded` activates the bounded public-syndication
+fallback while retaining the authenticated success cursor. A genuinely `offline` result
+(for example missing required cookie fields) still fails closed without advancing state.
 
 After the feature is merged and the required Keychain values are populated:
 
