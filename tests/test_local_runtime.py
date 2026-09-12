@@ -47,6 +47,19 @@ class LocalRuntimeTests(unittest.TestCase):
                         with run_once.single_writer_lock():
                             pass
 
+    def test_degraded_x_preflight_enables_public_fallback(self):
+        with patch.dict(os.environ, {}, clear=True):
+            run_once.apply_provider_report(
+                {"x": "degraded (authenticated X unavailable; public fallback enabled)"}
+            )
+            self.assertEqual(os.environ["X_PROVIDER_PREFLIGHT"], "degraded")
+
+    def test_offline_x_preflight_still_fails_closed(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(run_once.LocalRuntimeError, "offline"):
+                run_once.apply_provider_report({"x": "offline (missing auth_token)"})
+            self.assertEqual(os.environ["X_PROVIDER_PREFLIGHT"], "offline")
+
 
 if __name__ == "__main__":
     unittest.main()

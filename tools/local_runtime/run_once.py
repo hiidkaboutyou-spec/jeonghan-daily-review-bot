@@ -31,6 +31,19 @@ class LocalRuntimeError(RuntimeError):
     pass
 
 
+def apply_provider_report(report: dict[str, str]) -> None:
+    """Expose preflight state to runtime fallbacks and reject only unusable X."""
+    x_status = str(report.get("x", "offline (missing status)")).strip()
+    if x_status == "ok":
+        os.environ["X_PROVIDER_PREFLIGHT"] = "online"
+        return
+    if x_status.startswith("degraded"):
+        os.environ["X_PROVIDER_PREFLIGHT"] = "degraded"
+        return
+    os.environ["X_PROVIDER_PREFLIGHT"] = "offline"
+    raise LocalRuntimeError("X provider preflight is offline; state was not advanced.")
+
+
 def _git(*args: str) -> str:
     result = subprocess.run(
         ("git", "-C", str(ROOT), *args),
@@ -134,8 +147,7 @@ async def execute() -> int:
     report = await run_preflight()
     for provider, status in report.items():
         logger.info("Production preflight: %s=%s", provider, status)
-    if report.get("x") != "ok":
-        raise LocalRuntimeError("X provider preflight is offline; state was not advanced.")
+    apply_provider_report(report)
 
     before = backup_fingerprint(state_dir)
     from app.sentry_runtime import async_main
