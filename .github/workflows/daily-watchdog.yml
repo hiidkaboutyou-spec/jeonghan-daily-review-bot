@@ -70,4 +70,4 @@ jobs:
           SOURCE_EVENT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event || inputs.source_event }}
           SOURCE_CONCLUSION: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion || inputs.source_conclusion }}
           SOURCE_ACTOR: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.actor.login || inputs.source_actor }}
-        run: python tools/daily_watchdog.py
+        run: python tools/daily_watchdog_hardening.py
