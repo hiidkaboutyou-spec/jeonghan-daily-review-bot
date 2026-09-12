@@ -4,9 +4,9 @@ from __future__ import annotations
 
 The normal collector remains authoritative while authenticated X is healthy. When the
 production preflight marks X as degraded, scheduled/manual window collection bypasses
-repeated authenticated retries and reads a bounded rotating batch of configured public
-profile syndication feeds instead. The fallback is intentionally marked partial so the
-normal success cursor is retained and the missed window is backfilled after X recovers.
+repeated authenticated retries and reads configured public profile feeds instead. The
+fallback is intentionally marked partial so the normal success cursor is retained and
+the missed window is backfilled after X recovers.
 """
 
 import asyncio
@@ -21,9 +21,14 @@ from .x_syndication import SyndicationError, collect_syndication_timeline
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_BATCH_SIZE = 8
-MAX_BATCH_SIZE = 16
-DEFAULT_CONCURRENCY = 4
+# A degraded production pass must cover the whole configured source set by default.
+# GitHub scheduled runs are not precise enough to depend on an 8-source rotation:
+# if one scheduled run is delayed or dropped, a fresh post can otherwise stay unseen
+# for hours. Operators can still explicitly lower the batch size when diagnosing.
+DEFAULT_BATCH_SIZE = 64
+MAX_BATCH_SIZE = 64
+DEFAULT_CONCURRENCY = 8
+MAX_CONCURRENCY = 12
 
 _ORIGINAL_COLLECT_WINDOW = XCollector.collect_window
 _ORIGINAL_COLLECT_SOURCE = XCollector.collect_source
@@ -146,7 +151,7 @@ async def collect_degraded_window(
     concurrency = _positive_int_env(
         "X_SYNDICATION_FALLBACK_CONCURRENCY",
         DEFAULT_CONCURRENCY,
-        DEFAULT_CONCURRENCY,
+        MAX_CONCURRENCY,
     )
     semaphore = asyncio.Semaphore(concurrency)
     rows = await asyncio.gather(
