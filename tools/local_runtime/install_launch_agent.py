@@ -12,9 +12,12 @@ LABEL = "com.hiidkaboutyou.jeonghan-daily-review-bot"
 
 
 def main() -> int:
-    python = Path(sys.executable).resolve()
-    if ROOT.joinpath(".venv").resolve() not in python.parents:
+    venv = ROOT.joinpath(".venv").resolve()
+    if Path(sys.prefix).resolve() != venv:
         raise SystemExit("Run this installer with the repository .venv Python.")
+    # Keep the venv entrypoint in the plist. Resolving it follows the macOS
+    # symlink to the base interpreter and can silently discard venv packages.
+    python = Path(sys.executable).absolute()
     support = Path.home() / "Library" / "Application Support" / "jeonghan-daily-review-bot"
     logs = Path.home() / "Library" / "Logs" / "jeonghan-daily-review-bot"
     agents = Path.home() / "Library" / "LaunchAgents"
