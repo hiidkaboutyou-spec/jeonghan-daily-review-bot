@@ -24,6 +24,10 @@ python3.11 -m venv .venv
 launchctl bootstrap gui/$(id -u) "$HOME/Library/LaunchAgents/com.hiidkaboutyou.jeonghan-daily-review-bot.plist"
 ```
 
+The generated plist intentionally keeps the `.venv/bin/python` entrypoint rather than
+resolving its symlink to the base interpreter, so scheduled runs use the installed project
+dependencies after reboot as well as immediately after setup.
+
 Do not disable the GitHub live schedule until one local pass has succeeded, state recovery
 has been verified, and the local single-writer boundary is active. CI/check workflows and
 the nightly fanfic workflow remain on GitHub Actions.
