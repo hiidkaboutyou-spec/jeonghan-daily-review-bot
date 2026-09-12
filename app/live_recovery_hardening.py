@@ -74,8 +74,20 @@ def _install_public_provider_fallback() -> None:
     original_degraded = _provider_recovery.collect_degraded_window
     if not getattr(original_degraded, "_hani_degraded_tracking", False):
 
-        async def tracked_degraded_window(self, start, end, *, include_keywords: bool = True):
-            selected, total = _provider_recovery._select_rotating_batch(self)
+        async def tracked_degraded_window(
+            self,
+            start,
+            end,
+            *,
+            include_sources: bool = True,
+            include_keywords: bool = True,
+            max_per_query: int = 60,
+        ):
+            selected, total = (
+                _provider_recovery._select_rotating_batch(self)
+                if include_sources
+                else ([], 0)
+            )
             attempted = [
                 str(source.get("handle", "")).lstrip("@").strip().lower()
                 for source in selected
@@ -91,7 +103,9 @@ def _install_public_provider_fallback() -> None:
                     self,
                     start,
                     end,
+                    include_sources=include_sources,
                     include_keywords=include_keywords,
+                    max_per_query=max_per_query,
                 )
             finally:
                 failed: dict[str, str] = {}
