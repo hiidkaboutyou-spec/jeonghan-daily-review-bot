@@ -40,7 +40,7 @@ def _install_public_provider_fallback() -> None:
         end,
         *,
         include_replies: bool = True,
-        timeout=(5.0, 15.0),
+        timeout=(3.0, 7.0),
     ):
         try:
             return original_syndication(
@@ -52,11 +52,16 @@ def _install_public_provider_fallback() -> None:
             )
         except _syndication.SyndicationError:
             try:
+                # Bound the public fallback so a full 31-source degraded scan can
+                # finish inside the GitHub Actions production window. Three pages
+                # still cover up to 300 recent statuses per configured profile.
                 recovered = collect_fxtwitter_timeline(
                     handle,
                     start,
                     end,
                     include_replies=include_replies,
+                    timeout=(3.0, 8.0),
+                    max_pages=3,
                 )
             except FxTwitterError as fx_exc:
                 raise _syndication.SyndicationError(
