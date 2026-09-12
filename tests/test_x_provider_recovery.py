@@ -46,6 +46,19 @@ class XProviderRecoveryTests(unittest.TestCase):
         self.start = datetime(2026, 9, 10, 7, 0, tzinfo=timezone.utc)
         self.end = datetime(2026, 9, 10, 9, 0, tzinfo=timezone.utc)
 
+    def test_default_fallback_batch_covers_all_configured_sources(self):
+        collector = XCollector({}, _sources(31), [])
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("X_SYNDICATION_FALLBACK_BATCH_SIZE", None)
+            selected, total = _select_rotating_batch(collector)
+
+        self.assertEqual(total, 31)
+        self.assertEqual(len(selected), 31)
+        self.assertEqual(
+            [item["handle"] for item in selected],
+            [f"source{index}" for index in range(31)],
+        )
+
     def test_rotates_fallback_batch_across_failure_streaks(self):
         collector = XCollector({}, _sources(10), [])
         collector._phase3_state = SimpleNamespace(data={"x_scan_failure_streak": 1})
