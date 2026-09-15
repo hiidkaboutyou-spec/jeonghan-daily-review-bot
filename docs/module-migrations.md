@@ -98,3 +98,34 @@ Do not remove `app/phase2_final_visibility.py` in this migration. Removal requir
 ### Evidence used for this migration
 
 The planning-first PR ran LibCST before any production source rename. The plan found exactly one structural reference, `app/__init__.py`, with no dynamic-string references, no manual-review references, and no parse errors; it correctly flagged the package initializer as import-order-sensitive. Fresh Stage B evidence measured one direct importer (`app`) and one downstream importer, with about 84.5% execution coverage across 13 test contexts. The dedicated `tests/test_phase2_outcomes.py` tests verify both partial-media lifecycle visibility and fidelity-rejection visibility. Repository history shows the module was introduced specifically to make those two outcomes explicit, so the semantic target name records an existing responsibility rather than changing architecture.
+
+## `app.channel_part4_finalfix` → `app.channel_source_fact_normalization_runtime`
+
+Status: **compatibility shim active**  
+Introduced: **2026-09-16**
+
+The canonical implementation now uses a responsibility-based name for the established source-authorized normalization layer. It extends the hard-fact verifier's bounded ordinal vocabulary with English `first` through `tenth`, and canonicalizes a small set of member/term spellings in ordinary prose only when the source itself authorizes that identity or term.
+
+The old `channel_part4_finalfix` path remains as a same-module-object compatibility alias. Production package initialization imports `app.channel_source_fact_normalization_runtime` at the exact position formerly occupied by the historical module, while intentionally retaining the private package binding `_channel_part4_finalfix` during the compatibility phase.
+
+### Behavior contract
+
+This migration does not change:
+- the bounded English ordinal mapping or its numeric values;
+- semantic-number verification in `channel_part4_hardening`;
+- the source aliases, canonical Persian spellings, or accepted output variants;
+- the rule that source authorization is required before a prose replacement;
+- hashtag and @mention protection boundaries;
+- the replacement regex or case-insensitive matching behavior;
+- the `hardening._canonicalize_source_authorized_terms` binding installed at import time;
+- writer classes, fallback translation, human-gate versions/fingerprints, provider collection, persisted state, Telegram delivery, schedules, secrets, or production dependencies.
+
+Import order is part of the contract. The canonical source-fact normalization runtime remains immediately after `channel_part4_hardening` and before `channel_part4_humanfix`, `channel_part4_qualityfix`, and `channel_part4_benchmark_hook`.
+
+### Removal policy
+
+Do not remove `app/channel_part4_finalfix.py` in this migration. Removal requires every gate in `config/module_migrations.json` to pass in a later focused pull request. The LibCST planner will continue to report several literal `channel_part4_finalfix` strings from maintenance-tool tests; those are deliberate synthetic fixtures that test historical-name discovery/classification and are not runtime callers. They must be reviewed as fixtures rather than automatically rewritten.
+
+### Evidence used for this migration
+
+Fresh Stage B evidence measured one direct production importer (`app`), one downstream importer, and 100% execution coverage across 12 test contexts. The planning-first LibCST plan found two real structural imports: the order-sensitive `app/__init__.py` import and the direct focused test import. It also found seven manual dynamic-string references, all of which were inspected and confirmed to be synthetic fixtures in `tests/test_module_family_evidence.py` and `tests/test_repo_structure_inventory.py`; there were no parse errors. `tests/test_channel_part4_final_edges.py` directly verifies ordinal equivalence, rejection of changed ordinals, prose canonicalization, and hashtag preservation. Repository history shows the historical module was introduced with the tested channel-style pipeline specifically including member-name normalization, so the canonical name describes existing production responsibility rather than a new behavior.
