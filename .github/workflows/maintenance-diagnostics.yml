@@ -37,7 +37,7 @@ jobs:
   repository-maintenance:
     name: Repository maintenance diagnostics
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # releases/v6, audited 2026-09-15
@@ -92,6 +92,8 @@ jobs:
           rm -f "$format_raw"
 
           .maintenance-env/bin/vulture app tools --min-confidence 90 --sort-by-size > vulture-high-confidence.txt 2>&1 || true
+          .maintenance-env/bin/complexipy app --failed --suggest-refactors > complexipy-hotspots.txt 2>&1 || true
+
           # Scan both runtime modules and production-support tools, but never the
           # ephemeral venv itself. Known dynamic/CLI dependencies are excluded from
           # DEP002 only because static import analysis cannot see their entry points:
@@ -108,6 +110,12 @@ jobs:
             --per-rule-ignores "DEP001=daily_watchdog,DEP002=agent-reach|twitter-cli|uvicorn" \
             --no-ansi > deptry-report.txt 2>&1 || true
 
+      - name: Capture full unit-suite diagnostics
+        shell: bash
+        run: |
+          set -u
+          .maintenance-env/bin/python -m unittest discover -s tests -p 'test_*.py' -v > unit-tests.txt 2>&1 || true
+
       - name: Explain enforcement level
         shell: bash
         run: |
@@ -116,8 +124,10 @@ jobs:
             echo "- Ruff definite Python errors: blocking."
             echo "- Import ordering and formatting: report-only during cleanup rollout."
             echo "- Vulture dead-code candidates: report-only; never auto-delete."
+            echo "- Complexipy cognitive-complexity hotspots: report-only; used to prioritize human-reviewed refactors."
             echo "- Deptry dependency candidates: report-only; known dynamic/CLI production dependencies are documented exceptions."
             echo "- Repository inventory: maps responsibilities and historical phase/fix naming without moving runtime modules."
+            echo "- Full unittest output is captured only to diagnose failures in the existing project gate; it does not replace that gate."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload maintenance reports
@@ -131,6 +141,8 @@ jobs:
             ruff-import-order.txt
             ruff-format-check.txt
             vulture-high-confidence.txt
+            complexipy-hotspots.txt
             deptry-report.txt
+            unit-tests.txt
           if-no-files-found: warn
           retention-days: 14
