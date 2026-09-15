@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -158,18 +159,34 @@ def classify_review_hint(graph_data: dict[str, Any], coverage_data: dict[str, An
     )
 
 
-def build_report(root: Path, coverage_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+def _build_import_graph(root: Path) -> Any:
+    """Build Grimp's graph with the requested repo root visible only for this lookup."""
     try:
         import grimp
     except ImportError as exc:  # pragma: no cover - maintenance environment owns this dependency.
         raise RuntimeError("grimp is required for Stage B module-family evidence") from exc
 
-    graph = grimp.build_graph(
-        "app",
-        include_external_packages=False,
-        exclude_type_checking_imports=True,
-        cache_dir=None,
-    )
+    root_text = str(root)
+    path_added = root_text not in sys.path
+    if path_added:
+        sys.path.insert(0, root_text)
+    try:
+        return grimp.build_graph(
+            "app",
+            include_external_packages=False,
+            exclude_type_checking_imports=True,
+            cache_dir=None,
+        )
+    finally:
+        if path_added:
+            try:
+                sys.path.remove(root_text)
+            except ValueError:  # pragma: no cover - defensive cleanup only.
+                pass
+
+
+def build_report(root: Path, coverage_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    graph = _build_import_graph(root)
 
     candidates: list[dict[str, Any]] = []
     for module in historical_modules(root):
