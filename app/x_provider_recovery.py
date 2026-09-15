@@ -4,9 +4,10 @@ from __future__ import annotations
 
 The normal collector remains authoritative while authenticated X is healthy. When the
 production preflight marks X as degraded, scheduled/manual window collection bypasses
-repeated authenticated retries and reads configured public profile feeds instead. The
-fallback is intentionally marked partial so the normal success cursor is retained and
-the missed window is backfilled after X recovers.
+repeated authenticated retries and reads configured public profile feeds instead. If a
+public syndication read itself fails, a bounded Agent Reach/twitter-cli backend is the
+next recovery hop. Every degraded result remains intentionally partial so the normal
+success cursor is retained and the missed window is backfilled after X recovers.
 """
 
 import asyncio
@@ -16,6 +17,7 @@ from datetime import datetime
 from typing import Any
 
 from .models import Update, ensure_utc
+from .x_agent_reach import AgentReachXError, collect_agent_reach_timeline
 from .x_client import XCollectionError, XCollector, _safe_error, normalize_handle
 from .x_syndication import SyndicationError, collect_syndication_timeline
 
@@ -106,13 +108,14 @@ async def _collect_public_source(
     start: datetime,
     end: datetime,
     semaphore: asyncio.Semaphore,
-) -> tuple[str, list[Update], str | None]:
+) -> tuple[str, list[Update], str | None, str]:
     handle = normalize_handle(str(source.get("handle", "")))
     if not handle:
-        return "", [], "invalid configured source handle"
+        return "", [], "invalid configured source handle", "none"
     include_replies = bool(source.get("include_replies", True))
-    try:
-        async with semaphore:
+
+    async with semaphore:
+        try:
             result = await asyncio.to_thread(
                 collect_syndication_timeline,
                 handle,
@@ -120,11 +123,36 @@ async def _collect_public_source(
                 ensure_utc(end),
                 include_replies=include_replies,
             )
-    except (SyndicationError, OSError, ValueError) as exc:
-        return handle, [], _safe_error(exc)
-    except Exception as exc:  # defensive boundary: never let one public source abort the batch
-        return handle, [], f"{type(exc).__name__}: {_safe_error(exc)}"
-    return handle, list(result.updates), None
+            return handle, list(result.updates), None, "syndication"
+        except (SyndicationError, OSError, ValueError) as exc:
+            syndication_error = _safe_error(exc)
+        except Exception as exc:  # defensive boundary: one public source cannot abort the batch
+            syndication_error = f"{type(exc).__name__}: {_safe_error(exc)}"
+
+        # Only touch authenticated twitter-cli after the no-account public path fails.
+        # This keeps normal and degraded request volume unchanged while adding an
+        # independent implementation for syndication-specific outages.
+        try:
+            recovered = await asyncio.to_thread(
+                collect_agent_reach_timeline,
+                self.cookies,
+                handle,
+                ensure_utc(start),
+                ensure_utc(end),
+                include_replies=include_replies,
+            )
+            return handle, list(recovered.updates), None, "agent_reach"
+        except (AgentReachXError, OSError, ValueError) as exc:
+            agent_reach_error = _safe_error(exc)
+        except Exception as exc:  # defensive boundary for upstream CLI/package regressions
+            agent_reach_error = f"{type(exc).__name__}: {_safe_error(exc)}"
+
+    return (
+        handle,
+        [],
+        f"syndication={syndication_error}; agent_reach={agent_reach_error}",
+        "none",
+    )
 
 
 async def collect_degraded_window(
@@ -136,8 +164,8 @@ async def collect_degraded_window(
     include_keywords: bool = True,
     max_per_query: int = 60,
 ) -> list[Update]:
-    """Collect a source-authorized partial window without touching authenticated X."""
-    del max_per_query  # Public profile fallback has no search-query pagination control.
+    """Collect a source-authorized partial window without retrying primary twscrape."""
+    del max_per_query  # Recovery profile feeds have no search-query pagination control.
     self.last_errors = []
     if not include_sources:
         self.last_errors = ["authenticated_x_degraded: keyword-only collection unavailable"]
@@ -145,7 +173,7 @@ async def collect_degraded_window(
 
     selected, total_sources = _select_rotating_batch(self)
     if not selected:
-        self.last_errors = ["authenticated_x_degraded: no configured public sources"]
+        self.last_errors = ["authenticated_x_degraded: no configured recovery sources"]
         return []
 
     concurrency = _positive_int_env(
@@ -162,15 +190,24 @@ async def collect_degraded_window(
     )
 
     updates: list[Update] = []
+    # Preserve the existing marker for compatibility with current observability.
     errors: list[str] = ["authenticated_x_degraded: public_syndication_fallback"]
     succeeded = 0
-    for handle, recovered, error in rows:
+    syndication_succeeded = 0
+    agent_reach_succeeded = 0
+    for handle, recovered, error, provider in rows:
         if error:
-            errors.append(f"@{handle}: syndication_fallback_failed ({error})" if handle else error)
+            errors.append(f"@{handle}: recovery_chain_failed ({error})" if handle else error)
             continue
         succeeded += 1
+        if provider == "agent_reach":
+            agent_reach_succeeded += 1
+        else:
+            syndication_succeeded += 1
         updates.extend(recovered)
 
+    if agent_reach_succeeded:
+        errors.append(f"agent_reach_fallback_used: {agent_reach_succeeded} source(s)")
     if len(selected) < total_sources:
         errors.append(f"syndication_coverage_partial: {len(selected)}/{total_sources} sources this pass")
     if include_keywords:
@@ -179,10 +216,13 @@ async def collect_degraded_window(
     self.last_errors = errors
     filtered = self._filter_relevant(_dedupe(updates))
     logger.warning(
-        "Authenticated X is degraded; public syndication recovered %s update(s) from %s/%s selected sources. Success cursor remains retained.",
+        "Authenticated X is degraded; recovery produced %s update(s) from %s/%s selected sources "
+        "(%s syndication, %s Agent Reach). Success cursor remains retained.",
         len(filtered),
         succeeded,
         len(selected),
+        syndication_succeeded,
+        agent_reach_succeeded,
     )
     return filtered
 
@@ -228,7 +268,7 @@ async def _collect_source_with_provider_recovery(
     # Provider recovery must be a no-op while authenticated X is not explicitly
     # degraded. This preserves stronger collector contracts such as
     # CompleteWindowXCollector, where an XCompletenessError must remain visible
-    # rather than being silently converted into a partial public-feed result.
+    # rather than being silently converted into a partial recovery result.
     if not _degraded():
         return await _ORIGINAL_COLLECT_SOURCE(self, normalized, start, end)
 
@@ -240,10 +280,28 @@ async def _collect_source_with_provider_recovery(
             ensure_utc(end),
             include_replies=True,
         )
-    except (SyndicationError, OSError, ValueError) as exc:
-        raise XCollectionError(
-            f"Could not read @{normalized} from public fallback while authenticated X is degraded: {_safe_error(exc)}"
-        ) from exc
+    except (SyndicationError, OSError, ValueError) as syndication_exc:
+        try:
+            result = await asyncio.to_thread(
+                collect_agent_reach_timeline,
+                self.cookies,
+                normalized,
+                ensure_utc(start),
+                ensure_utc(end),
+                include_replies=True,
+                limit=300,
+            )
+        except (AgentReachXError, OSError, ValueError) as agent_exc:
+            raise XCollectionError(
+                f"Could not read @{normalized} while authenticated X is degraded: "
+                f"syndication={_safe_error(syndication_exc)} | "
+                f"agent_reach={_safe_error(agent_exc)}"
+            ) from agent_exc
+        self.last_errors = [
+            "authenticated_x_degraded: public_syndication_fallback",
+            "agent_reach_fallback_used: manual_source",
+        ]
+        return _dedupe(list(result.updates))[:1000]
 
     self.last_errors = ["authenticated_x_degraded: public_syndication_fallback"]
     return _dedupe(list(result.updates))[:1000]
