@@ -10,8 +10,10 @@ on:
       - ".coveragerc-maintenance"
       - ".github/workflows/maintenance-diagnostics.yml"
       - "config/agent_capabilities.json"
+      - "config/module_migrations.json"
       - ".agents/skills/hani-repo-maintenance/**"
       - "docs/repository-maintenance.md"
+      - "docs/module-migrations.md"
   push:
     branches: [main]
     paths:
@@ -22,8 +24,10 @@ on:
       - ".coveragerc-maintenance"
       - ".github/workflows/maintenance-diagnostics.yml"
       - "config/agent_capabilities.json"
+      - "config/module_migrations.json"
       - ".agents/skills/hani-repo-maintenance/**"
       - "docs/repository-maintenance.md"
+      - "docs/module-migrations.md"
   schedule:
     - cron: "41 4 * * 0"
   workflow_dispatch:
@@ -79,6 +83,16 @@ jobs:
         run: |
           set -euo pipefail
           .maintenance-env/bin/python -m unittest tests.test_module_refactor_plan -v
+
+      - name: Build active Stage C migration plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          .maintenance-env/bin/python tools/module_refactor_plan.py \
+            --old-module app.live_recovery_hardening \
+            --new-module app.x_degraded_recovery_runtime \
+            --json stage-c-x-degraded-recovery-plan.json \
+            --markdown stage-c-x-degraded-recovery-plan.md
 
       - name: Capture per-test Stage B coverage evidence
         if: github.event_name != 'push'
@@ -150,6 +164,7 @@ jobs:
             echo "- Stage B Grimp import-chain evidence: report-only; never authorizes moves/deletions."
             echo "- Stage B Coverage.py per-test evidence: collected on PR/manual/scheduled runs; no global coverage threshold yet."
             echo "- Stage C LibCST refactor planner: blocking self-tests, read-only source behavior; no automatic apply."
+            echo "- Active Stage C degraded-X migration plan: generated read-only on every maintenance run while the compatibility shim exists."
             echo "- Import ordering and formatting: report-only during cleanup rollout."
             echo "- Vulture dead-code candidates: report-only; never auto-delete."
             echo "- Complexipy cognitive-complexity hotspots: report-only; used to prioritize human-reviewed refactors."
@@ -167,6 +182,8 @@ jobs:
             repo-structure.md
             module-family-evidence.json
             module-family-evidence.md
+            stage-c-x-degraded-recovery-plan.json
+            stage-c-x-degraded-recovery-plan.md
             ruff-import-order.txt
             ruff-format-check.txt
             vulture-high-confidence.txt
