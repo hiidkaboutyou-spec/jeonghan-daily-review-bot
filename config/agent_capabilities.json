@@ -61,6 +61,42 @@
       "decision": "reject",
       "runtime": false,
       "use": "No explicit repository license at audit time; upstream also describes the daemon/worktree orchestrator as hobby/vibe-coded without stability guarantees."
+    },
+    {
+      "id": "github-codeql",
+      "repository": "github/codeql-action",
+      "commit": "b96794f015dfd88f77b49b1c93e0fa7110f94c63",
+      "license": "MIT",
+      "decision": "adapted",
+      "runtime": false,
+      "use": "Pinned CI-only semantic Python security analysis; no production dependency or secret."
+    },
+    {
+      "id": "pypa-pip-audit",
+      "repository": "pypa/pip-audit",
+      "commit": "8894eb8cee033531a1fbd9f2fb160892531c14e3",
+      "license": "Apache-2.0",
+      "decision": "adapted",
+      "runtime": false,
+      "use": "Pinned CI-only audit of the installed production Python dependency environment for known vulnerabilities."
+    },
+    {
+      "id": "pycqa-bandit",
+      "repository": "PyCQA/bandit",
+      "commit": "92ae8b82fb422a639f0ed8d99e96cea769594e08",
+      "license": "Apache-2.0",
+      "decision": "adapted",
+      "runtime": false,
+      "use": "Pinned CI-only high-severity/high-confidence Python static security gate."
+    },
+    {
+      "id": "github-dependency-review",
+      "repository": "actions/dependency-review-action",
+      "commit": "a1d282b36b6f3519aa1f3fc636f609c47dddb294",
+      "license": "MIT",
+      "decision": "reference-only",
+      "runtime": false,
+      "use": "Evaluated on PR #73 but unavailable because this repository's GitHub Dependency Graph is disabled; reconsider if that setting is enabled later."
     }
   ],
   "active_skills": [
@@ -75,6 +111,10 @@
     {
       "path": ".agents/skills/hani-grounded-research/SKILL.md",
       "source_refs": ["deeptutor"]
+    },
+    {
+      "path": ".agents/skills/hani-incident-triage/SKILL.md",
+      "source_refs": ["github-codeql", "pypa-pip-audit", "pycqa-bandit"]
     }
   ]
 }
