@@ -117,9 +117,11 @@ jobs:
           .maintenance-env/bin/vulture app tools --min-confidence 90 --sort-by-size > vulture-high-confidence.txt 2>&1 || true
           NO_COLOR=1 .maintenance-env/bin/complexipy app --failed > complexipy-hotspots.txt 2>&1 || true
 
-          # Scan both runtime modules and production-support tools, but never the
-          # ephemeral venv itself. Known dynamic/CLI dependencies are excluded from
-          # DEP002 only because static import analysis cannot see their entry points:
+          # This scan models the production dependency graph, so maintenance-only
+          # scripts (whose dependencies live in requirements-maintenance.txt) are
+          # excluded together with the ephemeral venv. Known dynamic/CLI production
+          # dependencies are excluded from DEP002 only because static import analysis
+          # cannot see their intentional entry points:
           # - agent-reach: importlib.find_spec("agent_reach") capability check
           # - twitter-cli: `twitter` executable resolved with shutil.which
           # - uvicorn: Docker CMD production server entry point
@@ -129,7 +131,7 @@ jobs:
             --requirements-files requirements.txt \
             --known-first-party app \
             --known-first-party tools \
-            --extend-exclude "\\.maintenance-env" \
+            --extend-exclude "\\.maintenance-env|tools/module_family_evidence\\.py" \
             --per-rule-ignores "DEP001=daily_watchdog,DEP002=agent-reach|twitter-cli|uvicorn" \
             --no-ansi > deptry-report.txt 2>&1 || true
 
@@ -144,7 +146,7 @@ jobs:
             echo "- Import ordering and formatting: report-only during cleanup rollout."
             echo "- Vulture dead-code candidates: report-only; never auto-delete."
             echo "- Complexipy cognitive-complexity hotspots: report-only; used to prioritize human-reviewed refactors."
-            echo "- Deptry dependency candidates: report-only; known dynamic/CLI production dependencies are documented exceptions."
+            echo "- Deptry production dependency candidates: report-only; maintenance-only scripts are outside that production dependency graph."
             echo "- Repository inventory: maps responsibilities and historical phase/fix naming without moving runtime modules."
           } >> "$GITHUB_STEP_SUMMARY"
 
