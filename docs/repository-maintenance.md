@@ -42,11 +42,25 @@ Audited release commit: `0c39226d761685125c5ff71ca81282d6751c9540`
 License: MIT
 
 Use now:
-- compare imports under `app/` with `requirements.txt`;
+- compare imports under the repository with `requirements.txt`;
 - surface possibly unused, missing, or transitive dependencies;
 - never remove a dependency until optional/dynamic imports, workflows, Docker, and production smoke are checked.
 
-Rationale: the project still uses a requirements.txt-based production environment, which Deptry supports directly.
+Known Hani static-analysis exceptions are documented for Agent Reach, `twitter-cli`, Uvicorn, and the direct `daily_watchdog_hardening.py` entry point. After those intentional entry points were modeled, the real repository scan reported no dependency issues.
+
+### Complexipy 8.0.1 — adopted, report only
+
+Repository: `rohaquinlop/complexipy`
+Audited release commit: `030e2079457412221087f520445e9f2a709faad6`
+License: MIT
+
+Use now:
+- rank cognitively complex functions in `app/`;
+- keep the report non-blocking;
+- use scores to choose where focused refactoring could improve maintainability;
+- never apply generated refactor suggestions automatically.
+
+Rationale: cognitive complexity adds a signal Ruff, Vulture, and Deptry do not provide. The first real Hani run identified concrete hotspots such as `CaptionWriter.write_group` and several historical channel-hardening functions. The permanent report intentionally omits verbose generated rewrite suggestions.
 
 ### Import Linter 2.15 — reference only for now
 
@@ -58,6 +72,30 @@ Decision: do not install yet.
 
 It is useful for enforcing architectural boundaries after packages have stable responsibilities, but Hani is still a mostly flat package with intentional import-time composition. Adding architecture contracts now would encode the current transitional shape or generate noise. Reconsider after the first safe module-family consolidations.
 
+### Tach 0.35.1 — reference only for later architecture enforcement
+
+Repository: `tach-org/tach`
+Reviewed release commit: `65df67ac51a8d0e8f9e0398ea72c924fea34fd25`
+License: MIT
+
+Tach can visualize/enforce module dependencies, public interfaces, and cycles with no production runtime impact. It is actively maintained, but its value depends on having intentional module boundaries. Installing it now would require defining boundaries for a codebase that is still being mapped, so it is deferred to Stage D rather than used to freeze accidental current coupling.
+
+### Pydeps 3.0.8 — reference only
+
+Repository: `thebjorn/pydeps`
+Reviewed release commit: `6f73953ef47e6ff40c1fdfaf692c3d0bc47e3867`
+License: BSD-2-Clause
+
+Pydeps can visualize Python import graphs and cycles. We are not installing it now because Hani's native AST inventory already provides the import-edge evidence required for Stage A without adding Graphviz/display tooling or a second overlapping dependency-map pipeline. Reconsider it only if visual cycle analysis becomes materially useful.
+
+### Refurb 2.3.1 — rejected for the current cleanup stage
+
+Repository: `dosisod/refurb`
+Reviewed release commit: `0dbb127465ca9398b6c89c32a7fd86d78ca755c4`
+License: GPL-3.0
+
+Refurb focuses on modernizing/refactoring suggestions and relies on type-analysis behavior. This substantially overlaps current lint/refactor signals while creating another false-positive surface in a dynamic codebase. It is not installed. Focused human-reviewed refactors driven by tests plus Ruff/Complexipy are safer here.
+
 ## Native structure inventory
 
 `tools/repo_structure_inventory.py` provides a mutation-free map of `app/` and `tools/`:
@@ -67,15 +105,15 @@ It is useful for enforcing architectural boundaries after packages have stable r
 - historical phase/fix-style names;
 - parse errors.
 
-The inventory deliberately does not call a historical filename "dead". It exists to make cleanup decisions evidence-based.
+The inventory deliberately does not call a historical filename "dead". It exists to make cleanup decisions evidence-based. Its category matching is deliberately conservative; exact/specific module patterns are preferred over broad substrings to avoid misclassifying names such as `daily_watchdog`.
 
 ## CI enforcement levels
 
 `Hani Maintenance Diagnostics` uses three levels:
 
 1. **Blocking:** Ruff definite Python errors and inventory parse errors.
-2. **Report-only:** Ruff import ordering/format checks, Vulture high-confidence candidates, and Deptry findings.
-3. **Human/agent review:** any move, rename, deletion, dependency removal, or package-boundary change.
+2. **Report-only:** Ruff import ordering/format checks, Vulture high-confidence candidates, Deptry findings, and Complexipy complexity hotspots.
+3. **Human/agent review:** any move, rename, deletion, dependency removal, complexity refactor, or package-boundary change.
 
 Maintenance tooling is installed only in an ephemeral CI virtual environment from `requirements-maintenance.txt`. It is not part of the production Docker dependency graph.
 
@@ -92,7 +130,8 @@ For each historical module family, establish:
 - whether import order matters;
 - tests covering its behavior;
 - persisted-state/config compatibility;
-- whether it is runtime, compatibility-only, benchmark-only, or genuinely obsolete.
+- whether it is runtime, compatibility-only, benchmark-only, or genuinely obsolete;
+- whether complexity is local and safely reducible without changing semantics.
 
 ### Stage C — consolidate one family at a time
 
@@ -100,13 +139,14 @@ Prefer semantic names based on responsibility rather than development history. I
 
 ### Stage D — enforce stable package boundaries
 
-Only after responsibilities are actually stable, reconsider Import Linter or equivalent architecture contracts. The tool must describe the architecture we intentionally want, not freeze accidental historical coupling.
+Only after responsibilities are actually stable, reconsider Tach, Import Linter, or equivalent architecture contracts. The tool must describe the architecture we intentionally want, not freeze accidental historical coupling.
 
 ## Non-negotiable cleanup rules
 
 - No bulk auto-fix across production code.
 - No automatic deletion from Vulture output.
 - No dependency removal from Deptry output alone.
+- No automatic rewrite from Complexipy or another refactoring recommender.
 - No renaming solely because a filename contains `phase`, `part`, `fix`, or `hardening`.
 - No change to persisted state/schema without migration and rollback.
 - No validation PR may send live Telegram messages or mutate production state.
