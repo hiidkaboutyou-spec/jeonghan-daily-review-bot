@@ -7,6 +7,7 @@ on:
       - "tools/**"
       - "tests/**"
       - "requirements*.txt"
+      - ".coveragerc-maintenance"
       - ".github/workflows/maintenance-diagnostics.yml"
       - "config/agent_capabilities.json"
       - ".agents/skills/hani-repo-maintenance/**"
@@ -18,6 +19,7 @@ on:
       - "tools/**"
       - "tests/**"
       - "requirements*.txt"
+      - ".coveragerc-maintenance"
       - ".github/workflows/maintenance-diagnostics.yml"
       - "config/agent_capabilities.json"
       - ".agents/skills/hani-repo-maintenance/**"
@@ -72,6 +74,27 @@ jobs:
             --json repo-structure.json \
             --markdown repo-structure.md
 
+      - name: Capture per-test Stage B coverage evidence
+        if: github.event_name != 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          .maintenance-env/bin/coverage erase --rcfile=.coveragerc-maintenance
+          .maintenance-env/bin/coverage run --rcfile=.coveragerc-maintenance \
+            -m unittest discover -s tests -p "test_*.py"
+          .maintenance-env/bin/coverage json --rcfile=.coveragerc-maintenance \
+            --show-contexts -o module-test-coverage.json
+
+      - name: Build Stage B module-family evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          .maintenance-env/bin/python tools/module_family_evidence.py \
+            --coverage-json module-test-coverage.json \
+            --json module-family-evidence.json \
+            --markdown module-family-evidence.md
+          rm -f module-test-coverage.json .coverage.maintenance
+
       - name: Collect non-blocking cleanup reports
         shell: bash
         run: |
@@ -116,6 +139,8 @@ jobs:
           {
             echo "### Hani maintenance diagnostics"
             echo "- Ruff definite Python errors: blocking."
+            echo "- Stage B Grimp import-chain evidence: report-only; never authorizes moves/deletions."
+            echo "- Stage B Coverage.py per-test evidence: collected on PR/manual/scheduled runs; no global coverage threshold yet."
             echo "- Import ordering and formatting: report-only during cleanup rollout."
             echo "- Vulture dead-code candidates: report-only; never auto-delete."
             echo "- Complexipy cognitive-complexity hotspots: report-only; used to prioritize human-reviewed refactors."
@@ -131,6 +156,8 @@ jobs:
           path: |
             repo-structure.json
             repo-structure.md
+            module-family-evidence.json
+            module-family-evidence.md
             ruff-import-order.txt
             ruff-format-check.txt
             vulture-high-confidence.txt
