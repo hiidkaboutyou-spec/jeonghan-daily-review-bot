@@ -62,6 +62,37 @@ Use now:
 
 Rationale: cognitive complexity adds a signal Ruff, Vulture, and Deptry do not provide. The first real Hani run identified concrete hotspots such as `CaptionWriter.write_group` and several historical channel-hardening functions. The permanent report intentionally omits verbose generated rewrite suggestions.
 
+### Coverage.py 7.16.1 — adopted for Stage B, CI/dev only
+
+Repository: `coveragepy/coveragepy`
+Audited release commit: `ccbb99245dcb4e51a35087285499cdb22b164ccc`
+Release tag signature: verified by GitHub
+License: Apache-2.0
+
+Use now:
+- measure the existing `unittest` suite without introducing pytest;
+- enable `dynamic_context = test_function` so individual test functions are recorded as execution contexts;
+- generate temporary JSON with line-to-test context evidence for `app/`;
+- feed only the concise evidence summary into the maintenance artifact;
+- do not set a global coverage percentage gate during structural cleanup.
+
+Rationale: Stage B needs evidence that a historical module is actually executed by tests, not just that a similarly named test file exists. Zero coverage remains only evidence for investigation because scheduled, subprocess, import-time, or live-provider paths may not be exercised by the unit suite.
+
+### Grimp 3.17 — adopted for Stage B, report only
+
+Repository: `python-grimp/grimp`
+Audited release commit: `286f0f5de79d29dea44cfa6563802e9b4fe37dea`
+License: BSD-2-Clause
+
+Use now:
+- build a queryable import graph for the `app` package;
+- exclude imports that exist only under `TYPE_CHECKING` from runtime evidence;
+- inspect direct importers, direct dependencies, transitive downstream/upstream modules, and shortest chains from `app` / `app.__main__`;
+- disable persistent Grimp caching in CI;
+- never infer that a module is dead solely because the static graph has no path to it.
+
+Rationale: the native AST inventory is intentionally simple and excellent for Stage A mapping. Grimp adds the missing Stage B signal: transitive impact and concrete import chains, without imposing architecture contracts or changing runtime behavior.
+
 ### Import Linter 2.15 — reference only for now
 
 Repository: `seddonym/import-linter`
@@ -86,7 +117,7 @@ Repository: `thebjorn/pydeps`
 Reviewed release commit: `6f73953ef47e6ff40c1fdfaf692c3d0bc47e3867`
 License: BSD-2-Clause
 
-Pydeps can visualize Python import graphs and cycles. We are not installing it now because Hani's native AST inventory already provides the import-edge evidence required for Stage A without adding Graphviz/display tooling or a second overlapping dependency-map pipeline. Reconsider it only if visual cycle analysis becomes materially useful.
+Pydeps can visualize Python import graphs and cycles. We are not installing it now because Hani's native AST inventory plus Grimp provide the import-edge and transitive-chain evidence required for Stage B without adding Graphviz/display tooling or a second visualization pipeline. Reconsider it only if visual cycle analysis becomes materially useful.
 
 ### Refurb 2.3.1 — rejected for the current cleanup stage
 
@@ -96,7 +127,7 @@ License: GPL-3.0
 
 Refurb focuses on modernizing/refactoring suggestions and relies on type-analysis behavior. This substantially overlaps current lint/refactor signals while creating another false-positive surface in a dynamic codebase. It is not installed. Focused human-reviewed refactors driven by tests plus Ruff/Complexipy are safer here.
 
-## Native structure inventory
+## Native structure and Stage B evidence
 
 `tools/repo_structure_inventory.py` provides a mutation-free map of `app/` and `tools/`:
 - module path;
@@ -105,33 +136,45 @@ Refurb focuses on modernizing/refactoring suggestions and relies on type-analysi
 - historical phase/fix-style names;
 - parse errors.
 
-The inventory deliberately does not call a historical filename "dead". It exists to make cleanup decisions evidence-based. Its category matching is deliberately conservative; exact/specific module patterns are preferred over broad substrings to avoid misclassifying names such as `daily_watchdog`.
+`tools/module_family_evidence.py` adds Stage B evidence for historical-name candidates:
+- direct and transitive Grimp import relationships;
+- shortest static chains from `app` and `app.__main__`;
+- optional per-test Coverage.py execution contexts;
+- a conservative risk label and review hint.
+
+Neither report calls a historical filename "dead". A candidate with no static importer and no measured test context is only the lowest-risk place to investigate first. Dynamic imports, subprocess entry points, workflows, scheduled jobs, and production-only paths still require direct inspection.
 
 ## CI enforcement levels
 
 `Hani Maintenance Diagnostics` uses three levels:
 
-1. **Blocking:** Ruff definite Python errors and inventory parse errors.
-2. **Report-only:** Ruff import ordering/format checks, Vulture high-confidence candidates, Deptry findings, and Complexipy complexity hotspots.
+1. **Blocking:** Ruff definite Python errors, inventory parse errors, and the existing unit suite when per-test Stage B coverage is collected.
+2. **Report-only:** Grimp Stage B relationships, Coverage.py percentages/contexts, Ruff import ordering/format checks, Vulture high-confidence candidates, Deptry findings, and Complexipy complexity hotspots.
 3. **Human/agent review:** any move, rename, deletion, dependency removal, complexity refactor, or package-boundary change.
 
-Maintenance tooling is installed only in an ephemeral CI virtual environment from `requirements-maintenance.txt`. It is not part of the production Docker dependency graph.
+Coverage collection runs on pull requests, scheduled runs, and manual runs. It is skipped on the immediate `main` push because the normal production validation already runs the full suite there; the static Grimp Stage B report still runs. Maintenance tooling is installed only in an ephemeral CI virtual environment from `requirements-maintenance.txt`. It is not part of the production Docker dependency graph.
 
 ## Cleanup roadmap
 
 ### Stage A — inventory and diagnostics
 
-Current stage. Gather real reports without changing runtime structure.
+Completed. Hani has a stable maintenance diagnostics layer with structure inventory, definite-error linting, dead-code candidates, dependency checks, and complexity hotspots, without changing production runtime dependencies.
 
 ### Stage B — classify active module families
 
+Current stage.
+
 For each historical module family, establish:
-- who imports it;
+- who imports it directly and indirectly;
+- whether it has a static chain from an application entry point;
 - whether import order matters;
-- tests covering its behavior;
+- which concrete tests execute it and how much of it they execute;
 - persisted-state/config compatibility;
+- workflow/CLI/subprocess/dynamic-import references that static analysis cannot prove;
 - whether it is runtime, compatibility-only, benchmark-only, or genuinely obsolete;
 - whether complexity is local and safely reducible without changing semantics.
+
+Start investigation with candidates that have the least static and test evidence, but never delete from absence of evidence alone.
 
 ### Stage C — consolidate one family at a time
 
@@ -147,6 +190,8 @@ Only after responsibilities are actually stable, reconsider Tach, Import Linter,
 - No automatic deletion from Vulture output.
 - No dependency removal from Deptry output alone.
 - No automatic rewrite from Complexipy or another refactoring recommender.
+- No deletion from zero Coverage.py execution alone.
+- No deletion from absent Grimp import chains alone.
 - No renaming solely because a filename contains `phase`, `part`, `fix`, or `hardening`.
 - No change to persisted state/schema without migration and rollback.
 - No validation PR may send live Telegram messages or mutate production state.

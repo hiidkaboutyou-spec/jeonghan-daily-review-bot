@@ -7,6 +7,7 @@ on:
       - "tools/**"
       - "tests/**"
       - "requirements*.txt"
+      - ".coveragerc-maintenance"
       - ".github/workflows/maintenance-diagnostics.yml"
       - "config/agent_capabilities.json"
       - ".agents/skills/hani-repo-maintenance/**"
@@ -18,6 +19,7 @@ on:
       - "tools/**"
       - "tests/**"
       - "requirements*.txt"
+      - ".coveragerc-maintenance"
       - ".github/workflows/maintenance-diagnostics.yml"
       - "config/agent_capabilities.json"
       - ".agents/skills/hani-repo-maintenance/**"
@@ -72,6 +74,27 @@ jobs:
             --json repo-structure.json \
             --markdown repo-structure.md
 
+      - name: Capture per-test Stage B coverage evidence
+        if: github.event_name != 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          .maintenance-env/bin/coverage erase --rcfile=.coveragerc-maintenance
+          .maintenance-env/bin/coverage run --rcfile=.coveragerc-maintenance \
+            -m unittest discover -s tests -p "test_*.py"
+          .maintenance-env/bin/coverage json --rcfile=.coveragerc-maintenance \
+            --show-contexts -o module-test-coverage.json
+
+      - name: Build Stage B module-family evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          .maintenance-env/bin/python tools/module_family_evidence.py \
+            --coverage-json module-test-coverage.json \
+            --json module-family-evidence.json \
+            --markdown module-family-evidence.md
+          rm -f module-test-coverage.json .coverage.maintenance
+
       - name: Collect non-blocking cleanup reports
         shell: bash
         run: |
@@ -94,9 +117,11 @@ jobs:
           .maintenance-env/bin/vulture app tools --min-confidence 90 --sort-by-size > vulture-high-confidence.txt 2>&1 || true
           NO_COLOR=1 .maintenance-env/bin/complexipy app --failed > complexipy-hotspots.txt 2>&1 || true
 
-          # Scan both runtime modules and production-support tools, but never the
-          # ephemeral venv itself. Known dynamic/CLI dependencies are excluded from
-          # DEP002 only because static import analysis cannot see their entry points:
+          # This scan models the production dependency graph, so maintenance-only
+          # scripts (whose dependencies live in requirements-maintenance.txt) are
+          # excluded together with the ephemeral venv. Known dynamic/CLI production
+          # dependencies are excluded from DEP002 only because static import analysis
+          # cannot see their intentional entry points:
           # - agent-reach: importlib.find_spec("agent_reach") capability check
           # - twitter-cli: `twitter` executable resolved with shutil.which
           # - uvicorn: Docker CMD production server entry point
@@ -106,7 +131,7 @@ jobs:
             --requirements-files requirements.txt \
             --known-first-party app \
             --known-first-party tools \
-            --extend-exclude "\\.maintenance-env" \
+            --extend-exclude "\\.maintenance-env|tools/module_family_evidence\\.py" \
             --per-rule-ignores "DEP001=daily_watchdog,DEP002=agent-reach|twitter-cli|uvicorn" \
             --no-ansi > deptry-report.txt 2>&1 || true
 
@@ -116,10 +141,12 @@ jobs:
           {
             echo "### Hani maintenance diagnostics"
             echo "- Ruff definite Python errors: blocking."
+            echo "- Stage B Grimp import-chain evidence: report-only; never authorizes moves/deletions."
+            echo "- Stage B Coverage.py per-test evidence: collected on PR/manual/scheduled runs; no global coverage threshold yet."
             echo "- Import ordering and formatting: report-only during cleanup rollout."
             echo "- Vulture dead-code candidates: report-only; never auto-delete."
             echo "- Complexipy cognitive-complexity hotspots: report-only; used to prioritize human-reviewed refactors."
-            echo "- Deptry dependency candidates: report-only; known dynamic/CLI production dependencies are documented exceptions."
+            echo "- Deptry production dependency candidates: report-only; maintenance-only scripts are outside that production dependency graph."
             echo "- Repository inventory: maps responsibilities and historical phase/fix naming without moving runtime modules."
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -131,6 +158,8 @@ jobs:
           path: |
             repo-structure.json
             repo-structure.md
+            module-family-evidence.json
+            module-family-evidence.md
             ruff-import-order.txt
             ruff-format-check.txt
             vulture-high-confidence.txt

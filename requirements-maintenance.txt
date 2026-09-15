@@ -4,3 +4,5 @@ ruff==0.16.7
 vulture==2.16
 deptry==0.25.1
 complexipy==8.0.1
+coverage==7.16.1
+grimp==3.17
