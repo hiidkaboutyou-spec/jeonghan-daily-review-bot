@@ -77,7 +77,20 @@ jobs:
         run: |
           set -u
           .maintenance-env/bin/ruff check app tools tests --select I --output-format=concise > ruff-import-order.txt 2>&1 || true
-          .maintenance-env/bin/ruff format --check app tools tests > ruff-format-check.txt 2>&1 || true
+
+          format_raw="$(mktemp)"
+          .maintenance-env/bin/ruff format --check app tools tests > "$format_raw" 2>&1 || true
+          awk '
+            /^unformatted:/ {
+              if (getline > 0) {
+                sub(/^[[:space:]]*-->[[:space:]]*/, "")
+                sub(/:[0-9]+:[0-9]+$/, "")
+                print
+              }
+            }
+          ' "$format_raw" | sort -u > ruff-format-check.txt
+          rm -f "$format_raw"
+
           .maintenance-env/bin/vulture app tools --min-confidence 90 --sort-by-size > vulture-high-confidence.txt 2>&1 || true
           # Scan both runtime modules and production-support tools, but never the
           # ephemeral venv itself. Known dynamic/CLI dependencies are excluded from
