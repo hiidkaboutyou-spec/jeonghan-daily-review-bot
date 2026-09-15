@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "migrations": [
+    {
+      "legacy_module": "app.live_recovery_hardening",
+      "canonical_module": "app.x_degraded_recovery_runtime",
+      "status": "compatibility-shim",
+      "introduced_on": "2026-09-16",
+      "reason": "Replace a historical implementation-phase name with a semantic runtime responsibility name without changing degraded-X recovery behavior.",
+      "single_module_object_required": true,
+      "runtime_behavior_change": false,
+      "removal_gates": [
+        "No production, workflow, CLI, config, dynamic-import, or test caller requires the legacy module path.",
+        "LibCST migration plan shows no unresolved legacy callers other than the compatibility contract itself.",
+        "Focused recovery tests and the full project validation suite are green after callers migrate.",
+        "A production main run passes runtime smoke, live-provider checks, a complete monitor pass, database checkpoint, encrypted backup, and state persistence after the final caller migration.",
+        "Legacy shim removal is performed in a later focused pull request, never in the initial migration pull request."
+      ]
+    }
+  ]
+}
