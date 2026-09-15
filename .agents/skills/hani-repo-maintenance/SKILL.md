@@ -1,6 +1,6 @@
 ---
 name: hani-repo-maintenance
-description: Safely organize and clean Daily Hani using evidence-first repository inventory, import-chain and per-test coverage evidence, conservative linting, dead-code/dependency/complexity reports, focused refactors, and full validation without destabilizing production.
+description: Safely organize and clean Daily Hani using evidence-first inventory, import-chain and per-test coverage evidence, syntax-aware read-only refactor plans, conservative diagnostics, focused compatibility-preserving changes, and full production validation.
 ---
 
 # Hani repository maintenance
@@ -11,18 +11,18 @@ Use this skill for cleanup, organization, module moves, naming cleanup, dead-cod
 
 Production behavior is authoritative. A cleaner tree is never worth breaking collection, filtering, deduplication, persisted state, recovery, private review, Telegram delivery, or scheduled workflows.
 
-Do not treat historical-looking module names as dead code. Hani intentionally composes several runtime layers through import side effects in `app/__init__.py`.
+Do not treat historical-looking module names as dead code. Hani intentionally composes several runtime layers through import side effects. Stage B proved every historical-name module currently inside `app/` is runtime-linked.
 
 ## Required workflow
 
 1. Read `AGENTS.md` and `docs/repository-maintenance.md`.
 2. Verify current `main` and task-relevant CI before changing structure.
 3. Generate or inspect the repository structure inventory and Stage B module-family evidence.
-4. Use Ruff definite-error findings as a blocking signal.
-5. Treat Grimp import chains, Coverage.py per-test evidence, Ruff style/import-order, Vulture, Deptry, and Complexipy findings as evidence/candidates only.
-6. For every candidate move/delete/rename/refactor, inspect direct and indirect references, entrypoint chains, concrete test contexts, workflows, Docker/runtime entry points, optional imports, and persisted-state/config implications.
+4. Before any rename/move, generate a read-only LibCST plan with `tools/module_refactor_plan.py`.
+5. Treat Grimp import chains, Coverage.py per-test evidence, LibCST plan findings, Ruff style/import-order, Vulture, Deptry, and Complexipy as evidence/candidates only.
+6. Inspect dynamic strings, workflows, Docker/runtime entry points, CLI/subprocess references, optional imports, persisted state/config, and `app/__init__.py` ordering separately.
 7. Change one coherent module family at a time on a focused branch.
-8. Preserve compatibility shims when moving a still-public or import-sensitive module.
+8. Preserve the old import path with a compatibility shim for active/import-sensitive modules until the migration has completed safely.
 9. Run focused tests plus the full project validation suite.
 10. Merge only with green checks, then verify the real production workflow on `main`.
 
@@ -68,30 +68,49 @@ Do not treat historical-looking module names as dead code. Hani intentionally co
 - Use direct importers, downstream importers, upstream dependencies, and shortest entrypoint chains to understand blast radius.
 - An absent static chain is not proof of no runtime use; dynamic imports and subprocess entry points still require direct inspection.
 
+### LibCST
+
+- Maintenance-only; never a production dependency.
+- Use `tools/module_refactor_plan.py` before Stage C module renames/moves.
+- The planner is deliberately read-only: it distinguishes real import syntax from dynamic string references and never writes source files.
+- Preserve comments/formatting and reason about imports structurally; never replace module names with regex or broad text substitution.
+- `app/__init__.py` references are always import-order-sensitive and require explicit human/agent review.
+- Dynamic string references are always manual-review findings and must never be auto-rewritten.
+- LibCST does not authorize a refactor by itself. The Stage B graph, focused tests, compatibility shim, full CI, and post-merge production validation remain mandatory.
+
 ### Native structure inventory
 
-Use `tools/repo_structure_inventory.py` to map module responsibilities, internal import edges, parse errors, and historical naming candidates. Use `tools/module_family_evidence.py` to combine historical-name candidates with Grimp import-chain evidence and optional per-test Coverage.py evidence. These reports identify where to investigate; they do not prescribe deletion.
+Use `tools/repo_structure_inventory.py` to map module responsibilities, internal import edges, parse errors, and historical naming candidates. Use `tools/module_family_evidence.py` to combine historical-name candidates with Grimp import-chain evidence and optional per-test Coverage.py evidence. Use `tools/module_refactor_plan.py` to build a syntax-aware, non-mutating migration plan for one selected module. These reports identify what must be reviewed; they do not prescribe deletion or automatically apply changes.
 
-## Deferred architecture tools
+## Deferred / rejected refactor tools
 
-Tach and Import Linter are useful only after Hani has stable intended package boundaries. Pydeps is useful for visualization and cycle exploration, but the current native inventory plus Grimp provide the import evidence needed for Stage B without adding Graphviz/tooling overhead. Re-evaluate these after the first safe module-family consolidations.
+- **Rope:** active and capable, but its higher-level stateful rename/move engine is reference-only for now. Hani's import-time patch stack benefits from a narrower explicit LibCST plan before any transformation.
+- **Bowler:** rejected. The upstream repository is archived and recommends LibCST for modern Python codemods.
+- **Tach / Import Linter:** defer until Hani has stable intended package boundaries.
+- **Pydeps:** defer unless visual cycle analysis becomes materially useful; Grimp plus the native inventory already provide Stage B dependency evidence.
 
-## Refactor order
+## Stage C refactor order
 
 Prefer this order:
 
-1. investigate historical modules with no entrypoint chain, no internal importer, and no measured test context;
-2. remove only code proven dead after dynamic/workflow/CLI checks;
-3. consolidate duplicate helpers with identical responsibility;
-4. reduce proven complexity hotspots with focused tests;
-5. replace historical filenames with semantic names one family at a time;
-6. introduce stable subpackages only after import order and compatibility are understood;
-7. add architecture-boundary enforcement only after the target boundaries are stable.
+1. add missing focused regression coverage for the selected active module;
+2. generate a LibCST read-only refactor plan and inspect every manual/dynamic/order-sensitive reference;
+3. choose a semantic target name based on responsibility, not historical development phase;
+4. add the new implementation path while keeping the old path as a compatibility shim when needed;
+5. update one importer family at a time, preserving import/install order;
+6. run focused tests and full validation before removing any compatibility path;
+7. remove the shim only in a later focused change after no runtime/workflow/config callers remain;
+8. introduce stable subpackages only after module-family migrations prove the intended boundaries;
+9. add architecture-boundary enforcement only after those boundaries are stable.
+
+`live_recovery_hardening` is runtime-linked but previously lacked direct unit coverage. Add and keep focused tests for its fallback, outcome classification, degraded-source reconciliation, and idempotent installation before considering any rename/consolidation of that module.
 
 ## Forbidden cleanup shortcuts
 
 - No bulk move of the whole `app/` tree.
 - No broad `ruff --fix` or formatter sweep mixed with behavior changes.
+- No regex/string-replace module rename.
+- No automatic LibCST apply in CI or unattended source rewrite.
 - No automatic Vulture deletion.
 - No automatic Deptry dependency removal.
 - No automatic Complexipy refactor application.
@@ -103,10 +122,11 @@ Prefer this order:
 
 ## Evidence standard before removal
 
-A deletion or dependency removal should have all applicable evidence:
-- no runtime/internal references after accounting for dynamic import patterns;
-- no entrypoint import chain in Grimp, with dynamic/CLI/subprocess paths checked separately;
-- no workflow/CLI/Docker references;
+A deletion, move, rename, or dependency removal should have all applicable evidence:
+- no unhandled runtime/internal references after accounting for dynamic import patterns;
+- inspected Grimp entrypoint/import chains and LibCST refactor plan;
+- no unresolved dynamic string/workflow/CLI/Docker references;
 - focused regression coverage and inspected Coverage.py test contexts;
+- preserved compatibility/import ordering during migration;
 - full test/validation success;
 - production smoke/live-provider/full-monitor success after merge when runtime code changed.
