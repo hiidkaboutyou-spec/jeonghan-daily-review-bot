@@ -1,0 +1,13 @@
+[run]
+branch = True
+source = app
+dynamic_context = test_function
+data_file = .coverage.maintenance
+
+[report]
+skip_empty = True
+show_missing = False
+
+[json]
+show_contexts = True
+pretty_print = False
