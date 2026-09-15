@@ -1,0 +1,140 @@
+name: Hani Maintenance Diagnostics
+
+on:
+  pull_request:
+    paths:
+      - "app/**"
+      - "tools/**"
+      - "tests/**"
+      - "requirements*.txt"
+      - ".github/workflows/maintenance-diagnostics.yml"
+      - "config/agent_capabilities.json"
+      - ".agents/skills/hani-repo-maintenance/**"
+      - "docs/repository-maintenance.md"
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "tools/**"
+      - "tests/**"
+      - "requirements*.txt"
+      - ".github/workflows/maintenance-diagnostics.yml"
+      - "config/agent_capabilities.json"
+      - ".agents/skills/hani-repo-maintenance/**"
+      - "docs/repository-maintenance.md"
+  schedule:
+    - cron: "41 4 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maintenance-diagnostics-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repository-maintenance:
+    name: Repository maintenance diagnostics
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # releases/v6, audited 2026-09-15
+
+      - name: Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # releases/v6, audited 2026-09-15
+        with:
+          python-version: "3.11"
+
+      - name: Build isolated maintenance environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv .maintenance-env
+          .maintenance-env/bin/python -m pip install --disable-pip-version-check --upgrade pip
+          .maintenance-env/bin/python -m pip install --disable-pip-version-check -r requirements.txt -r requirements-maintenance.txt
+          .maintenance-env/bin/python -m pip check
+
+      - name: Ruff definite-error gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          .maintenance-env/bin/ruff check app tools tests \
+            --select E9,F63,F7,F82 \
+            --output-format=github
+
+      - name: Build Hani repository structure inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          .maintenance-env/bin/python tools/repo_structure_inventory.py \
+            --json repo-structure.json \
+            --markdown repo-structure.md
+
+      - name: Collect non-blocking cleanup reports
+        shell: bash
+        run: |
+          set -u
+          .maintenance-env/bin/ruff check app tools tests --select I --output-format=concise > ruff-import-order.txt 2>&1 || true
+
+          format_raw="$(mktemp)"
+          .maintenance-env/bin/ruff format --check app tools tests > "$format_raw" 2>&1 || true
+          awk '
+            /^unformatted:/ {
+              if (getline > 0) {
+                sub(/^[[:space:]]*-->[[:space:]]*/, "")
+                sub(/:[0-9]+:[0-9]+$/, "")
+                print
+              }
+            }
+          ' "$format_raw" | sort -u > ruff-format-check.txt
+          rm -f "$format_raw"
+
+          .maintenance-env/bin/vulture app tools --min-confidence 90 --sort-by-size > vulture-high-confidence.txt 2>&1 || true
+          NO_COLOR=1 .maintenance-env/bin/complexipy app --failed > complexipy-hotspots.txt 2>&1 || true
+
+          # Scan both runtime modules and production-support tools, but never the
+          # ephemeral venv itself. Known dynamic/CLI dependencies are excluded from
+          # DEP002 only because static import analysis cannot see their entry points:
+          # - agent-reach: importlib.find_spec("agent_reach") capability check
+          # - twitter-cli: `twitter` executable resolved with shutil.which
+          # - uvicorn: Docker CMD production server entry point
+          # `daily_watchdog` is also first-party when the hardening wrapper is run
+          # directly as `python tools/daily_watchdog_hardening.py`.
+          .maintenance-env/bin/deptry . \
+            --requirements-files requirements.txt \
+            --known-first-party app \
+            --known-first-party tools \
+            --extend-exclude "\\.maintenance-env" \
+            --per-rule-ignores "DEP001=daily_watchdog,DEP002=agent-reach|twitter-cli|uvicorn" \
+            --no-ansi > deptry-report.txt 2>&1 || true
+
+      - name: Explain enforcement level
+        shell: bash
+        run: |
+          {
+            echo "### Hani maintenance diagnostics"
+            echo "- Ruff definite Python errors: blocking."
+            echo "- Import ordering and formatting: report-only during cleanup rollout."
+            echo "- Vulture dead-code candidates: report-only; never auto-delete."
+            echo "- Complexipy cognitive-complexity hotspots: report-only; used to prioritize human-reviewed refactors."
+            echo "- Deptry dependency candidates: report-only; known dynamic/CLI production dependencies are documented exceptions."
+            echo "- Repository inventory: maps responsibilities and historical phase/fix naming without moving runtime modules."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload maintenance reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: hani-maintenance-reports
+          path: |
+            repo-structure.json
+            repo-structure.md
+            ruff-import-order.txt
+            ruff-format-check.txt
+            vulture-high-confidence.txt
+            complexipy-hotspots.txt
+            deptry-report.txt
+          if-no-files-found: warn
+          retention-days: 14

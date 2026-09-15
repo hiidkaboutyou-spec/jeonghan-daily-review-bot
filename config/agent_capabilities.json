@@ -97,6 +97,78 @@
       "decision": "reference-only",
       "runtime": false,
       "use": "Evaluated on PR #73 but unavailable because this repository's GitHub Dependency Graph is disabled; reconsider if that setting is enabled later."
+    },
+    {
+      "id": "astral-ruff",
+      "repository": "astral-sh/ruff",
+      "commit": "b5dba861cc38e3f7fb4524c9ceba3e01a474ea13",
+      "license": "MIT",
+      "decision": "adapted",
+      "runtime": false,
+      "use": "Pinned maintenance-only lint/import/format tooling. Only definite Python errors are blocking during cleanup rollout; style/import ordering remains report-only."
+    },
+    {
+      "id": "vulture",
+      "repository": "jendrikseipp/vulture",
+      "commit": "b0f67ba0044693aa9ec0d38fe460590facc98004",
+      "license": "MIT",
+      "decision": "adapted",
+      "runtime": false,
+      "use": "Pinned maintenance-only high-confidence dead-code candidate reporting. Findings never authorize automatic deletion because Hani has dynamic/import-time runtime composition."
+    },
+    {
+      "id": "deptry",
+      "repository": "osprey-oss/deptry",
+      "commit": "0c39226d761685125c5ff71ca81282d6751c9540",
+      "license": "MIT",
+      "decision": "adapted",
+      "runtime": false,
+      "use": "Pinned maintenance-only requirements/import consistency reporting against the production requirements.txt environment; findings are report-only until optional/dynamic use is verified."
+    },
+    {
+      "id": "complexipy",
+      "repository": "rohaquinlop/complexipy",
+      "commit": "030e2079457412221087f520445e9f2a709faad6",
+      "license": "MIT",
+      "decision": "adapted",
+      "runtime": false,
+      "use": "Pinned maintenance-only cognitive-complexity hotspot reporting. Scores prioritize focused review but never authorize automatic production refactors."
+    },
+    {
+      "id": "import-linter",
+      "repository": "seddonym/import-linter",
+      "commit": "31927f1457e3df673912cb5efb0afa6dbc37585f",
+      "license": "BSD-2-Clause",
+      "decision": "reference-only",
+      "runtime": false,
+      "use": "Useful architecture-boundary enforcement, but deferred until Hani's currently flat and import-side-effect-heavy module families have stable intended package boundaries."
+    },
+    {
+      "id": "tach",
+      "repository": "tach-org/tach",
+      "commit": "65df67ac51a8d0e8f9e0398ea72c924fea34fd25",
+      "license": "MIT",
+      "decision": "reference-only",
+      "runtime": false,
+      "use": "Actively maintained dependency/interface/cycle enforcement, deferred until Hani has intentional stable module boundaries so transitional coupling is not frozen into contracts."
+    },
+    {
+      "id": "pydeps",
+      "repository": "thebjorn/pydeps",
+      "commit": "6f73953ef47e6ff40c1fdfaf692c3d0bc47e3867",
+      "license": "BSD-2-Clause",
+      "decision": "reference-only",
+      "runtime": false,
+      "use": "Import-graph and cycle visualization is useful but currently overlaps Hani's native AST inventory while adding Graphviz/display tooling; reconsider if visual cycle analysis becomes necessary."
+    },
+    {
+      "id": "refurb",
+      "repository": "dosisod/refurb",
+      "commit": "0dbb127465ca9398b6c89c32a7fd86d78ca755c4",
+      "license": "GPL-3.0",
+      "decision": "reject",
+      "runtime": false,
+      "use": "Modernization/refactor suggestions overlap existing Ruff and Complexipy signals while adding another type-analysis false-positive surface; not useful enough for Hani's current cleanup stage."
     }
   ],
   "active_skills": [
@@ -115,6 +187,10 @@
     {
       "path": ".agents/skills/hani-incident-triage/SKILL.md",
       "source_refs": ["github-codeql", "pypa-pip-audit", "pycqa-bandit"]
+    },
+    {
+      "path": ".agents/skills/hani-repo-maintenance/SKILL.md",
+      "source_refs": ["astral-ruff", "vulture", "deptry", "complexipy"]
     }
   ]
 }
