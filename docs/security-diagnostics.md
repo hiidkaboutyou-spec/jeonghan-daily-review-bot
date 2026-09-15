@@ -8,11 +8,7 @@ Daily Hani already had strong runtime health machinery before this layer: struct
 
 `Hani Security Diagnostics` builds a throwaway environment from the real production `requirements.txt` and audits the installed package set with `pip-audit`. The auditing tool itself is installed only in an isolated CI environment from the exact upstream Git commit recorded in `requirements-security.txt`; it is not part of the production image.
 
-The audit runs on relevant pull requests and main pushes, once per day, and manually. A discovered vulnerability fails the check. The JSON report is retained as a short-lived GitHub Actions artifact so the exact package/advisory can be inspected during triage.
-
-### Dependency Review
-
-Pull requests also run GitHub's Dependency Review action and reject newly introduced vulnerabilities at `high` severity or above. License gating is deliberately disabled: during the 2026-09-15 audit, dependency-review-action v5 had active upstream bug reports involving unknown/incorrect license detection. This preserves the useful vulnerability gate without creating a known false-positive merge blocker.
+The audit runs on relevant pull requests and main pushes, once per day, and manually. A discovered vulnerability fails the check. The JSON report is retained as a short-lived GitHub Actions artifact so the exact package/advisory can be inspected during triage. Because the final PR dependency environment is audited, dependency changes are protected even though GitHub Dependency Review cannot currently run in this repository.
 
 ### Bandit
 
@@ -21,6 +17,12 @@ Bandit scans `app/` and `tools/` for Python security problems. The merge gate is
 ### CodeQL
 
 A separate `Hani CodeQL` workflow performs GitHub semantic code analysis for Python using `build-mode: none`, which is the supported mode for interpreted languages. It runs on relevant PR/main changes and weekly on a schedule. Its action is pinned to the audited CodeQL v4 commit rather than a floating tag.
+
+## Evaluated but not active
+
+### GitHub Dependency Review
+
+Dependency Review was tested on PR #73 using the audited v5 action. GitHub returned `Dependency review is not supported on this repository` because the repository's Dependency Graph is disabled. A permanently failing or ignored job would add noise rather than protection, so the action is not active. If Dependency Graph is enabled later, it can be reconsidered. Its license gate should also be re-evaluated at that time because v5 had active license-discovery false-positive reports during this audit.
 
 ## What was not added
 
@@ -33,7 +35,7 @@ A separate `Hani CodeQL` workflow performs GitHub semantic code analysis for Pyt
 
 ## Supply-chain controls
 
-Third-party GitHub Actions used by the new workflows are pinned to full commit SHAs. Security scanners are kept in `requirements-security.txt`, separate from `requirements.txt`, and pinned to full upstream Git commits. The production Docker/runtime dependency graph is unchanged.
+Third-party GitHub Actions used by the active workflows are pinned to full commit SHAs. Security scanners are kept in `requirements-security.txt`, separate from `requirements.txt`, and pinned to full upstream Git commits. The production Docker/runtime dependency graph is unchanged.
 
 ## Incident workflow
 

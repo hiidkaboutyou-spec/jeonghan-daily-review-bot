@@ -94,9 +94,9 @@
       "repository": "actions/dependency-review-action",
       "commit": "a1d282b36b6f3519aa1f3fc636f609c47dddb294",
       "license": "MIT",
-      "decision": "adapted",
+      "decision": "reference-only",
       "runtime": false,
-      "use": "PR-only high-severity vulnerability gate; license checking disabled because of active upstream v5 false-positive reports."
+      "use": "Evaluated on PR #73 but unavailable because this repository's GitHub Dependency Graph is disabled; reconsider if that setting is enabled later."
     }
   ],
   "active_skills": [
@@ -114,7 +114,7 @@
     },
     {
       "path": ".agents/skills/hani-incident-triage/SKILL.md",
-      "source_refs": ["github-codeql", "pypa-pip-audit", "pycqa-bandit", "github-dependency-review"]
+      "source_refs": ["github-codeql", "pypa-pip-audit", "pycqa-bandit"]
     }
   ]
 }

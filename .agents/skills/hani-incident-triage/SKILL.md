@@ -31,10 +31,10 @@ Use this skill when a Daily Hani check fails, a scheduled monitor degrades, Rend
 
 ## Scanner map
 
-- **pip-audit**: known vulnerabilities in the installed Python production dependency environment.
-- **Dependency Review**: high/critical vulnerabilities newly introduced by a pull request. License gating is intentionally disabled while upstream v5 has active license-discovery false-positive reports.
+- **pip-audit**: known vulnerabilities in the installed Python production dependency environment. It runs on pull requests too, so a dependency change is tested before merge even without GitHub Dependency Graph.
 - **Bandit**: high-severity, high-confidence Python security patterns. This conservative threshold is a merge gate; lower-confidence findings can be reviewed separately if needed.
 - **CodeQL**: semantic code scanning uploaded to GitHub code scanning. Findings require source-level review before a fix is chosen.
+- **GitHub Dependency Review**: not active because this repository's Dependency Graph is currently disabled. Do not add a failing/no-op gate; reconsider it if Dependency Graph is enabled later.
 - **Existing Hani watchdog/outcome health**: runtime freshness, provider status, bounded recovery, state checkpoint and production monitor behavior.
 - **Render + optional Sentry**: deployment/runtime evidence after CI has passed.
 
