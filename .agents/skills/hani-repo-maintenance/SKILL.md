@@ -15,7 +15,7 @@ Do not treat historical-looking module names as dead code. Hani intentionally co
 
 ## Required workflow
 
-1. Read `AGENTS.md`, `docs/repository-maintenance.md`, `docs/module-migrations.md`, and `config/module_migrations.json`.
+1. Read `AGENTS.md`, `docs/repository-maintenance.md`, `docs/module-migrations.md`, and `config/module_migrations.json`. If the task touches the Daily watchdog or `tools/daily_watchdog_hardening.py`, also read `docs/watchdog-transport-safety.md` before changing code or workflow references.
 2. Verify current `main` and task-relevant CI before changing structure.
 3. Generate or inspect the repository structure inventory and Stage B module-family evidence.
 4. Before any rename/move, generate a read-only LibCST plan with `tools/module_refactor_plan.py`.
@@ -106,6 +106,10 @@ Prefer this order:
 10. add architecture-boundary enforcement only after those boundaries are stable.
 
 Active Stage C migrations are authoritative in `config/module_migrations.json`. As of 2026-09-16 this includes `app.live_recovery_hardening` → `app.x_degraded_recovery_runtime`, `app.phase2_correlation_stability` → `app.lifecycle_correlation_runtime`, `app.phase2_final_visibility` → `app.lifecycle_outcome_visibility_runtime`, and `app.channel_part4_finalfix` → `app.channel_source_fact_normalization_runtime`. Do not remove any legacy path merely because static production importers have migrated away.
+
+## Watchdog transport gate
+
+`tools/daily_watchdog_hardening.py` remains a direct production workflow entrypoint and is not an ordinary dead-code or filename-cleanup candidate. Its cross-origin artifact-download behavior is a security/reliability contract documented in `docs/watchdog-transport-safety.md` and directly covered by `tests/test_daily_watchdog_hardening.py`. Before any later rename, move, or simplification, preserve the authenticated GitHub API request, strip GitHub credentials from the signed redirect request, preserve bounded retries and ZIP parsing, inspect `.github/workflows/daily-watchdog.yml` separately from Python-only import tooling, and keep the workflow entrypoint valid throughout migration. A watchdog semantic rename must be a later focused change; do not combine the first direct transport safety-net change with the rename.
 
 ## Forbidden cleanup shortcuts
 
