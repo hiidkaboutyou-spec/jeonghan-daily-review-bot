@@ -12,7 +12,7 @@ from .observability import capture_technical_exception, init_optional_sentry
 from . import final_edit_capture_runtime as _final_edit_capture_runtime
 from . import production_outcome_runtime as _outcome_runtime
 from . import source_first_runtime as _source_first_runtime
-from . import live_recovery_hardening as _live_recovery_hardening
+from . import x_degraded_recovery_runtime as _x_degraded_recovery_runtime
 
 # Final Edit Capture is deliberately installed only on the normal Daily/private-review
 # entrypoint. app.fic_digest imports neither this module nor the capture runtime.
@@ -27,7 +27,7 @@ _outcome_runtime.install_application_hooks(WebhookAwarePersonalAssistant)
 
 # Correct degraded-X provider recovery and structured outcome accounting only
 # after the final production scheduled-scan wrapper has been installed.
-_live_recovery_hardening.install(WebhookAwarePersonalAssistant)
+_x_degraded_recovery_runtime.install(WebhookAwarePersonalAssistant)
 
 # Product Roadmap Phase 5 changes only the private editorial navigation layer. Install
 # it on the final normal-Daily application class so Fanfic/AO3 and lower-level reusable
