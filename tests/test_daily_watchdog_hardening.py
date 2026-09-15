@@ -205,6 +205,7 @@ class DailyWatchdogHardeningTests(unittest.TestCase):
             archive.writestr("production-outcome.json", json.dumps(outcome))
 
         client = SimpleNamespace(
+            base="https://api.github.com/repos/example/hani",
             _request=Mock(
                 return_value={
                     "artifacts": [
@@ -215,7 +216,7 @@ class DailyWatchdogHardeningTests(unittest.TestCase):
                         }
                     ]
                 }
-            )
+            ),
         )
 
         with patch.object(
@@ -229,7 +230,7 @@ class DailyWatchdogHardeningTests(unittest.TestCase):
         client._request.assert_called_once_with(
             "GET",
             "https://api.github.com/repos/example/hani/actions/runs/77/artifacts?per_page=30",
-        ) if hasattr(client, "base") else None
+        )
         download.assert_called_once_with(client, 991)
 
     def test_fetch_retries_boundedly_and_reports_final_failure(self) -> None:
