@@ -15,6 +15,7 @@ from app.x_provider_recovery import (
     _select_rotating_batch,
     collect_degraded_window,
 )
+from app.x_syndication import SyndicationError
 
 
 def _update(handle: str, identifier: str) -> Update:
@@ -70,8 +71,9 @@ class XProviderRecoveryTests(unittest.TestCase):
             ["source8", "source9", "source0", "source1", "source2", "source3", "source4", "source5"],
         )
 
+    @patch("app.x_provider_recovery.collect_agent_reach_timeline")
     @patch("app.x_provider_recovery.collect_syndication_timeline")
-    def test_degraded_window_uses_public_sources_and_marks_partial(self, syndication):
+    def test_degraded_window_uses_public_sources_and_marks_partial(self, syndication, agent_reach):
         def result(handle, *_args, **_kwargs):
             index = handle.replace("source", "")
             return SimpleNamespace(updates=[_update(handle, index)], raw_seen=1)
@@ -91,9 +93,38 @@ class XProviderRecoveryTests(unittest.TestCase):
 
         self.assertEqual(len(updates), 8)
         self.assertEqual(syndication.call_count, 8)
+        agent_reach.assert_not_called()
         self.assertTrue(any("public_syndication_fallback" in item for item in collector.last_errors))
         self.assertTrue(any("8/10" in item for item in collector.last_errors))
         self.assertTrue(any("keyword_search_unavailable" in item for item in collector.last_errors))
+
+    @patch("app.x_provider_recovery.collect_agent_reach_timeline")
+    @patch("app.x_provider_recovery.collect_syndication_timeline")
+    def test_agent_reach_runs_only_after_syndication_failure(self, syndication, agent_reach):
+        syndication.side_effect = SyndicationError("public endpoint unavailable")
+        recovered = _update("source0", "77")
+        recovered.raw_query = "agent-reach-twitter-cli:@source0"
+        agent_reach.return_value = SimpleNamespace(updates=[recovered], raw_seen=1)
+        collector = XCollector(
+            {"auth_token": "auth", "ct0": "ct0"},
+            _sources(1),
+            [],
+        )
+
+        with patch.dict(os.environ, {"X_PROVIDER_PREFLIGHT": "degraded"}):
+            updates = asyncio.run(
+                collect_degraded_window(
+                    collector,
+                    self.start,
+                    self.end,
+                    include_keywords=False,
+                )
+            )
+
+        self.assertEqual([item.id for item in updates], ["77"])
+        syndication.assert_called_once()
+        agent_reach.assert_called_once()
+        self.assertTrue(any("agent_reach_fallback_used" in item for item in collector.last_errors))
 
     @patch("app.x_provider_recovery.collect_syndication_timeline")
     @patch("app.x_provider_recovery._ORIGINAL_COLLECT_WINDOW", new_callable=AsyncMock)
@@ -133,6 +164,30 @@ class XProviderRecoveryTests(unittest.TestCase):
             )
         self.assertEqual([item.id for item in updates], ["2"])
         self.assertTrue(any("public_syndication_fallback" in item for item in collector.last_errors))
+
+    @patch("app.x_provider_recovery.collect_agent_reach_timeline")
+    @patch("app.x_provider_recovery.collect_syndication_timeline")
+    def test_manual_source_uses_agent_reach_if_syndication_fails(self, syndication, agent_reach):
+        syndication.side_effect = SyndicationError("public endpoint unavailable")
+        recovered = _update("source0", "88")
+        recovered.raw_query = "agent-reach-twitter-cli:@source0"
+        agent_reach.return_value = SimpleNamespace(updates=[recovered], raw_seen=1)
+        collector = XCollector(
+            {"auth_token": "auth", "ct0": "ct0"},
+            _sources(1),
+            [],
+        )
+        with patch.dict(os.environ, {"X_PROVIDER_PREFLIGHT": "degraded"}):
+            updates = asyncio.run(
+                _collect_source_with_provider_recovery(
+                    collector,
+                    "source0",
+                    self.start,
+                    self.end,
+                )
+            )
+        self.assertEqual([item.id for item in updates], ["88"])
+        self.assertTrue(any("agent_reach_fallback_used" in item for item in collector.last_errors))
 
 
 if __name__ == "__main__":
