@@ -57,6 +57,17 @@ class ModuleMigrationRegistryTests(unittest.TestCase):
         self.assertFalse(migration["runtime_behavior_change"])
         self.assertGreaterEqual(len(migration["removal_gates"]), 5)
 
+    def test_registry_tracks_channel_source_fact_normalization_compatibility_shim(self) -> None:
+        migration = self._migration("app.channel_part4_finalfix")
+        self.assertEqual(
+            migration["canonical_module"],
+            "app.channel_source_fact_normalization_runtime",
+        )
+        self.assertEqual(migration["status"], "compatibility-shim")
+        self.assertTrue(migration["single_module_object_required"])
+        self.assertFalse(migration["runtime_behavior_change"])
+        self.assertGreaterEqual(len(migration["removal_gates"]), 6)
+
     def test_registered_module_paths_are_unique(self) -> None:
         migrations = self._payload()["migrations"]
         legacy = [item["legacy_module"] for item in migrations]
