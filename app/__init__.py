@@ -41,7 +41,7 @@ from . import source_ledger_runtime as _source_ledger_runtime  # noqa: F401,E402
 # Legacy observability stays downstream and remains compatibility-only.
 from . import zero_silent_miss as _zero_silent_miss  # noqa: F401,E402
 from . import phase2_runtime_compat as _phase2_runtime_compat  # noqa: F401,E402
-from . import phase2_final_visibility as _phase2_final_visibility  # noqa: F401,E402
+from . import lifecycle_outcome_visibility_runtime as _phase2_final_visibility  # noqa: F401,E402
 from . import lifecycle_correlation_runtime as _lifecycle_correlation_runtime  # noqa: F401,E402
 
 # Event Fusion is additive metadata inside the already production-verified StateStore

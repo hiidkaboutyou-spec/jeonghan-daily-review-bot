@@ -105,7 +105,7 @@ Prefer this order:
 9. introduce stable subpackages only after module-family migrations prove the intended boundaries;
 10. add architecture-boundary enforcement only after those boundaries are stable.
 
-Active Stage C migrations are authoritative in `config/module_migrations.json`. As of 2026-09-16 this includes `app.live_recovery_hardening` → `app.x_degraded_recovery_runtime` and `app.phase2_correlation_stability` → `app.lifecycle_correlation_runtime`. Do not remove either legacy path merely because static production importers have migrated away.
+Active Stage C migrations are authoritative in `config/module_migrations.json`. As of 2026-09-16 this includes `app.live_recovery_hardening` → `app.x_degraded_recovery_runtime`, `app.phase2_correlation_stability` → `app.lifecycle_correlation_runtime`, and `app.phase2_final_visibility` → `app.lifecycle_outcome_visibility_runtime`. Do not remove any legacy path merely because static production importers have migrated away.
 
 ## Forbidden cleanup shortcuts
 
