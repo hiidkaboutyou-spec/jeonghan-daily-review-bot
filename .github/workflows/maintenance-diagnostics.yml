@@ -176,7 +176,7 @@ jobs:
             echo "- Stage C LibCST refactor planner: blocking self-tests, read-only source behavior; no automatic apply."
             echo "- Active Stage C degraded-X migration plan: generated read-only on every maintenance run while the compatibility shim exists."
             echo "- Active Stage C lifecycle-correlation migration plan: generated read-only on every maintenance run while the compatibility shim exists."
-            echo "- Candidate Stage C lifecycle-outcome visibility plan: generated read-only before any source move/rename."
+            echo "- Active Stage C lifecycle-outcome visibility migration plan: generated read-only on every maintenance run while the compatibility shim exists."
             echo "- Import ordering and formatting: report-only during cleanup rollout."
             echo "- Vulture dead-code candidates: report-only; never auto-delete."
             echo "- Complexipy cognitive-complexity hotspots: report-only; used to prioritize human-reviewed refactors."
