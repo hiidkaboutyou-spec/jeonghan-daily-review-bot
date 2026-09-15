@@ -103,6 +103,11 @@ jobs:
             --new-module app.lifecycle_outcome_visibility_runtime \
             --json stage-c-lifecycle-outcome-visibility-plan.json \
             --markdown stage-c-lifecycle-outcome-visibility-plan.md
+          .maintenance-env/bin/python tools/module_refactor_plan.py \
+            --old-module app.channel_part4_finalfix \
+            --new-module app.channel_source_fact_normalization_runtime \
+            --json stage-c-channel-source-fact-normalization-plan.json \
+            --markdown stage-c-channel-source-fact-normalization-plan.md
 
       - name: Capture per-test Stage B coverage evidence
         if: github.event_name != 'push'
@@ -177,6 +182,7 @@ jobs:
             echo "- Active Stage C degraded-X migration plan: generated read-only on every maintenance run while the compatibility shim exists."
             echo "- Active Stage C lifecycle-correlation migration plan: generated read-only on every maintenance run while the compatibility shim exists."
             echo "- Active Stage C lifecycle-outcome visibility migration plan: generated read-only on every maintenance run while the compatibility shim exists."
+            echo "- Candidate Stage C channel source-fact normalization plan: generated read-only before any source move/rename."
             echo "- Import ordering and formatting: report-only during cleanup rollout."
             echo "- Vulture dead-code candidates: report-only; never auto-delete."
             echo "- Complexipy cognitive-complexity hotspots: report-only; used to prioritize human-reviewed refactors."
@@ -200,6 +206,8 @@ jobs:
             stage-c-lifecycle-correlation-plan.md
             stage-c-lifecycle-outcome-visibility-plan.json
             stage-c-lifecycle-outcome-visibility-plan.md
+            stage-c-channel-source-fact-normalization-plan.json
+            stage-c-channel-source-fact-normalization-plan.md
             ruff-import-order.txt
             ruff-format-check.txt
             vulture-high-confidence.txt
