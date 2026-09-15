@@ -17,7 +17,7 @@ CATEGORY_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("events", ("event_", "timeline")),
     ("fanfic", ("fic_", "ao3")),
     ("sources", ("source_", "configured_source", "x_", "provider", "collector")),
-    ("editorial", ("channel_", "translation", "caption", "voice", "style", "ai")),
+    ("editorial", ("channel_", "translation", "caption", "voice", "style", "ai_")),
     ("state_recovery", ("archive", "state", "recovery", "backup", "callback", "private_review")),
     ("delivery", ("telegram", "delivery", "bot")),
     ("observability", ("completeness", "zero_silent", "health", "watchdog", "outcome", "benchmark")),
@@ -34,6 +34,8 @@ def _module_name(path: Path, root: Path) -> str:
 
 def _category(module: str) -> str:
     leaf = module.rsplit(".", 1)[-1].lower()
+    if leaf == "ai":
+        return "editorial"
     for category, patterns in CATEGORY_PATTERNS:
         if any(pattern in leaf for pattern in patterns):
             return category
