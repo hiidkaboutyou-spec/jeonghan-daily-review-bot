@@ -1,16 +1,30 @@
 from __future__ import annotations
 
+import sys
 import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app import lifecycle_correlation_runtime as correlation_runtime
+from app import phase2_correlation_stability as legacy_correlation_runtime
 from app.models import Draft, Update
 from app.state import StateStore
 from app.zero_silent_miss import translation_job_id
 
 
 class Phase2CorrelationTests(unittest.TestCase):
+    def test_legacy_import_resolves_to_canonical_module(self):
+        self.assertIs(legacy_correlation_runtime, correlation_runtime)
+        self.assertIs(
+            sys.modules["app.phase2_correlation_stability"],
+            correlation_runtime,
+        )
+        self.assertIs(
+            sys.modules["app.lifecycle_correlation_runtime"],
+            correlation_runtime,
+        )
+
     def test_translation_job_and_first_event_id_stay_stable_across_stage_labels(self):
         with tempfile.TemporaryDirectory() as temp:
             state = StateStore(Path(temp) / "state.json")

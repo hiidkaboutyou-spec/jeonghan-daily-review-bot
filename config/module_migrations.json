@@ -16,6 +16,23 @@
         "A production main run passes runtime smoke, live-provider checks, a complete monitor pass, database checkpoint, encrypted backup, and state persistence after the final caller migration.",
         "Legacy shim removal is performed in a later focused pull request, never in the initial migration pull request."
       ]
+    },
+    {
+      "legacy_module": "app.phase2_correlation_stability",
+      "canonical_module": "app.lifecycle_correlation_runtime",
+      "status": "compatibility-shim",
+      "introduced_on": "2026-09-16",
+      "reason": "Replace a roadmap-phase name with the stable lifecycle-correlation responsibility while preserving correlation, retry, and import-time installation semantics.",
+      "single_module_object_required": true,
+      "runtime_behavior_change": false,
+      "removal_gates": [
+        "No production, workflow, CLI, config, dynamic-import, or test caller requires the legacy module path.",
+        "LibCST migration plan shows no unresolved legacy callers other than the compatibility contract itself.",
+        "Focused lifecycle-correlation tests and the full project validation suite are green after callers migrate.",
+        "Import order remains zero_silent_miss, phase2_runtime_compat, phase2_final_visibility, lifecycle_correlation_runtime before Event Fusion.",
+        "A production main run passes state restore, project validation, runtime smoke, live-provider checks, a complete monitor pass, database checkpoint, encrypted backup, and state persistence after the final caller migration.",
+        "Legacy shim removal is performed in a later focused pull request, never in the initial migration pull request."
+      ]
     }
   ]
 }
