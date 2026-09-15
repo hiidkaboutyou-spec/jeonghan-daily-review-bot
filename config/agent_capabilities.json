@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "audited_at": "2026-09-15",
+  "audited_at": "2026-09-16",
   "policy": {
     "runtime_dependencies_added": false,
     "project_skill_root": ".agents/skills",
@@ -153,6 +153,33 @@
       "use": "Pinned maintenance-only Stage B queryable import-chain analysis for direct/transitive impact evidence; report-only and never proof of dead code."
     },
     {
+      "id": "libcst",
+      "repository": "Instagram/LibCST",
+      "commit": "c029c17bf45a3737fc8d1347001ab2422f42ae58",
+      "license": "MIT with documented PSF/Apache-derived files",
+      "decision": "adapted",
+      "runtime": false,
+      "use": "Pinned maintenance-only Stage C concrete-syntax parsing for read-only module refactor plans. Hani does not enable unattended codemod application; dynamic references and import order remain manual review gates."
+    },
+    {
+      "id": "rope",
+      "repository": "python-rope/rope",
+      "commit": "a32584f5742c093b10437f8da13bfefddb19c155",
+      "license": "LGPL-3.0",
+      "decision": "reference-only",
+      "runtime": false,
+      "use": "Active Python refactoring engine with rename/move/import capabilities, but its higher-level stateful transformations are broader than needed for Hani's import-side-effect-heavy Stage C. Keep as reference while using narrower read-only LibCST planning."
+    },
+    {
+      "id": "bowler",
+      "repository": "facebookincubator/Bowler",
+      "commit": "92c9eeb7eebab8a1b65a989d0cf3b4947773ea2b",
+      "license": "MIT",
+      "decision": "reject",
+      "runtime": false,
+      "use": "Archived upstream and built around the older fissix/lib2to3 codemod stack; upstream guidance points modern Python users toward LibCST instead."
+    },
+    {
       "id": "import-linter",
       "repository": "seddonym/import-linter",
       "commit": "31927f1457e3df673912cb5efb0afa6dbc37585f",
@@ -208,7 +235,7 @@
     },
     {
       "path": ".agents/skills/hani-repo-maintenance/SKILL.md",
-      "source_refs": ["astral-ruff", "vulture", "deptry", "complexipy", "coveragepy", "grimp"]
+      "source_refs": ["astral-ruff", "vulture", "deptry", "complexipy", "coveragepy", "grimp", "libcst"]
     }
   ]
 }
