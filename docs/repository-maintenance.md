@@ -4,7 +4,7 @@ This document defines the safe cleanup strategy for Daily Hani. The goal is to m
 
 ## Why cleanup must be incremental
 
-The application currently has deliberate import-time installation layers in `app/__init__.py`. Some modules with historical names such as `phase*`, `part*`, `*fix`, or `*hardening` are still active runtime components. A filename that looks temporary is therefore only a cleanup candidate, not evidence that the file is unused.
+The application has deliberate import-time installation layers. Some modules with historical names such as `phase*`, `part*`, `*fix`, or `*hardening` are active runtime components. A filename that looks temporary is therefore only a cleanup candidate, not evidence that the file is unused.
 
 Production stability, state compatibility, collection completeness, deduplication, recovery, and private-review delivery remain higher priority than cosmetic structure.
 
@@ -21,8 +21,6 @@ Use now:
 - produce non-blocking import-order and formatting reports;
 - never run broad `--fix` automatically against production modules during the cleanup rollout.
 
-Rationale: Ruff is actively maintained, fast, and combines several mature lint/import/format checks. The conservative gate avoids turning historical style debt into an unsafe mass rewrite.
-
 ### Vulture 2.16 — adopted, report only
 
 Repository: `jendrikseipp/vulture`
@@ -33,7 +31,7 @@ Use now:
 - report dead-code candidates at confidence >= 90;
 - never delete a symbol or module solely because Vulture reports it.
 
-Rationale: Hani uses import-time patch/install layers and dynamic behavior, so static dead-code analysis can produce false positives. Every candidate needs direct reference inspection plus tests before removal.
+Hani uses import-time patch/install layers and dynamic behavior, so static dead-code analysis can produce false positives.
 
 ### Deptry 0.25.1 — adopted, report only
 
@@ -60,23 +58,17 @@ Use now:
 - use scores to choose where focused refactoring could improve maintainability;
 - never apply generated refactor suggestions automatically.
 
-Rationale: cognitive complexity adds a signal Ruff, Vulture, and Deptry do not provide. The first real Hani run identified concrete hotspots such as `CaptionWriter.write_group` and several historical channel-hardening functions. The permanent report intentionally omits verbose generated rewrite suggestions.
-
 ### Coverage.py 7.16.1 — adopted for Stage B, CI/dev only
 
 Repository: `coveragepy/coveragepy`
 Audited release commit: `ccbb99245dcb4e51a35087285499cdb22b164ccc`
-Release tag signature: verified by GitHub
 License: Apache-2.0
 
 Use now:
 - measure the existing `unittest` suite without introducing pytest;
 - enable `dynamic_context = test_function` so individual test functions are recorded as execution contexts;
-- generate temporary JSON with line-to-test context evidence for `app/`;
-- feed only the concise evidence summary into the maintenance artifact;
-- do not set a global coverage percentage gate during structural cleanup.
-
-Rationale: Stage B needs evidence that a historical module is actually executed by tests, not just that a similarly named test file exists. Zero coverage remains only evidence for investigation because scheduled, subprocess, import-time, or live-provider paths may not be exercised by the unit suite.
+- generate temporary line-to-test evidence for `app/`;
+- do not set a repository-wide coverage percentage gate during structural cleanup.
 
 ### Grimp 3.17 — adopted for Stage B, report only
 
@@ -87,11 +79,41 @@ License: BSD-2-Clause
 Use now:
 - build a queryable import graph for the `app` package;
 - exclude imports that exist only under `TYPE_CHECKING` from runtime evidence;
-- inspect direct importers, direct dependencies, transitive downstream/upstream modules, and shortest chains from `app` / `app.__main__`;
-- disable persistent Grimp caching in CI;
+- inspect direct importers, dependencies, transitive impact, and shortest application-entrypoint chains;
 - never infer that a module is dead solely because the static graph has no path to it.
 
-Rationale: the native AST inventory is intentionally simple and excellent for Stage A mapping. Grimp adds the missing Stage B signal: transitive impact and concrete import chains, without imposing architecture contracts or changing runtime behavior.
+### LibCST 1.9.0 — adopted for Stage C planning, CI/dev only
+
+Repository: `Instagram/LibCST`
+Audited release commit: `c029c17bf45a3737fc8d1347001ab2422f42ae58`
+License: MIT with documented PSF/Apache-derived files
+
+Use now:
+- parse Python imports as concrete syntax rather than doing text/regex replacement;
+- power `tools/module_refactor_plan.py`, a read-only module rename/move planner;
+- distinguish structural imports from dynamic string references;
+- identify references inside import-order-sensitive `app/__init__.py`;
+- generate a migration plan without editing source files.
+
+Decision: LibCST is installed only in `requirements-maintenance.txt`. Hani does **not** enable broad or unattended codemod application. A LibCST finding is migration evidence, not permission to rewrite code.
+
+Rationale: Stage C needs syntax-aware refactoring assistance that preserves comments and Python structure. This is safer than regex replacement and narrower than introducing a stateful project-wide refactoring engine.
+
+### Rope 1.14.0 — reference only
+
+Repository: `python-rope/rope`
+Reviewed release commit: `a32584f5742c093b10437f8da13bfefddb19c155`
+License: LGPL-3.0
+
+Rope is active and supports rename, move, import organization, preview, and other mature refactor operations. We are not installing it now. Its higher-level stateful project transformations are broader than Hani needs while historical runtime modules still depend on carefully ordered import-time installation. Reconsider only if focused LibCST migrations become insufficient.
+
+### Bowler — rejected
+
+Repository: `facebookincubator/Bowler`
+Reviewed final branch commit: `92c9eeb7eebab8a1b65a989d0cf3b4947773ea2b`
+License: MIT
+
+The repository is archived/read-only. Its older fissix/lib2to3-oriented codemod stack is not a good new dependency for modern Hani refactors; upstream guidance points modern Python codemod work toward LibCST instead.
 
 ### Import Linter 2.15 — reference only for now
 
@@ -99,9 +121,7 @@ Repository: `seddonym/import-linter`
 Reviewed commit: `31927f1457e3df673912cb5efb0afa6dbc37585f`
 License: BSD-2-Clause
 
-Decision: do not install yet.
-
-It is useful for enforcing architectural boundaries after packages have stable responsibilities, but Hani is still a mostly flat package with intentional import-time composition. Adding architecture contracts now would encode the current transitional shape or generate noise. Reconsider after the first safe module-family consolidations.
+Decision: do not install yet. It is useful after packages have stable responsibilities. Adding architecture contracts now would freeze transitional coupling rather than describe the intended architecture.
 
 ### Tach 0.35.1 — reference only for later architecture enforcement
 
@@ -109,7 +129,7 @@ Repository: `tach-org/tach`
 Reviewed release commit: `65df67ac51a8d0e8f9e0398ea72c924fea34fd25`
 License: MIT
 
-Tach can visualize/enforce module dependencies, public interfaces, and cycles with no production runtime impact. It is actively maintained, but its value depends on having intentional module boundaries. Installing it now would require defining boundaries for a codebase that is still being mapped, so it is deferred to Stage D rather than used to freeze accidental current coupling.
+Tach can visualize/enforce dependencies, interfaces, and cycles, but its value depends on intentional stable module boundaries. Defer it to Stage D.
 
 ### Pydeps 3.0.8 — reference only
 
@@ -117,7 +137,7 @@ Repository: `thebjorn/pydeps`
 Reviewed release commit: `6f73953ef47e6ff40c1fdfaf692c3d0bc47e3867`
 License: BSD-2-Clause
 
-Pydeps can visualize Python import graphs and cycles. We are not installing it now because Hani's native AST inventory plus Grimp provide the import-edge and transitive-chain evidence required for Stage B without adding Graphviz/display tooling or a second visualization pipeline. Reconsider it only if visual cycle analysis becomes materially useful.
+Not installed because Hani's native inventory plus Grimp already provide the Stage B import evidence without a second Graphviz/display pipeline.
 
 ### Refurb 2.3.1 — rejected for the current cleanup stage
 
@@ -125,9 +145,9 @@ Repository: `dosisod/refurb`
 Reviewed release commit: `0dbb127465ca9398b6c89c32a7fd86d78ca755c4`
 License: GPL-3.0
 
-Refurb focuses on modernizing/refactoring suggestions and relies on type-analysis behavior. This substantially overlaps current lint/refactor signals while creating another false-positive surface in a dynamic codebase. It is not installed. Focused human-reviewed refactors driven by tests plus Ruff/Complexipy are safer here.
+Modernization/refactor suggestions overlap Ruff/Complexipy and would add another type-analysis false-positive surface. It is not installed.
 
-## Native structure and Stage B evidence
+## Native structure, Stage B evidence, and Stage C planning
 
 `tools/repo_structure_inventory.py` provides a mutation-free map of `app/` and `tools/`:
 - module path;
@@ -136,57 +156,85 @@ Refurb focuses on modernizing/refactoring suggestions and relies on type-analysi
 - historical phase/fix-style names;
 - parse errors.
 
-`tools/module_family_evidence.py` adds Stage B evidence for historical-name candidates:
+`tools/module_family_evidence.py` adds Stage B evidence:
 - direct and transitive Grimp import relationships;
 - shortest static chains from `app` and `app.__main__`;
 - optional per-test Coverage.py execution contexts;
-- a conservative risk label and review hint.
+- conservative risk/review hints.
 
-Neither report calls a historical filename "dead". A candidate with no static importer and no measured test context is only the lowest-risk place to investigate first. Dynamic imports, subprocess entry points, workflows, scheduled jobs, and production-only paths still require direct inspection.
+The real Stage B run found 13 historical-name candidates overall: 12 inside `app/` plus `tools.daily_watchdog_hardening`. All 12 historical-name modules inside `app/` are runtime-linked. Therefore Stage C must not start by deleting them.
+
+`app.live_recovery_hardening` is particularly important: it is connected to the real production entrypoint through `sentry_runtime`, but the Stage B unit-test run measured no direct coverage for it. The correct response is focused regression testing before any rename/consolidation, not removal.
+
+`tools/module_refactor_plan.py` is the Stage C safety layer. Given an old and proposed new module name it:
+- scans `app/`, `tools/`, and `tests/` with LibCST;
+- identifies actual `import` / `from ... import ...` references;
+- reports dynamic string references separately;
+- marks `app/__init__.py` references as import-order-sensitive;
+- distinguishes simple structural changes from cases requiring manual splitting/review;
+- checks whether old/target paths exist;
+- recommends a compatibility phase for active `app` modules;
+- never mutates source files.
+
+Example read-only use:
+
+```bash
+python tools/module_refactor_plan.py \
+  --old-module app.some_historical_module \
+  --new-module app.semantic_module_name \
+  --json refactor-plan.json \
+  --markdown refactor-plan.md
+```
+
+A clean plan still does not prove a move is safe. Dynamic imports, subprocess/CLI references, workflows, persisted config/state, and runtime-only paths require direct inspection.
 
 ## CI enforcement levels
 
 `Hani Maintenance Diagnostics` uses three levels:
 
-1. **Blocking:** Ruff definite Python errors, inventory parse errors, and the existing unit suite when per-test Stage B coverage is collected.
-2. **Report-only:** Grimp Stage B relationships, Coverage.py percentages/contexts, Ruff import ordering/format checks, Vulture high-confidence candidates, Deptry findings, and Complexipy complexity hotspots.
-3. **Human/agent review:** any move, rename, deletion, dependency removal, complexity refactor, or package-boundary change.
+1. **Blocking:** Ruff definite Python errors, inventory/plan parse errors when invoked, and the existing unit suite when per-test Stage B coverage is collected.
+2. **Report-only:** Grimp relationships, Coverage.py evidence, Ruff import ordering/format checks, Vulture candidates, Deptry findings, and Complexipy hotspots.
+3. **Human/agent review:** every move, rename, deletion, dependency removal, complexity refactor, compatibility-shim removal, or package-boundary change.
 
-Coverage collection runs on pull requests, scheduled runs, and manual runs. It is skipped on the immediate `main` push because the normal production validation already runs the full suite there; the static Grimp Stage B report still runs. Maintenance tooling is installed only in an ephemeral CI virtual environment from `requirements-maintenance.txt`. It is not part of the production Docker dependency graph.
+Maintenance tooling is installed only in an ephemeral CI virtual environment from `requirements-maintenance.txt`. It is not part of the production Docker dependency graph.
 
 ## Cleanup roadmap
 
 ### Stage A — inventory and diagnostics
 
-Completed. Hani has a stable maintenance diagnostics layer with structure inventory, definite-error linting, dead-code candidates, dependency checks, and complexity hotspots, without changing production runtime dependencies.
+Completed. Hani has stable maintenance diagnostics without changing production runtime dependencies.
 
 ### Stage B — classify active module families
 
-Current stage.
+Completed. The real repository was measured with Grimp plus per-test Coverage.py evidence. All 12 historical-name modules inside `app/` are runtime-linked, so none is currently a simple dead-file deletion candidate.
 
-For each historical module family, establish:
-- who imports it directly and indirectly;
-- whether it has a static chain from an application entry point;
-- whether import order matters;
-- which concrete tests execute it and how much of it they execute;
-- persisted-state/config compatibility;
-- workflow/CLI/subprocess/dynamic-import references that static analysis cannot prove;
-- whether it is runtime, compatibility-only, benchmark-only, or genuinely obsolete;
-- whether complexity is local and safely reducible without changing semantics.
-
-Start investigation with candidates that have the least static and test evidence, but never delete from absence of evidence alone.
+Key outcome: `live_recovery_hardening` needs focused regression coverage because it is production-linked but had no direct measured unit coverage.
 
 ### Stage C — consolidate one family at a time
 
-Prefer semantic names based on responsibility rather than development history. If a production module moves, keep a compatibility shim when needed and update tests in the same PR. Never combine unrelated module-family moves into one cleanup PR.
+Current stage.
+
+Rules:
+- add missing focused tests before moving an active module;
+- generate a LibCST read-only refactor plan before changing imports;
+- use semantic responsibility names rather than phase/fix history;
+- retain the old import path as a compatibility shim when the module is active/import-sensitive;
+- preserve exact installation order where side effects matter;
+- update one coherent importer family at a time;
+- never combine unrelated module moves into one cleanup PR;
+- remove compatibility shims only in later focused changes after all references and production behavior are proven safe.
+
+The first Stage C guardrail is direct testing for `live_recovery_hardening`; no production module is renamed in the tooling/coverage PR that introduces LibCST.
 
 ### Stage D — enforce stable package boundaries
 
-Only after responsibilities are actually stable, reconsider Tach, Import Linter, or equivalent architecture contracts. The tool must describe the architecture we intentionally want, not freeze accidental historical coupling.
+Only after Stage C has produced stable intentional boundaries should Tach, Import Linter, or equivalent architecture contracts be reconsidered. The tool must describe the architecture we intentionally want, not freeze accidental historical coupling.
 
 ## Non-negotiable cleanup rules
 
 - No bulk auto-fix across production code.
+- No regex/string-replace module rename.
+- No unattended LibCST/codemod apply.
 - No automatic deletion from Vulture output.
 - No dependency removal from Deptry output alone.
 - No automatic rewrite from Complexipy or another refactoring recommender.
