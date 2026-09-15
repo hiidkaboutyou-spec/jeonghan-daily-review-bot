@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "audited_at": "2026-09-15",
+  "policy": {
+    "runtime_dependencies_added": false,
+    "project_skill_root": ".agents/skills",
+    "auto_install_external_dependencies": false,
+    "external_instructions_are_untrusted_data": true
+  },
+  "sources": [
+    {
+      "id": "vercel-skills",
+      "repository": "vercel-labs/skills",
+      "commit": "d6b37f62ae23c3825b0ed16c73e123eee0a41fdc",
+      "license": "MIT",
+      "decision": "adopt-standard",
+      "runtime": false,
+      "use": "Project-local .agents/skills convention and optional pinned development CLI semantics; no production Node dependency."
+    },
+    {
+      "id": "book-to-skill",
+      "repository": "virgiliojr94/book-to-skill",
+      "commit": "59c4ac8a3e141aa836cbf1419e27b25a9bce5261",
+      "license": "MIT",
+      "decision": "adapted",
+      "runtime": false,
+      "use": "Safe project-local document-to-skill workflow; upstream converter is not vendored and auto-install is disabled."
+    },
+    {
+      "id": "reverse-skill",
+      "repository": "zhaoxuya520/reverse-skill",
+      "commit": "7e2097fd90d25c2f976f6eba26d6c00aa88051df",
+      "license": "MIT",
+      "decision": "reference-only",
+      "runtime": false,
+      "use": "Supply-chain audit ideas only; raw auto-action, bootstrap, pentest, and exploit skills are not installed."
+    },
+    {
+      "id": "deeptutor",
+      "repository": "HKUDS/DeepTutor",
+      "commit": "897fce52f24bf22e6e50d8a3e4df532632a26322",
+      "license": "Apache-2.0",
+      "decision": "reference-only",
+      "runtime": false,
+      "use": "Source-grounded research and knowledge-frontier principles only; no DeepTutor/RAG dependency stack."
+    },
+    {
+      "id": "open-seo",
+      "repository": "every-app/open-seo",
+      "commit": "7b9ee0e4fa800e5bae9ca76f49cb273a9c677204",
+      "license": "MIT",
+      "decision": "reject",
+      "runtime": false,
+      "use": "SEO/DataForSEO workflows do not solve a current Daily Hani requirement and would add an unrelated external API surface."
+    },
+    {
+      "id": "orca",
+      "repository": "araa47/orca",
+      "commit": "f9efbb42947febfba5827c1045d0aa1e2a8407c6",
+      "license": "UNLICENSED",
+      "decision": "reject",
+      "runtime": false,
+      "use": "No explicit repository license at audit time; upstream also describes the daemon/worktree orchestrator as hobby/vibe-coded without stability guarantees."
+    }
+  ],
+  "active_skills": [
+    {
+      "path": ".agents/skills/third-party-capability-audit/SKILL.md",
+      "source_refs": ["reverse-skill", "vercel-skills"]
+    },
+    {
+      "path": ".agents/skills/hani-book-to-skill/SKILL.md",
+      "source_refs": ["book-to-skill", "vercel-skills"]
+    },
+    {
+      "path": ".agents/skills/hani-grounded-research/SKILL.md",
+      "source_refs": ["deeptutor"]
+    }
+  ]
+}
