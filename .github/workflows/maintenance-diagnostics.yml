@@ -74,6 +74,12 @@ jobs:
             --json repo-structure.json \
             --markdown repo-structure.md
 
+      - name: Validate Stage C LibCST refactor planner
+        shell: bash
+        run: |
+          set -euo pipefail
+          .maintenance-env/bin/python -m unittest tests.test_module_refactor_plan -v
+
       - name: Capture per-test Stage B coverage evidence
         if: github.event_name != 'push'
         shell: bash
@@ -131,7 +137,7 @@ jobs:
             --requirements-files requirements.txt \
             --known-first-party app \
             --known-first-party tools \
-            --extend-exclude "\\.maintenance-env|tools/module_family_evidence\\.py" \
+            --extend-exclude "\\.maintenance-env|tools/module_family_evidence\\.py|tools/module_refactor_plan\\.py" \
             --per-rule-ignores "DEP001=daily_watchdog,DEP002=agent-reach|twitter-cli|uvicorn" \
             --no-ansi > deptry-report.txt 2>&1 || true
 
@@ -143,6 +149,7 @@ jobs:
             echo "- Ruff definite Python errors: blocking."
             echo "- Stage B Grimp import-chain evidence: report-only; never authorizes moves/deletions."
             echo "- Stage B Coverage.py per-test evidence: collected on PR/manual/scheduled runs; no global coverage threshold yet."
+            echo "- Stage C LibCST refactor planner: blocking self-tests, read-only source behavior; no automatic apply."
             echo "- Import ordering and formatting: report-only during cleanup rollout."
             echo "- Vulture dead-code candidates: report-only; never auto-delete."
             echo "- Complexipy cognitive-complexity hotspots: report-only; used to prioritize human-reviewed refactors."
