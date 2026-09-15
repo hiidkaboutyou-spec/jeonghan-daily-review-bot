@@ -17,6 +17,9 @@ class RepoStructureInventoryTests(unittest.TestCase):
                 "from . import channel_part4_finalfix\n",
                 encoding="utf-8",
             )
+            (root / "app" / "__main__.py").write_text("VALUE = 1\n", encoding="utf-8")
+            (root / "app" / "main.py").write_text("VALUE = 1\n", encoding="utf-8")
+            (root / "app" / "ai.py").write_text("VALUE = 1\n", encoding="utf-8")
             (root / "app" / "channel_part4_finalfix.py").write_text(
                 "from app import source_ledger_runtime\n",
                 encoding="utf-8",
@@ -33,13 +36,16 @@ class RepoStructureInventoryTests(unittest.TestCase):
             inventory = build_inventory(root)
 
         summary = inventory["summary"]
-        self.assertEqual(summary["module_count"], 4)
+        self.assertEqual(summary["module_count"], 7)
         self.assertEqual(summary["historical_name_count"], 1)
         self.assertIn("app.channel_part4_finalfix", inventory["historical_name_modules"])
 
         by_module = {entry["module"]: entry for entry in inventory["modules"]}
         self.assertEqual(by_module["app.channel_part4_finalfix"]["category"], "editorial")
         self.assertEqual(by_module["app.source_ledger_runtime"]["category"], "sources")
+        self.assertEqual(by_module["app.ai"]["category"], "editorial")
+        self.assertEqual(by_module["app.main"]["category"], "other")
+        self.assertEqual(by_module["app.__main__"]["category"], "other")
         self.assertEqual(by_module["tools.daily_watchdog"]["category"], "observability")
         self.assertIn("app.channel_part4_finalfix", by_module["app"]["internal_imports"])
         self.assertIn("app.source_ledger_runtime", by_module["tools.daily_watchdog"]["internal_imports"])
