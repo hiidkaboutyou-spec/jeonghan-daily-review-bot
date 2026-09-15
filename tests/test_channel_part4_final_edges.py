@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from app.channel_part4_hardening import verify_hard_facts
-from app.channel_part4_finalfix import _safe_canonicalize_source_authorized_terms
+from app.channel_source_fact_normalization_runtime import _safe_canonicalize_source_authorized_terms
 from app.channel_style_runtime import analyze_source
 
 
