@@ -135,6 +135,24 @@
       "use": "Pinned maintenance-only cognitive-complexity hotspot reporting. Scores prioritize focused review but never authorize automatic production refactors."
     },
     {
+      "id": "coveragepy",
+      "repository": "coveragepy/coveragepy",
+      "commit": "ccbb99245dcb4e51a35087285499cdb22b164ccc",
+      "license": "Apache-2.0",
+      "decision": "adapted",
+      "runtime": false,
+      "use": "Pinned maintenance-only Stage B per-test execution evidence using dynamic test-function contexts; no production dependency and no global coverage gate."
+    },
+    {
+      "id": "grimp",
+      "repository": "python-grimp/grimp",
+      "commit": "286f0f5de79d29dea44cfa6563802e9b4fe37dea",
+      "license": "BSD-2-Clause",
+      "decision": "adapted",
+      "runtime": false,
+      "use": "Pinned maintenance-only Stage B queryable import-chain analysis for direct/transitive impact evidence; report-only and never proof of dead code."
+    },
+    {
       "id": "import-linter",
       "repository": "seddonym/import-linter",
       "commit": "31927f1457e3df673912cb5efb0afa6dbc37585f",
@@ -159,7 +177,7 @@
       "license": "BSD-2-Clause",
       "decision": "reference-only",
       "runtime": false,
-      "use": "Import-graph and cycle visualization is useful but currently overlaps Hani's native AST inventory while adding Graphviz/display tooling; reconsider if visual cycle analysis becomes necessary."
+      "use": "Import-graph and cycle visualization is useful but currently overlaps Hani's native AST inventory plus Grimp while adding Graphviz/display tooling; reconsider if visual cycle analysis becomes necessary."
     },
     {
       "id": "refurb",
@@ -190,7 +208,7 @@
     },
     {
       "path": ".agents/skills/hani-repo-maintenance/SKILL.md",
-      "source_refs": ["astral-ruff", "vulture", "deptry", "complexipy"]
+      "source_refs": ["astral-ruff", "vulture", "deptry", "complexipy", "coveragepy", "grimp"]
     }
   ]
 }
