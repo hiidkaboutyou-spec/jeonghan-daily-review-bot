@@ -1,0 +1,5 @@
+# Development/CI-only repository maintenance tools.
+# These packages are never installed into the production Docker image.
+ruff==0.16.7
+vulture==2.16
+deptry==0.25.1
