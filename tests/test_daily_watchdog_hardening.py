@@ -20,9 +20,9 @@ ROOT = Path(__file__).resolve().parents[1]
 class DailyWatchdogHardeningTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        # Importing the production wrapper intentionally patches the canonical
-        # watchdog client. Keep that side effect scoped to this test class so
-        # unrelated unit tests continue to exercise their normal import state.
+        # Importing the compatibility transport module intentionally patches the
+        # canonical watchdog client. Keep that side effect scoped to this test
+        # class so unrelated unit tests continue to exercise normal import state.
         cls._original_fetch = watchdog.GitHubActionsClient.fetch_latest_production_outcome
         cls.hardening = importlib.import_module("tools.daily_watchdog_hardening")
 
@@ -255,11 +255,17 @@ class DailyWatchdogHardeningTests(unittest.TestCase):
             run_id=88,
         )
 
-    def test_production_workflow_still_uses_hardened_entrypoint(self) -> None:
+    def test_production_workflow_uses_semantic_entrypoint(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "daily-watchdog.yml").read_text(
             encoding="utf-8"
         )
-        self.assertIn("run: python tools/daily_watchdog_hardening.py", workflow)
+        active_run_lines = [
+            line.strip()
+            for line in workflow.splitlines()
+            if line.lstrip().startswith("run:")
+        ]
+        self.assertIn("run: python tools/daily_watchdog_runner.py", active_run_lines)
+        self.assertNotIn("run: python tools/daily_watchdog_hardening.py", active_run_lines)
 
 
 if __name__ == "__main__":
