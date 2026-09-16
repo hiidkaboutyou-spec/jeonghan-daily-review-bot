@@ -16,9 +16,16 @@ except ModuleNotFoundError:  # direct `python tools/...py` execution
 
 def _install_transport_hardening() -> None:
     try:
-        from tools import daily_watchdog_hardening as _transport_hardening  # noqa: F401
+        from tools import daily_watchdog_hardening as _transport_hardening
     except ModuleNotFoundError:  # direct `python tools/...py` execution
-        import daily_watchdog_hardening as _transport_hardening  # noqa: F401
+        import daily_watchdog_hardening as _transport_hardening
+
+    # Do not rely solely on the compatibility module's import-time side effect:
+    # module caching means a later caller may need to restore the protected
+    # method explicitly. Assignment is idempotent and keeps execution order clear.
+    _watchdog.GitHubActionsClient.fetch_latest_production_outcome = (
+        _transport_hardening._fetch_latest_production_outcome
+    )
 
 
 def main() -> int:
