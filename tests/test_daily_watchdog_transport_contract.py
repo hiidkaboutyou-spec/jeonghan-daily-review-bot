@@ -11,10 +11,11 @@ from unittest.mock import MagicMock, Mock, call, patch
 from urllib import error
 
 from tools import daily_watchdog as watchdog
+from tools import daily_watchdog_transport as transport
 
 
 class DailyWatchdogCanonicalTransportContractTests(unittest.TestCase):
-    """Lock the credential-safe artifact transport to the canonical module."""
+    """Lock the credential-safe artifact transport to its semantic owner."""
 
     @staticmethod
     def _response(body: bytes) -> MagicMock:
@@ -33,14 +34,11 @@ class DailyWatchdogCanonicalTransportContractTests(unittest.TestCase):
             headers["Location"] = location
         return error.HTTPError(url, code, "redirect", headers, None)
 
-    def test_canonical_client_owns_hardened_fetch_method(self) -> None:
-        self.assertIs(
-            watchdog.GitHubActionsClient.fetch_latest_production_outcome,
-            watchdog._fetch_latest_production_outcome,
-        )
+    def test_transport_owner_targets_canonical_watchdog_contract(self) -> None:
+        self.assertIs(transport._watchdog, watchdog)
 
-    def test_canonical_no_redirect_handler_refuses_automatic_redirect(self) -> None:
-        handler = watchdog._NoRedirect()
+    def test_no_redirect_handler_refuses_automatic_redirect(self) -> None:
+        handler = transport._NoRedirect()
         self.assertIsNone(
             handler.redirect_request(
                 object(),
@@ -52,7 +50,7 @@ class DailyWatchdogCanonicalTransportContractTests(unittest.TestCase):
             )
         )
 
-    def test_canonical_direct_download_keeps_api_auth_on_initial_request_only(self) -> None:
+    def test_direct_download_keeps_api_auth_on_initial_request_only(self) -> None:
         client = SimpleNamespace(
             base="https://api.github.com/repos/example/hani",
             token="super-secret-token",
@@ -62,13 +60,13 @@ class DailyWatchdogCanonicalTransportContractTests(unittest.TestCase):
         opener.open.return_value = self._response(b"direct-zip")
 
         with (
-            patch.object(watchdog.request, "build_opener", return_value=opener) as build_opener,
-            patch.object(watchdog.request, "urlopen") as urlopen,
+            patch.object(transport.request, "build_opener", return_value=opener) as build_opener,
+            patch.object(transport.request, "urlopen") as urlopen,
         ):
-            result = watchdog._download_zip_without_cross_origin_auth(client, 123)
+            result = transport._download_zip_without_cross_origin_auth(client, 123)
 
         self.assertEqual(result, b"direct-zip")
-        self.assertIsInstance(build_opener.call_args.args[0], watchdog._NoRedirect)
+        self.assertIsInstance(build_opener.call_args.args[0], transport._NoRedirect)
         request_obj = opener.open.call_args.args[0]
         self.assertEqual(
             request_obj.full_url,
@@ -83,7 +81,7 @@ class DailyWatchdogCanonicalTransportContractTests(unittest.TestCase):
         self.assertEqual(headers["user-agent"], "jeonghan-daily-watchdog")
         urlopen.assert_not_called()
 
-    def test_canonical_redirect_never_forwards_github_credentials(self) -> None:
+    def test_redirect_never_forwards_github_credentials(self) -> None:
         client = SimpleNamespace(
             base="https://api.github.com/repos/example/hani",
             token="super-secret-token",
@@ -102,14 +100,14 @@ class DailyWatchdogCanonicalTransportContractTests(unittest.TestCase):
                 )
 
                 with (
-                    patch.object(watchdog.request, "build_opener", return_value=opener),
+                    patch.object(transport.request, "build_opener", return_value=opener),
                     patch.object(
-                        watchdog.request,
+                        transport.request,
                         "urlopen",
                         return_value=self._response(b"redirected-zip"),
                     ) as urlopen,
                 ):
-                    result = watchdog._download_zip_without_cross_origin_auth(client, 456)
+                    result = transport._download_zip_without_cross_origin_auth(client, 456)
 
                 self.assertEqual(result, b"redirected-zip")
                 first_headers = self._headers(opener.open.call_args.args[0])
@@ -130,7 +128,7 @@ class DailyWatchdogCanonicalTransportContractTests(unittest.TestCase):
                 self.assertNotIn("accept", redirected_headers)
                 self.assertNotIn("x-github-api-version", redirected_headers)
 
-    def test_canonical_redirect_without_location_fails_closed(self) -> None:
+    def test_redirect_without_location_fails_closed(self) -> None:
         client = SimpleNamespace(
             base="https://api.github.com/repos/example/hani",
             token="token",
@@ -141,15 +139,15 @@ class DailyWatchdogCanonicalTransportContractTests(unittest.TestCase):
         opener.open.side_effect = self._redirect_error(zip_url, 302, location=None)
 
         with (
-            patch.object(watchdog.request, "build_opener", return_value=opener),
-            patch.object(watchdog.request, "urlopen") as urlopen,
+            patch.object(transport.request, "build_opener", return_value=opener),
+            patch.object(transport.request, "urlopen") as urlopen,
             self.assertRaises(error.HTTPError),
         ):
-            watchdog._download_zip_without_cross_origin_auth(client, 789)
+            transport._download_zip_without_cross_origin_auth(client, 789)
 
         urlopen.assert_not_called()
 
-    def test_canonical_non_redirect_http_error_is_not_hidden(self) -> None:
+    def test_non_redirect_http_error_is_not_hidden(self) -> None:
         client = SimpleNamespace(
             base="https://api.github.com/repos/example/hani",
             token="token",
@@ -166,15 +164,15 @@ class DailyWatchdogCanonicalTransportContractTests(unittest.TestCase):
         )
 
         with (
-            patch.object(watchdog.request, "build_opener", return_value=opener),
-            patch.object(watchdog.request, "urlopen") as urlopen,
+            patch.object(transport.request, "build_opener", return_value=opener),
+            patch.object(transport.request, "urlopen") as urlopen,
             self.assertRaises(error.HTTPError),
         ):
-            watchdog._download_zip_without_cross_origin_auth(client, 790)
+            transport._download_zip_without_cross_origin_auth(client, 790)
 
         urlopen.assert_not_called()
 
-    def test_canonical_fetch_parses_outcome_and_retries_boundedly(self) -> None:
+    def test_fetch_parses_outcome_and_retries_boundedly(self) -> None:
         outcome = {
             "schema_version": 1,
             "outcome_status": "healthy",
@@ -199,11 +197,11 @@ class DailyWatchdogCanonicalTransportContractTests(unittest.TestCase):
             ),
         )
         with patch.object(
-            watchdog,
+            transport,
             "_download_zip_without_cross_origin_auth",
             return_value=buffer.getvalue(),
         ) as download:
-            result = watchdog._fetch_latest_production_outcome(client, 77)
+            result = transport._fetch_latest_production_outcome(client, 77)
 
         self.assertEqual(result, outcome)
         download.assert_called_once_with(client, 991)
@@ -213,10 +211,10 @@ class DailyWatchdogCanonicalTransportContractTests(unittest.TestCase):
             base="https://api.github.com/repos/example/hani",
         )
         with (
-            patch.object(watchdog.time, "sleep") as sleep,
-            patch.object(watchdog, "log_decision") as log_decision,
+            patch.object(transport.time, "sleep") as sleep,
+            patch.object(transport._watchdog, "log_decision") as log_decision,
         ):
-            result = watchdog._fetch_latest_production_outcome(failing_client, 88)
+            result = transport._fetch_latest_production_outcome(failing_client, 88)
 
         self.assertIsNone(result)
         self.assertEqual(failing_client._request.call_count, 3)
