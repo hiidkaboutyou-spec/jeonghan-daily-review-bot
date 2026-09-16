@@ -1,42 +1,72 @@
 # Daily watchdog semantic entrypoint migration
 
-This is durable Stage C state for the compatibility migration started after the transport safety net in PR #81.
+This is durable Stage C state for the watchdog compatibility migration started after the transport safety net in PR #81.
 
-## Decision
+## Current decision
 
-The production workflow uses `python tools/daily_watchdog_runner.py` as its active command. The historical `tools/daily_watchdog_hardening.py` remains present and continues to own the already-tested cross-origin artifact transport implementation during this compatibility phase.
+The production workflow uses:
 
-The semantic runner is intentionally thin. It imports the canonical `tools.daily_watchdog`, explicitly installs the hardened `fetch_latest_production_outcome` implementation, and then delegates to `daily_watchdog.main()`. The explicit assignment makes installation idempotent even when Python's module cache means the compatibility module has already been imported.
+```text
+python tools/daily_watchdog_runner.py
+```
 
-## Why this is staged instead of a one-shot move
+as its active command.
 
-`daily_watchdog_hardening.py` contains a security-sensitive redirect boundary. Moving its implementation into the canonical module and deleting the historical path in the same change would combine workflow migration, transport refactoring, compatibility removal, and security behavior changes. The migration therefore separates naming/entrypoint cleanup from transport ownership changes.
+The semantic runner imports the canonical watchdog decision engine plus the semantic artifact-transport owner:
 
-No dependency or external repository is added. The Python standard library is sufficient for the proven transport behavior, and a new HTTP dependency would increase migration risk without addressing a demonstrated requirement.
+```text
+tools.daily_watchdog
+tools.daily_watchdog_transport
+```
+
+and explicitly calls `daily_watchdog_transport.install()` before delegating to `daily_watchdog.main()`.
+
+The historical `tools/daily_watchdog_hardening.py` path remains present only as an executable compatibility shim. It re-exports the semantic transport symbols and preserves the historical import-time installation behavior for old callers, but it no longer owns a duplicate transport implementation.
+
+## Why this remained staged
+
+The historical hardening module protected a security-sensitive redirect boundary. A one-shot rename/delete would have combined workflow migration, transport refactoring, compatibility removal, and security behavior changes.
+
+The migration was therefore split into explicit stages:
+
+1. PR #81 added direct regression coverage for the redirect/auth boundary.
+2. PR #83 introduced the stable semantic production runner while retaining the historical implementation.
+3. PR #84 removed the obsolete workflow assertion/comment debt after the semantic runner proved stable on `main`.
+4. The transport-ownership stage adds direct tests against the semantic transport module first, then moves the implementation out of the historical module while retaining that path as a compatibility shim.
+
+No third-party dependency or external repository is added. GitHub's current artifact-download API and Python's current `urllib.request` behavior confirm that the existing explicit redirect boundary remains necessary, while the Python standard library remains sufficient to implement it.
 
 ## Compatibility contract
 
 - `tools/daily_watchdog_runner.py` is the preferred production CLI entrypoint.
-- `tools/daily_watchdog_hardening.py` must remain executable during this phase.
-- The redirect/auth contract in `docs/watchdog-transport-safety.md` remains authoritative.
-- Importing `daily_watchdog_runner` alone must not mutate the canonical watchdog client.
-- Calling `daily_watchdog_runner.main()` must install the hardened fetch method before delegating to the canonical watchdog main function.
-- The workflow must have the semantic runner as its active `run:` command.
+- `tools/daily_watchdog_transport.py` is the semantic owner of credential-safe artifact transport.
+- importing `tools.daily_watchdog_transport` alone is side-effect free;
+- calling `daily_watchdog_transport.install()` installs the protected `fetch_latest_production_outcome` method on the canonical watchdog client;
+- `tools/daily_watchdog_hardening.py` remains executable during this compatibility phase and preserves its historical import-time installation behavior;
+- the redirect/auth contract in `docs/watchdog-transport-safety.md` remains authoritative;
+- importing `daily_watchdog_runner` alone must not mutate the canonical watchdog client;
+- calling `daily_watchdog_runner.main()` must install the semantic transport before delegating to the canonical watchdog main function;
+- the workflow must keep the semantic runner as its active `run:` command.
 
-## Assertion cleanup completed
+## Ownership migration safety net
 
-The follow-up cleanup after PR #83 migrates the old broad workflow-string assertion in `tests/test_daily_watchdog_hardening.py` to inspect active `run:` lines. The test now requires the semantic runner and rejects the historical hardening path as an active workflow command. The temporary commented legacy command has therefore been removed from `.github/workflows/daily-watchdog.yml`.
+`tests/test_daily_watchdog_transport_contract.py` owns the low-level redirect/auth/retry/ZIP regression contract for `tools.daily_watchdog_transport`.
 
-This cleanup intentionally does not move, rewrite, or duplicate the artifact-download implementation. It changes no watchdog decision logic, schedules, secrets, state/database behavior, Telegram delivery, recovery action, or dependency.
+`tests/test_daily_watchdog_runner.py` proves the runner installs that semantic transport before execution and remains side-effect free on import.
 
-## Next stage
+`tests/test_daily_watchdog_hardening.py` is intentionally reduced to compatibility behavior: alias identity, idempotent installation, and confirmation that the historical path is not the active workflow command.
 
-The next focused stage may evaluate moving the hardened artifact transport implementation into `tools/daily_watchdog.py`. Before doing so:
+The watchdog decision/recovery engine in `tools/daily_watchdog.py` is unchanged by this ownership migration. No schedule, secret, state/database, provider, Telegram-delivery, recovery-decision, or production dependency behavior is changed.
 
-- preserve every redirect/auth invariant from `docs/watchdog-transport-safety.md`;
-- migrate or duplicate the direct transport regression tests so they protect the canonical implementation before ownership changes;
-- keep `tools/daily_watchdog_hardening.py` as a compatibility shim until all callers and tests use the canonical implementation;
-- avoid changing watchdog recovery/decision behavior in the same PR;
-- require project validation, full tests/maintenance, security checks, and merged-main production/watchdog verification before deleting the compatibility module.
+## Next gate
 
-Do not delete the historical module merely because the workflow no longer invokes it directly.
+Do not delete `tools/daily_watchdog_hardening.py` in the ownership-migration pull request. A later focused cleanup may remove the shim only after:
+
+- Python imports, CLI/operator references, workflows, config, docs commands, and other string references have been inspected;
+- LibCST evidence is clean for Python references and non-Python references are reviewed separately;
+- semantic transport, runner, compatibility, project, maintenance, security, CodeQL, benchmark/fanfic, and exact production-image checks are green;
+- merged `main` completes a normal production monitor pass with state/database restore and persistence, encrypted recovery backup, and production outcome upload;
+- the workflow-triggered Daily watchdog succeeds using the semantic runner after the ownership migration;
+- shim removal is performed in its own later pull request.
+
+Do not treat the historical module as dead merely because the production workflow no longer invokes it directly.
