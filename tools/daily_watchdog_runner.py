@@ -2,30 +2,23 @@ from __future__ import annotations
 
 """Stable semantic CLI entrypoint for the production Daily watchdog.
 
-The transport hardening remains implemented by ``daily_watchdog_hardening``
-during the compatibility phase. The hardening module is loaded only when this
-entrypoint executes, keeping ordinary imports side-effect free while preserving
-the exact production credential boundary before the watchdog starts.
+Artifact transport is installed explicitly from ``daily_watchdog_transport``
+before the watchdog decision engine starts. Keeping installation in the runner
+makes ordinary imports side-effect free while preserving the production
+credential boundary.
 """
 
 try:
     from tools import daily_watchdog as _watchdog
+    from tools import daily_watchdog_transport as _transport
 except ModuleNotFoundError:  # direct `python tools/...py` execution
     import daily_watchdog as _watchdog
+    import daily_watchdog_transport as _transport
 
 
 def _install_transport_hardening() -> None:
-    try:
-        from tools import daily_watchdog_hardening as _transport_hardening
-    except ModuleNotFoundError:  # direct `python tools/...py` execution
-        import daily_watchdog_hardening as _transport_hardening
-
-    # Do not rely solely on the compatibility module's import-time side effect:
-    # module caching means a later caller may need to restore the protected
-    # method explicitly. Assignment is idempotent and keeps execution order clear.
-    _watchdog.GitHubActionsClient.fetch_latest_production_outcome = (
-        _transport_hardening._fetch_latest_production_outcome
-    )
+    """Install the canonical credential-safe artifact transport idempotently."""
+    _transport.install()
 
 
 def main() -> int:
