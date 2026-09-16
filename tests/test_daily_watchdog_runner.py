@@ -11,18 +11,29 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class DailyWatchdogRunnerTests(unittest.TestCase):
-    def test_runner_delegates_to_canonical_watchdog_main(self) -> None:
-        with patch.object(watchdog, "main", return_value=17) as main:
-            self.assertEqual(runner.main(), 17)
-        main.assert_called_once_with()
+    def setUp(self) -> None:
+        self.original_fetch = watchdog.GitHubActionsClient.fetch_latest_production_outcome
 
-    def test_importing_runner_installs_hardened_transport(self) -> None:
-        from tools import daily_watchdog_hardening as hardening
+    def tearDown(self) -> None:
+        watchdog.GitHubActionsClient.fetch_latest_production_outcome = self.original_fetch
 
+    def test_importing_runner_alone_is_side_effect_free(self) -> None:
         self.assertIs(
             watchdog.GitHubActionsClient.fetch_latest_production_outcome,
-            hardening._fetch_latest_production_outcome,
+            self.original_fetch,
         )
+
+    def test_runner_installs_hardening_before_delegating(self) -> None:
+        from tools import daily_watchdog_hardening as hardening
+
+        watchdog.GitHubActionsClient.fetch_latest_production_outcome = self.original_fetch
+        with patch.object(watchdog, "main", return_value=17) as main:
+            self.assertEqual(runner.main(), 17)
+            self.assertIs(
+                watchdog.GitHubActionsClient.fetch_latest_production_outcome,
+                hardening._fetch_latest_production_outcome,
+            )
+        main.assert_called_once_with()
 
     def test_workflow_uses_semantic_runner_as_active_command(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "daily-watchdog.yml").read_text(
