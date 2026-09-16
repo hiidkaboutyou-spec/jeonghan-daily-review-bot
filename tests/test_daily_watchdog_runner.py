@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from tools import daily_watchdog as watchdog
 from tools import daily_watchdog_runner as runner
+from tools import daily_watchdog_transport as transport
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -23,15 +24,13 @@ class DailyWatchdogRunnerTests(unittest.TestCase):
             self.original_fetch,
         )
 
-    def test_runner_installs_hardening_before_delegating(self) -> None:
-        from tools import daily_watchdog_hardening as hardening
-
+    def test_runner_installs_semantic_transport_before_delegating(self) -> None:
         watchdog.GitHubActionsClient.fetch_latest_production_outcome = self.original_fetch
         with patch.object(watchdog, "main", return_value=17) as main:
             self.assertEqual(runner.main(), 17)
             self.assertIs(
                 watchdog.GitHubActionsClient.fetch_latest_production_outcome,
-                hardening._fetch_latest_production_outcome,
+                transport._fetch_latest_production_outcome,
             )
         main.assert_called_once_with()
 
