@@ -108,11 +108,6 @@ jobs:
             --new-module app.channel_source_fact_normalization_runtime \
             --json stage-c-channel-source-fact-normalization-plan.json \
             --markdown stage-c-channel-source-fact-normalization-plan.md
-          .maintenance-env/bin/python tools/module_refactor_plan.py \
-            --old-module tools.daily_watchdog_hardening \
-            --new-module tools.daily_watchdog_transport \
-            --json stage-c-watchdog-hardening-removal-plan.json \
-            --markdown stage-c-watchdog-hardening-removal-plan.md
 
       - name: Capture per-test Stage B coverage evidence
         if: github.event_name != 'push'
@@ -165,14 +160,15 @@ jobs:
           # - agent-reach: importlib.find_spec("agent_reach") capability check
           # - twitter-cli: `twitter` executable resolved with shutil.which
           # - uvicorn: Docker CMD production server entry point
-          # `daily_watchdog` is also first-party when the hardening wrapper is run
-          # directly as `python tools/daily_watchdog_hardening.py`.
+          # `daily_watchdog` and `daily_watchdog_transport` are first-party fallback
+          # imports used when the semantic watchdog runner/transport is loaded through
+          # the stable direct-script command `python tools/daily_watchdog_runner.py`.
           .maintenance-env/bin/deptry . \
             --requirements-files requirements.txt \
             --known-first-party app \
             --known-first-party tools \
             --extend-exclude "\\.maintenance-env|tools/module_family_evidence\\.py|tools/module_refactor_plan\\.py" \
-            --per-rule-ignores "DEP001=daily_watchdog,DEP002=agent-reach|twitter-cli|uvicorn" \
+            --per-rule-ignores "DEP001=daily_watchdog|daily_watchdog_transport,DEP002=agent-reach|twitter-cli|uvicorn" \
             --no-ansi > deptry-report.txt 2>&1 || true
 
       - name: Explain enforcement level
@@ -188,7 +184,6 @@ jobs:
             echo "- Active Stage C lifecycle-correlation migration plan: generated read-only on every maintenance run while the compatibility shim exists."
             echo "- Active Stage C lifecycle-outcome visibility migration plan: generated read-only on every maintenance run while the compatibility shim exists."
             echo "- Active Stage C channel source-fact normalization migration plan: generated read-only on every maintenance run while the compatibility shim exists."
-            echo "- Stage C watchdog hardening-removal plan: generated read-only before deleting the historical compatibility shim."
             echo "- Import ordering and formatting: report-only during cleanup rollout."
             echo "- Vulture dead-code candidates: report-only; never auto-delete."
             echo "- Complexipy cognitive-complexity hotspots: report-only; used to prioritize human-reviewed refactors."
@@ -214,8 +209,6 @@ jobs:
             stage-c-lifecycle-outcome-visibility-plan.md
             stage-c-channel-source-fact-normalization-plan.json
             stage-c-channel-source-fact-normalization-plan.md
-            stage-c-watchdog-hardening-removal-plan.json
-            stage-c-watchdog-hardening-removal-plan.md
             ruff-import-order.txt
             ruff-format-check.txt
             vulture-high-confidence.txt
