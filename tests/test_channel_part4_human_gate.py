@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from app.channel_part4_humanfix import (
+from app.channel_human_quality_gate_runtime import (
     _canonicalize_speaker_labels,
     _metadata_line_failures,
     _needs_human_polish,
