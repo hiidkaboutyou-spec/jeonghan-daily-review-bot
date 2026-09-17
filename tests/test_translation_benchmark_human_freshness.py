@@ -10,10 +10,15 @@ from types import SimpleNamespace
 from app import channel_part4_benchmark_hook as hook
 from app.channel_human_quality_gate_runtime import HUMAN_GATE_FINGERPRINT
 from tools import run_translation_benchmark as benchmark
-from tools.run_translation_benchmark_human import _production_fingerprint
+from tools.run_translation_benchmark_human import _PRODUCTION_FINGERPRINT_PATHS, _production_fingerprint
 
 
 class TranslationBenchmarkHumanFreshnessTests(unittest.TestCase):
+    def test_production_fingerprint_tracks_canonical_human_gate_file(self):
+        paths = {path.as_posix() for path in _PRODUCTION_FINGERPRINT_PATHS}
+        self.assertTrue(any(path.endswith("app/channel_human_quality_gate_runtime.py") for path in paths))
+        self.assertFalse(any(path.endswith("app/channel_part4_humanfix.py") for path in paths))
+
     def test_production_fingerprint_changes_with_quality_code(self):
         with tempfile.TemporaryDirectory() as tmp:
             first = Path(tmp) / "first.py"
