@@ -54,11 +54,13 @@
     {
       "legacy_module": "app.channel_part4_finalfix",
       "canonical_module": "app.channel_source_fact_normalization_runtime",
-      "status": "compatibility-shim",
+      "status": "retired",
       "introduced_on": "2026-09-16",
+      "retired_on": "2026-09-17",
       "reason": "Replace a historical final-fix name with the durable responsibility of source-authorized channel fact normalization while preserving member-term canonicalization and semantic ordinal handling.",
       "single_module_object_required": true,
       "runtime_behavior_change": false,
+      "retirement_record": "docs/research/channel-part4-finalfix-shim-retirement-2026-09-17.md",
       "removal_gates": [
         "No production, workflow, CLI, config, dynamic-import, or test import caller requires the legacy module path.",
         "LibCST migration plan shows no unresolved legacy caller; known synthetic historical-name fixture strings in maintenance-tool tests are explicitly permitted and are not runtime callers.",

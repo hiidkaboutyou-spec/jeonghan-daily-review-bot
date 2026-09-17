@@ -101,16 +101,19 @@ The planning-first PR ran LibCST before any production source rename. The plan f
 
 ## `app.channel_part4_finalfix` → `app.channel_source_fact_normalization_runtime`
 
-Status: **compatibility shim active**  
-Introduced: **2026-09-16**
+Status: **retired legacy path; canonical runtime only**  
+Introduced: **2026-09-16**  
+Retired: **2026-09-17**
 
-The canonical implementation now uses a responsibility-based name for the established source-authorized normalization layer. It extends the hard-fact verifier's bounded ordinal vocabulary with English `first` through `tenth`, and canonicalizes a small set of member/term spellings in ordinary prose only when the source itself authorizes that identity or term.
+The canonical implementation uses a responsibility-based name for the established source-authorized normalization layer. It extends the hard-fact verifier's bounded ordinal vocabulary with English `first` through `tenth`, and canonicalizes a small set of member/term spellings in ordinary prose only when the source itself authorizes that identity or term.
 
-The old `channel_part4_finalfix` path remains as a same-module-object compatibility alias. Production package initialization imports `app.channel_source_fact_normalization_runtime` at the exact position formerly occupied by the historical module, while intentionally retaining the private package binding `_channel_part4_finalfix` during the compatibility phase.
+The historical `app.channel_part4_finalfix` module file has been retired. Production package initialization continues to import `app.channel_source_fact_normalization_runtime` at the same position after `channel_part4_hardening` and before `channel_part4_humanfix`, `channel_part4_qualityfix`, and `channel_part4_benchmark_hook`.
+
+The package-local binding name `_channel_part4_finalfix` is intentionally left in `app/__init__.py` for this focused retirement because it points directly to the canonical module and does not recreate or import the retired module path. Renaming that private binding is not required for legacy-module retirement and can be considered separately if future evidence shows value.
 
 ### Behavior contract
 
-This migration does not change:
+This retirement does not change:
 - the bounded English ordinal mapping or its numeric values;
 - semantic-number verification in `channel_part4_hardening`;
 - the source aliases, canonical Persian spellings, or accepted output variants;
@@ -120,12 +123,12 @@ This migration does not change:
 - the `hardening._canonicalize_source_authorized_terms` binding installed at import time;
 - writer classes, fallback translation, human-gate versions/fingerprints, provider collection, persisted state, Telegram delivery, schedules, secrets, or production dependencies.
 
-Import order is part of the contract. The canonical source-fact normalization runtime remains immediately after `channel_part4_hardening` and before `channel_part4_humanfix`, `channel_part4_qualityfix`, and `channel_part4_benchmark_hook`.
+### Retirement evidence
 
-### Removal policy
+The original migration in PR #80 had one direct production importer, one downstream importer, and 100% measured coverage across 12 test contexts before ownership moved. The focused behavioral tests were migrated to the canonical path then and remain canonical-only.
 
-Do not remove `app/channel_part4_finalfix.py` in this migration. Removal requires every gate in `config/module_migrations.json` to pass in a later focused pull request. The LibCST planner will continue to report several literal `channel_part4_finalfix` strings from maintenance-tool tests; those are deliberate synthetic fixtures that test historical-name discovery/classification and are not runtime callers. They must be reviewed as fixtures rather than automatically rewritten.
+A fresh pre-removal Maintenance run on `main` commit `4a2d6056586406620ff01cdef4cdf7bf9503a374` found eight remaining references and all eight were dynamic/manual strings. Inspection showed they are only synthetic historical-name fixtures in maintenance-tool tests plus the migration-registry assertion; there were zero structural imports, zero import-order-sensitive references, and zero parse errors. Grimp showed no direct importer, no downstream importer, and no application entrypoint chain for the shim.
 
-### Evidence used for this migration
+Full evidence, exact run/artifact IDs, the production proof, and the post-merge validation contract are recorded in `docs/research/channel-part4-finalfix-shim-retirement-2026-09-17.md`.
 
-Fresh Stage B evidence measured one direct production importer (`app`), one downstream importer, and 100% execution coverage across 12 test contexts. The planning-first LibCST plan found two real structural imports: the order-sensitive `app/__init__.py` import and the direct focused test import. It also found seven manual dynamic-string references, all of which were inspected and confirmed to be synthetic fixtures in `tests/test_module_family_evidence.py` and `tests/test_repo_structure_inventory.py`; there were no parse errors. `tests/test_channel_part4_final_edges.py` directly verifies ordinal equivalence, rejection of changed ordinals, prose canonicalization, and hashtag preservation. Repository history shows the historical module was introduced with the tested channel-style pipeline specifically including member-name normalization, so the canonical name describes existing production responsibility rather than a new behavior.
+Maintenance CI no longer generates a recurring LibCST plan for this retired migration. The three still-active compatibility shims continue to receive read-only plans on every maintenance run.
