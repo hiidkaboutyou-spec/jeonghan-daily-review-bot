@@ -44,7 +44,7 @@ Use now:
 - surface possibly unused, missing, or transitive dependencies;
 - never remove a dependency until optional/dynamic imports, workflows, Docker, and production smoke are checked.
 
-Known Hani static-analysis exceptions are documented for Agent Reach, `twitter-cli`, Uvicorn, and the direct `daily_watchdog_hardening.py` entry point. After those intentional entry points were modeled, the real repository scan reported no dependency issues.
+Known Hani static-analysis exceptions are documented for Agent Reach, `twitter-cli`, Uvicorn, and the semantic Daily-watchdog direct-script first-party fallbacks (`daily_watchdog` and `daily_watchdog_transport`). The watchdog exceptions exist because the production command is intentionally `python tools/daily_watchdog_runner.py`; they are not third-party dependencies and are no longer tied to the retired hardening shim. After those intentional entry points are modeled, the repository scan is expected to report no dependency issues.
 
 ### Complexipy 8.0.1 — adopted, report only
 
@@ -162,7 +162,7 @@ Modernization/refactor suggestions overlap Ruff/Complexipy and would add another
 - optional per-test Coverage.py execution contexts;
 - conservative risk/review hints.
 
-The real Stage B run found 13 historical-name candidates overall: 12 inside `app/` plus `tools.daily_watchdog_hardening`. All 12 historical-name modules inside `app/` are runtime-linked. Therefore Stage C must not start by deleting them.
+The real Stage B run found 13 historical-name candidates overall: 12 inside `app/` plus `tools.daily_watchdog_hardening`. All 12 historical-name modules inside `app/` are runtime-linked. Therefore Stage C must not start by deleting them. The separate watchdog candidate later completed a staged semantic migration and focused compatibility retirement; its removal evidence is recorded in `docs/research/watchdog-hardening-shim-retirement-2026-09-17.md`.
 
 `app.live_recovery_hardening` is particularly important: it is connected to the real production entrypoint through `sentry_runtime`, but the Stage B unit-test run measured no direct coverage for it. The correct response is focused regression testing before any rename/consolidation, not removal.
 
@@ -224,7 +224,7 @@ Rules:
 - never combine unrelated module moves into one cleanup PR;
 - remove compatibility shims only in later focused changes after all references and production behavior are proven safe.
 
-The first Stage C guardrail is direct testing for `live_recovery_hardening`; no production module is renamed in the tooling/coverage PR that introduces LibCST.
+The first Stage C guardrail was direct testing for `live_recovery_hardening`; no production module was renamed in the tooling/coverage PR that introduced LibCST. The Daily-watchdog tool family has since demonstrated the full staged lifecycle: direct security regression coverage, semantic runner migration, semantic transport ownership, production proof, a pre-removal LibCST/manual audit, and later focused shim retirement.
 
 ### Stage D — enforce stable package boundaries
 
