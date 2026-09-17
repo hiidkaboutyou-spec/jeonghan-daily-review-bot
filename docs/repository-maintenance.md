@@ -162,7 +162,7 @@ Modernization/refactor suggestions overlap Ruff/Complexipy and would add another
 - optional per-test Coverage.py execution contexts;
 - conservative risk/review hints.
 
-The initial real Stage B run found 13 historical-name candidates overall: 12 inside `app/` plus `tools.daily_watchdog_hardening`. At that time all 12 historical-name modules inside `app/` were runtime-linked, so none was eligible for immediate deletion. Stage C has since moved selected responsibilities to semantic modules and, only after separate removal gates, retired the watchdog hardening path and `app.channel_part4_finalfix`. Their evidence remains durable rather than rewriting that historical Stage B finding.
+The initial real Stage B run found 13 historical-name candidates overall: 12 inside `app/` plus `tools.daily_watchdog_hardening`. At that time all 12 historical-name modules inside `app/` were runtime-linked, so none was eligible for immediate deletion. Stage C has since moved selected responsibilities to semantic modules and, only after separate removal gates, retired the watchdog hardening path and all four registered app compatibility shims. Their evidence remains durable rather than rewriting that historical Stage B finding.
 
 `app.live_recovery_hardening` was particularly important in the initial evidence: it was connected to the real production entrypoint through `sentry_runtime`, but the Stage B unit-test run measured no direct coverage for it. The correct response was focused regression testing before migration, not removal.
 
@@ -226,11 +226,27 @@ Rules:
 
 The first Stage C guardrail was direct testing for `live_recovery_hardening`; no production module was renamed in the tooling/coverage PR that introduced LibCST. The Daily-watchdog tool family then demonstrated the full staged lifecycle: direct security regression coverage, semantic runner migration, semantic transport ownership, production proof, a pre-removal LibCST/manual audit, and later focused shim retirement.
 
-`app.channel_part4_finalfix` has now completed the same later removal phase after PR #80 moved its implementation to `app.channel_source_fact_normalization_runtime`: a fresh main-branch LibCST plan found only inspected synthetic fixture/registry strings, Grimp found no importer or entrypoint chain for the shim, canonical behavior remained directly tested, and production had already been running through the canonical package import. The retirement evidence is recorded in `docs/research/channel-part4-finalfix-shim-retirement-2026-09-17.md`.
+The registered compatibility-shim subphase is production-complete. PR-triggered Maintenance #76 then performed the closure audit of the eight remaining historical-name implementation modules with fresh per-test Coverage contexts and current Grimp evidence. The durable decisions are:
+
+**Retain by design**
+- `app.channel_part4_benchmark_hook` — narrow cached-benchmark import-order contract; normal bot startup is intentionally unaffected.
+- `app.channel_part4_hardening` — central fidelity layer with 5 direct / 13 downstream importers and high internal complexity; a filename-only migration would create churn without reducing coupling.
+- `app.phase2_runtime_compat` — explicit state/test-double compatibility boundary; renaming would add schema/test risk without changing the underlying contract.
+- `app.source_authority_hardening` — the current name accurately describes the configured-source authority policy layer and its `XCollector` hardening role.
+
+**Migrate later**
+- `app.channel_part4_humanfix` — stable human-quality-gate responsibility; strengthen less-exercised polish/client/fingerprint coverage before a semantic migration.
+- `app.channel_part4_qualityfix` — stable quality-repair/fallback responsibility with very strong measured coverage; migrate only after the human-quality-gate path is stable.
+- `app.phase3_recovery` — clear resumable X-recovery responsibility, but critical checkpoint/state/retry coverage must be strengthened before migration.
+- `app.phase3_recovery_hardening` — clear recovery-integrity responsibility; plan it as the same architectural family as the recovery base and preserve patch/install order.
+
+No remaining historical-name module is approved for direct deletion or unattended rename. Detailed coverage/import evidence, rationale, candidate semantic names and future sequencing are recorded in `docs/research/stage-c-closure-audit-2026-09-17.md`.
+
+The future Stage C order is deliberately conservative: strengthen human-gate coverage, then consider the human-quality-gate migration; stabilize that dependency before quality-repair migration; separately strengthen critical recovery coverage and design the base/integrity recovery migration family. The four retain-by-design modules stay out of rename queues unless their underlying architecture changes.
 
 ### Stage D — enforce stable package boundaries
 
-Only after Stage C has produced stable intentional boundaries should Tach, Import Linter, or equivalent architecture contracts be reconsidered. The tool must describe the architecture we intentionally want, not freeze accidental historical coupling.
+Only after the remaining explicitly deferred Stage C migrations have either completed or been intentionally deferred should Tach, Import Linter, or equivalent architecture contracts be reconsidered. The tool must describe the architecture we intentionally want, not freeze accidental historical coupling.
 
 ## Non-negotiable cleanup rules
 
