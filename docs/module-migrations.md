@@ -109,7 +109,7 @@ The canonical implementation uses a responsibility-based name for the establishe
 
 The historical `app.channel_part4_finalfix` module file has been retired. Production package initialization continues to import `app.channel_source_fact_normalization_runtime` at the same position after `channel_part4_hardening` and before `channel_part4_humanfix`, `channel_part4_qualityfix`, and `channel_part4_benchmark_hook`.
 
-The package-local binding name `_channel_part4_finalfix` is intentionally left in `app/__init__.py` for this focused retirement because it points directly to the canonical module and does not recreate or import the retired module path. Renaming that private binding is not required for legacy-module retirement and can be considered separately if future evidence shows value.
+The temporary compatibility-era private binding `_channel_part4_finalfix` is retired with the shim. `app/__init__.py` now binds the same canonical module as `_channel_source_fact_normalization_runtime`; only the private binding name changes, while import/install order and module identity remain unchanged.
 
 ### Behavior contract
 
