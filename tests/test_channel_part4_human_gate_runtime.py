@@ -9,7 +9,7 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock, patch
 
-from app import channel_part4_humanfix as humanfix
+from app import channel_human_quality_gate_runtime as humanfix
 from app.ai import GroupCopy
 from app.models import EventGroup, Update
 from tools import run_translation_benchmark as benchmark
