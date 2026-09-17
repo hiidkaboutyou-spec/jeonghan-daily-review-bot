@@ -15,7 +15,7 @@ import json
 import sys
 from pathlib import Path
 
-from .channel_part4_humanfix import HUMAN_GATE_FINGERPRINT, invalidated_resume_cursor
+from .channel_human_quality_gate_runtime import HUMAN_GATE_FINGERPRINT, invalidated_resume_cursor
 
 
 def _is_cached_benchmark_main() -> bool:

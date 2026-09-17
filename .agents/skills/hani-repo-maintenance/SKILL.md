@@ -105,9 +105,9 @@ Prefer this order:
 9. introduce stable subpackages only after module-family migrations prove the intended boundaries;
 10. add architecture-boundary enforcement only after those boundaries are stable.
 
-Active Stage C compatibility migrations are authoritative in `config/module_migrations.json`. As of 2026-09-17 the active shims are `app.live_recovery_hardening` → `app.x_degraded_recovery_runtime`, `app.phase2_correlation_stability` → `app.lifecycle_correlation_runtime`, and `app.phase2_final_visibility` → `app.lifecycle_outcome_visibility_runtime`. Do not remove any active legacy path merely because static production importers have migrated away.
+Active Stage C compatibility migrations are authoritative in `config/module_migrations.json`. The four original registered migration paths are retired and must stay absent. The current post-closure active migration is `app.channel_part4_humanfix` → `app.channel_human_quality_gate_runtime`. Keep that legacy path as a same-module-object shim until its later focused removal gates pass; do not infer removability from zero production importers alone.
 
-`app.channel_part4_finalfix` → `app.channel_source_fact_normalization_runtime` completed its later focused removal gate on 2026-09-17. The legacy module path is retired and must not be recreated as a parallel runtime path. Its pre-removal LibCST/Grimp/coverage/production evidence is recorded in `docs/research/channel-part4-finalfix-shim-retirement-2026-09-17.md`.
+PR #95 classified `channel_part4_humanfix` as migrate-later only after focused coverage, and PR #97 completed that precursor at 98.44% execution coverage across 133 test contexts. Preserve exact import order and the shared human-gate fingerprint/verifier state while this migration is active. `channel_part4_qualityfix` remains deferred until the human-quality-gate migration is production-proven.
 
 The separate Daily-watchdog compatibility migration is documented in `docs/watchdog-semantic-entrypoint-migration.md`. Its historical `tools/daily_watchdog_hardening.py` shim was retired only after the semantic runner/transport had passed production validation and a dedicated pre-removal LibCST plan found no production Python caller. The detailed removal evidence is recorded in `docs/research/watchdog-hardening-shim-retirement-2026-09-17.md`.
 

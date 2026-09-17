@@ -10,7 +10,7 @@ import re
 from collections import Counter
 
 from . import channel_part4_hardening as hardening
-from . import channel_part4_humanfix as humanfix
+from . import channel_human_quality_gate_runtime as humanfix
 from . import channel_style_runtime as runtime
 from . import channel_translation as translation
 from .ai import GroupCopy
