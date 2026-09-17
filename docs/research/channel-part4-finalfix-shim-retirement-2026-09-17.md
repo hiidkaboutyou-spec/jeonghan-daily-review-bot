@@ -4,7 +4,7 @@ This note records the evidence used to retire the historical `app.channel_part4_
 
 ## Scope
 
-The retirement removes only the compatibility module file. It does not change source-authorized term normalization, English ordinal handling, ChannelStyle writer classes, hard-fact verification, fallback translation, human-gate fingerprints, provider collection, persisted state/database schemas, Telegram delivery, schedules, secrets, or production dependencies.
+The retirement removes only the compatibility module file and its compatibility-era private package binding name. It does not change source-authorized term normalization, English ordinal handling, ChannelStyle writer classes, hard-fact verification, fallback translation, human-gate fingerprints, provider collection, persisted state/database schemas, Telegram delivery, schedules, secrets, or production dependencies.
 
 The canonical runtime remains installed from `app/__init__.py` immediately after `channel_part4_hardening` and before `channel_part4_humanfix`, `channel_part4_qualityfix`, and `channel_part4_benchmark_hook`.
 
@@ -96,13 +96,13 @@ The focused retirement performs only compatibility cleanup:
 
 1. delete `app/channel_part4_finalfix.py`;
 2. keep `app/channel_source_fact_normalization_runtime.py` unchanged;
-3. keep its `app/__init__.py` import order unchanged;
+3. preserve the exact `app/__init__.py` import/install position while renaming the temporary private binding from `_channel_part4_finalfix` to `_channel_source_fact_normalization_runtime`;
 4. mark the migration `retired` in `config/module_migrations.json` while preserving its historical removal gates and pointing to this record;
-5. update migration-registry tests so active shims must still share one module object, while retired legacy paths must be absent and canonical paths must still import;
+5. update migration-registry tests so active shims must still share one module object, retired legacy paths must be absent, canonical paths must still import, and the historical private package binding stays absent;
 6. stop generating/uploading a recurring LibCST plan for this retired migration while retaining plans for the three still-active app shims;
-7. update durable maintenance/migration guidance so future cleanup does not recreate the retired path.
+7. update durable maintenance/migration guidance so future cleanup does not recreate the retired path or compatibility-era private binding.
 
-The private package-local binding name `_channel_part4_finalfix` in `app/__init__.py` is deliberately left unchanged in this focused retirement. It points directly to the canonical module and does not create or import the retired module path. Renaming that private binding would be a separate cleanup concern and is not required to remove the legacy module path safely.
+The private binding rename is safe because repository search and the fresh LibCST/Grimp evidence found no structural caller for the legacy module path, the binding is private to package initialization, and the canonical module remains imported at the identical line position. A focused regression now requires `app._channel_part4_finalfix` to be absent and `app._channel_source_fact_normalization_runtime` to reference the canonical module object.
 
 ## Required validation
 
