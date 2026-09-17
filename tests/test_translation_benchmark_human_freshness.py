@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from app import channel_part4_benchmark_hook as hook
-from app.channel_part4_humanfix import HUMAN_GATE_FINGERPRINT
+from app.channel_human_quality_gate_runtime import HUMAN_GATE_FINGERPRINT
 from tools import run_translation_benchmark as benchmark
 from tools.run_translation_benchmark_human import _production_fingerprint
 
