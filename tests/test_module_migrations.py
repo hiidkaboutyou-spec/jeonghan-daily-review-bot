@@ -104,6 +104,15 @@ class ModuleMigrationRegistryTests(unittest.TestCase):
                 canonical = importlib.import_module(migration["canonical_module"])
                 self.assertIsNotNone(canonical)
 
+    def test_retired_channel_private_binding_uses_semantic_name(self) -> None:
+        app_package = importlib.import_module("app")
+        canonical = importlib.import_module("app.channel_source_fact_normalization_runtime")
+        self.assertFalse(hasattr(app_package, "_channel_part4_finalfix"))
+        self.assertIs(
+            app_package._channel_source_fact_normalization_runtime,
+            canonical,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
