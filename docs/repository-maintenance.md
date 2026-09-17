@@ -162,9 +162,9 @@ Modernization/refactor suggestions overlap Ruff/Complexipy and would add another
 - optional per-test Coverage.py execution contexts;
 - conservative risk/review hints.
 
-The real Stage B run found 13 historical-name candidates overall: 12 inside `app/` plus `tools.daily_watchdog_hardening`. All 12 historical-name modules inside `app/` are runtime-linked. Therefore Stage C must not start by deleting them. The separate watchdog candidate later completed a staged semantic migration and focused compatibility retirement; its removal evidence is recorded in `docs/research/watchdog-hardening-shim-retirement-2026-09-17.md`.
+The initial real Stage B run found 13 historical-name candidates overall: 12 inside `app/` plus `tools.daily_watchdog_hardening`. At that time all 12 historical-name modules inside `app/` were runtime-linked, so none was eligible for immediate deletion. Stage C has since moved selected responsibilities to semantic modules and, only after separate removal gates, retired the watchdog hardening path and `app.channel_part4_finalfix`. Their evidence remains durable rather than rewriting that historical Stage B finding.
 
-`app.live_recovery_hardening` is particularly important: it is connected to the real production entrypoint through `sentry_runtime`, but the Stage B unit-test run measured no direct coverage for it. The correct response is focused regression testing before any rename/consolidation, not removal.
+`app.live_recovery_hardening` was particularly important in the initial evidence: it was connected to the real production entrypoint through `sentry_runtime`, but the Stage B unit-test run measured no direct coverage for it. The correct response was focused regression testing before migration, not removal.
 
 `tools/module_refactor_plan.py` is the Stage C safety layer. Given an old and proposed new module name it:
 - scans `app/`, `tools/`, and `tests/` with LibCST;
@@ -206,9 +206,9 @@ Completed. Hani has stable maintenance diagnostics without changing production r
 
 ### Stage B — classify active module families
 
-Completed. The real repository was measured with Grimp plus per-test Coverage.py evidence. All 12 historical-name modules inside `app/` are runtime-linked, so none is currently a simple dead-file deletion candidate.
+Completed. The real repository was measured with Grimp plus per-test Coverage.py evidence. Historical modules were treated as runtime-linked until later Stage C migrations could prove otherwise; Stage B never authorized direct deletion.
 
-Key outcome: `live_recovery_hardening` needs focused regression coverage because it is production-linked but had no direct measured unit coverage.
+Key outcome: `live_recovery_hardening` required focused regression coverage because it was production-linked but had no direct measured unit coverage.
 
 ### Stage C — consolidate one family at a time
 
@@ -224,7 +224,9 @@ Rules:
 - never combine unrelated module moves into one cleanup PR;
 - remove compatibility shims only in later focused changes after all references and production behavior are proven safe.
 
-The first Stage C guardrail was direct testing for `live_recovery_hardening`; no production module was renamed in the tooling/coverage PR that introduced LibCST. The Daily-watchdog tool family has since demonstrated the full staged lifecycle: direct security regression coverage, semantic runner migration, semantic transport ownership, production proof, a pre-removal LibCST/manual audit, and later focused shim retirement.
+The first Stage C guardrail was direct testing for `live_recovery_hardening`; no production module was renamed in the tooling/coverage PR that introduced LibCST. The Daily-watchdog tool family then demonstrated the full staged lifecycle: direct security regression coverage, semantic runner migration, semantic transport ownership, production proof, a pre-removal LibCST/manual audit, and later focused shim retirement.
+
+`app.channel_part4_finalfix` has now completed the same later removal phase after PR #80 moved its implementation to `app.channel_source_fact_normalization_runtime`: a fresh main-branch LibCST plan found only inspected synthetic fixture/registry strings, Grimp found no importer or entrypoint chain for the shim, canonical behavior remained directly tested, and production had already been running through the canonical package import. The retirement evidence is recorded in `docs/research/channel-part4-finalfix-shim-retirement-2026-09-17.md`.
 
 ### Stage D — enforce stable package boundaries
 
