@@ -93,11 +93,6 @@ jobs:
             --new-module app.x_degraded_recovery_runtime \
             --json stage-c-x-degraded-recovery-plan.json \
             --markdown stage-c-x-degraded-recovery-plan.md
-          .maintenance-env/bin/python tools/module_refactor_plan.py \
-            --old-module app.phase2_correlation_stability \
-            --new-module app.lifecycle_correlation_runtime \
-            --json stage-c-lifecycle-correlation-plan.json \
-            --markdown stage-c-lifecycle-correlation-plan.md
 
       - name: Capture per-test Stage B coverage evidence
         if: github.event_name != 'push'
@@ -170,8 +165,8 @@ jobs:
             echo "- Stage B Grimp import-chain evidence: report-only; never authorizes moves/deletions."
             echo "- Stage B Coverage.py per-test evidence: collected on PR/manual/scheduled runs; no global coverage threshold yet."
             echo "- Stage C LibCST refactor planner: blocking self-tests, read-only source behavior; no automatic apply."
-            echo "- Active Stage C degraded-X migration plan: generated read-only on every maintenance run while the compatibility shim exists."
-            echo "- Active Stage C lifecycle-correlation migration plan: generated read-only on every maintenance run while the compatibility shim exists."
+            echo "- Active Stage C degraded-X migration plan: generated read-only on every maintenance run while the final registered compatibility shim exists."
+            echo "- Retired Stage C lifecycle-correlation migration: removal evidence is durable in docs/research; no recurring plan is generated after shim retirement."
             echo "- Retired Stage C lifecycle-outcome visibility migration: removal evidence is durable in docs/research; no recurring plan is generated after shim retirement."
             echo "- Retired Stage C channel source-fact migration: removal evidence is durable in docs/research; no recurring plan is generated after shim retirement."
             echo "- Import ordering and formatting: report-only during cleanup rollout."
@@ -193,8 +188,6 @@ jobs:
             module-family-evidence.md
             stage-c-x-degraded-recovery-plan.json
             stage-c-x-degraded-recovery-plan.md
-            stage-c-lifecycle-correlation-plan.json
-            stage-c-lifecycle-correlation-plan.md
             ruff-import-order.txt
             ruff-format-check.txt
             vulture-high-confidence.txt

@@ -27,32 +27,27 @@ class ModuleMigrationRegistryTests(unittest.TestCase):
         self.assertEqual(payload["schema_version"], 1)
 
         migration = self._migration("app.live_recovery_hardening")
-        self.assertEqual(
-            migration["canonical_module"],
-            "app.x_degraded_recovery_runtime",
-        )
+        self.assertEqual(migration["canonical_module"], "app.x_degraded_recovery_runtime")
         self.assertEqual(migration["status"], "compatibility-shim")
         self.assertTrue(migration["single_module_object_required"])
         self.assertFalse(migration["runtime_behavior_change"])
         self.assertGreaterEqual(len(migration["removal_gates"]), 4)
 
-    def test_registry_tracks_lifecycle_correlation_compatibility_shim(self) -> None:
+    def test_registry_tracks_retired_lifecycle_correlation_path(self) -> None:
         migration = self._migration("app.phase2_correlation_stability")
+        self.assertEqual(migration["canonical_module"], "app.lifecycle_correlation_runtime")
+        self.assertEqual(migration["status"], "retired")
+        self.assertEqual(migration["retired_on"], "2026-09-17")
         self.assertEqual(
-            migration["canonical_module"],
-            "app.lifecycle_correlation_runtime",
+            migration["retirement_record"],
+            "docs/research/phase2-correlation-stability-shim-retirement-2026-09-17.md",
         )
-        self.assertEqual(migration["status"], "compatibility-shim")
-        self.assertTrue(migration["single_module_object_required"])
         self.assertFalse(migration["runtime_behavior_change"])
         self.assertGreaterEqual(len(migration["removal_gates"]), 5)
 
     def test_registry_tracks_retired_lifecycle_outcome_visibility_path(self) -> None:
         migration = self._migration("app.phase2_final_visibility")
-        self.assertEqual(
-            migration["canonical_module"],
-            "app.lifecycle_outcome_visibility_runtime",
-        )
+        self.assertEqual(migration["canonical_module"], "app.lifecycle_outcome_visibility_runtime")
         self.assertEqual(migration["status"], "retired")
         self.assertEqual(migration["retired_on"], "2026-09-17")
         self.assertEqual(
@@ -64,10 +59,7 @@ class ModuleMigrationRegistryTests(unittest.TestCase):
 
     def test_registry_tracks_retired_channel_source_fact_normalization_path(self) -> None:
         migration = self._migration("app.channel_part4_finalfix")
-        self.assertEqual(
-            migration["canonical_module"],
-            "app.channel_source_fact_normalization_runtime",
-        )
+        self.assertEqual(migration["canonical_module"], "app.channel_source_fact_normalization_runtime")
         self.assertEqual(migration["status"], "retired")
         self.assertEqual(migration["retired_on"], "2026-09-17")
         self.assertEqual(
