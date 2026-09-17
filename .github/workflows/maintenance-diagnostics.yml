@@ -84,6 +84,16 @@ jobs:
           set -euo pipefail
           .maintenance-env/bin/python -m unittest tests.test_module_refactor_plan -v
 
+      - name: Build candidate human quality gate migration plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          .maintenance-env/bin/python tools/module_refactor_plan.py \
+            --old-module app.channel_part4_humanfix \
+            --new-module app.channel_human_quality_gate_runtime \
+            --json stage-c-channel-human-quality-gate-plan.json \
+            --markdown stage-c-channel-human-quality-gate-plan.md
+
       - name: Confirm registered shim subphase is complete
         shell: bash
         run: |
@@ -159,6 +169,7 @@ jobs:
             echo "- Stage B Grimp import-chain evidence: report-only; never authorizes moves/deletions."
             echo "- Stage B Coverage.py per-test evidence: collected on PR/manual/scheduled runs; no global coverage threshold yet."
             echo "- Stage C LibCST refactor planner: blocking self-tests and available for future planning; no automatic apply."
+            echo "- Candidate channel human-quality-gate migration plan: generated read-only before any production import change."
             echo "- Registered Stage C compatibility-shim subphase: complete; retired-path proof is durable under docs/research and no recurring retired migration plans are generated."
             echo "- Import ordering and formatting: report-only during cleanup rollout."
             echo "- Vulture dead-code candidates: report-only; never auto-delete."
@@ -177,6 +188,8 @@ jobs:
             repo-structure.md
             module-family-evidence.json
             module-family-evidence.md
+            stage-c-channel-human-quality-gate-plan.json
+            stage-c-channel-human-quality-gate-plan.md
             ruff-import-order.txt
             ruff-format-check.txt
             vulture-high-confidence.txt
