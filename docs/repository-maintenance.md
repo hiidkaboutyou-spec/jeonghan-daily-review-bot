@@ -228,6 +228,8 @@ The first Stage C guardrail was direct testing for `live_recovery_hardening`; no
 
 `app.channel_part4_finalfix` has now completed the same later removal phase after PR #80 moved its implementation to `app.channel_source_fact_normalization_runtime`: a fresh main-branch LibCST plan found only inspected synthetic fixture/registry strings, Grimp found no importer or entrypoint chain for the shim, canonical behavior remained directly tested, and production had already been running through the canonical package import. The retirement evidence is recorded in `docs/research/channel-part4-finalfix-shim-retirement-2026-09-17.md`.
 
+The registered compatibility-shim subphase is now complete on production `main`. A Stage C closure audit is in progress and is intentionally classification-only: the eight remaining historical-name implementation modules are being re-measured with fresh PR-triggered Coverage.py contexts and current Grimp evidence before each is labeled either **migrate later** or **retain by design**. No production module will be renamed, moved, or deleted in the closure-audit PR. Detailed evidence is recorded in `docs/research/stage-c-closure-audit-2026-09-17.md`.
+
 ### Stage D — enforce stable package boundaries
 
 Only after Stage C has produced stable intentional boundaries should Tach, Import Linter, or equivalent architecture contracts be reconsidered. The tool must describe the architecture we intentionally want, not freeze accidental historical coupling.
