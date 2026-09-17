@@ -14,7 +14,7 @@ from pathlib import Path
 
 from tools import run_translation_benchmark_cached as cached
 from tools import run_translation_benchmark as benchmark
-from app import channel_part4_humanfix as humanfix
+from app import channel_human_quality_gate_runtime as humanfix
 from app.channel_translation import ChannelStyleCaptionWriter as BaseChannelStyleCaptionWriter
 from app.channel_translation_v2_install import install_direct_v2
 
