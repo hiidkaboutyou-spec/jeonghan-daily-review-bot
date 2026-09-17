@@ -4,11 +4,13 @@
     {
       "legacy_module": "app.live_recovery_hardening",
       "canonical_module": "app.x_degraded_recovery_runtime",
-      "status": "compatibility-shim",
+      "status": "retired",
       "introduced_on": "2026-09-16",
+      "retired_on": "2026-09-17",
       "reason": "Replace a historical implementation-phase name with a semantic runtime responsibility name without changing degraded-X recovery behavior.",
       "single_module_object_required": true,
       "runtime_behavior_change": false,
+      "retirement_record": "docs/research/live-recovery-hardening-shim-retirement-2026-09-17.md",
       "removal_gates": [
         "No production, workflow, CLI, config, dynamic-import, or test caller requires the legacy module path.",
         "LibCST migration plan shows no unresolved legacy callers other than the compatibility contract itself.",
