@@ -49,6 +49,9 @@ class DailyWatchdogRunnerTests(unittest.TestCase):
             active_run_lines,
         )
 
+    def test_historical_hardening_module_is_retired(self) -> None:
+        self.assertFalse((ROOT / "tools" / "daily_watchdog_hardening.py").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

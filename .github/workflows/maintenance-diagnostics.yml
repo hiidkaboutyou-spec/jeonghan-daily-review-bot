@@ -160,14 +160,15 @@ jobs:
           # - agent-reach: importlib.find_spec("agent_reach") capability check
           # - twitter-cli: `twitter` executable resolved with shutil.which
           # - uvicorn: Docker CMD production server entry point
-          # `daily_watchdog` is also first-party when the hardening wrapper is run
-          # directly as `python tools/daily_watchdog_hardening.py`.
+          # `daily_watchdog` and `daily_watchdog_transport` are first-party fallback
+          # imports used when the semantic watchdog runner/transport is loaded through
+          # the stable direct-script command `python tools/daily_watchdog_runner.py`.
           .maintenance-env/bin/deptry . \
             --requirements-files requirements.txt \
             --known-first-party app \
             --known-first-party tools \
             --extend-exclude "\\.maintenance-env|tools/module_family_evidence\\.py|tools/module_refactor_plan\\.py" \
-            --per-rule-ignores "DEP001=daily_watchdog,DEP002=agent-reach|twitter-cli|uvicorn" \
+            --per-rule-ignores "DEP001=daily_watchdog|daily_watchdog_transport,DEP002=agent-reach|twitter-cli|uvicorn" \
             --no-ansi > deptry-report.txt 2>&1 || true
 
       - name: Explain enforcement level
