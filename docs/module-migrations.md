@@ -1,70 +1,48 @@
-# Active module migrations
+# Stage C module migration history
 
-This file records compatibility-preserving Stage C module migrations. The machine-readable source of truth is `config/module_migrations.json`.
+This file records compatibility-preserving Stage C module migrations and retirements. The machine-readable source of truth is `config/module_migrations.json`; detailed retirement proof lives under `docs/research/`.
 
 ## `app.live_recovery_hardening` → `app.x_degraded_recovery_runtime`
 
 Status: **compatibility shim active**  
 Introduced: **2026-09-16**
 
-The canonical implementation now has a responsibility-based name: it integrates the degraded X recovery providers with production outcome accounting and the final scheduled-scan runtime.
-
-The old path is intentionally retained. It resolves to the exact same Python module object as `app.x_degraded_recovery_runtime` rather than copying or re-exporting bindings into a second module namespace. This matters because the runtime owns mutable idempotency flags such as `_PROVIDER_INSTALLED` and `_CLASSIFICATION_INSTALLED`; two module objects could diverge and install the same patches twice.
-
-The production entrypoint imports the canonical path directly. The compatibility path exists only to keep older imports safe while callers migrate.
+The canonical implementation integrates degraded X recovery providers with production outcome accounting and the final scheduled-scan runtime. The legacy path still resolves to the exact same Python module object as `app.x_degraded_recovery_runtime` because the runtime owns mutable install/idempotency state such as `_PROVIDER_INSTALLED` and `_CLASSIFICATION_INSTALLED`.
 
 ### Behavior contract
 
-This migration does not change:
-- authenticated X cursor authority;
-- syndication-first degraded recovery;
-- bounded FxTwitter fallback behavior;
-- degraded-source attempt/failure tracking;
-- outcome classification or cursor-hold recovery semantics;
-- scheduled-scan installation order;
-- persisted state or database schemas;
-- Telegram delivery, schedules, secrets, or production dependencies.
-
-The implementation marker `_hani_live_recovery_hardening` is deliberately retained during the migration so idempotency behavior does not change merely because the source module was renamed.
+This migration does not change authenticated-X cursor authority, syndication-first degraded recovery, bounded FxTwitter fallback, degraded-source attempt/failure tracking, recovery classification, cursor-hold behavior, scheduled-scan installation order, state/database schemas, Telegram delivery, schedules, secrets, or production dependencies. The `_hani_live_recovery_hardening` marker remains part of idempotent installation behavior.
 
 ### Removal policy
 
-Do not remove `app/live_recovery_hardening.py` in the initial migration. Removal requires every gate in `config/module_migrations.json` to pass and must happen in a later focused pull request with a fresh LibCST plan, focused tests, full CI, and post-merge production verification.
-
-### Evidence used for the first migration
-
-Stage B measured one direct runtime importer (`app.sentry_runtime`) and the production chain `app.__main__ → app.sentry_runtime → app.live_recovery_hardening`. Focused recovery tests cover fallback ordering, outcome classification, degraded-batch reconciliation, and idempotent installation. The Stage C compatibility test additionally requires the legacy and canonical import paths to resolve to the same module object.
+This is the **last active registered shim** and is intentionally retired last. Removal requires the exact gates in `config/module_migrations.json`, a fresh LibCST/manual reference audit, focused recovery tests, full CI, exact Render image validation, and a real post-merge production monitor pass.
 
 ## `app.phase2_correlation_stability` → `app.lifecycle_correlation_runtime`
 
-Status: **compatibility shim active**  
-Introduced: **2026-09-16**
+Status: **retired legacy path; canonical runtime only**  
+Introduced: **2026-09-16**  
+Retired: **2026-09-17**
 
-The canonical implementation now uses the stable responsibility name `lifecycle_correlation_runtime`: it freezes an update's first lifecycle event identifier and translation job identifier so later grouping labels, retries, and delivery stages cannot create a new logical correlation identity.
-
-The old Phase 2 path is intentionally retained as a same-module-object compatibility alias. Production package initialization imports `app.lifecycle_correlation_runtime` directly at the exact position formerly occupied by `app.phase2_correlation_stability`.
+The canonical runtime freezes an update's first lifecycle event identifier and translation-job identifier so alternate grouping labels, retries, and later delivery stages cannot create a different logical identity. Production package initialization continues to import `app.lifecycle_correlation_runtime` in the same position after `zero_silent_miss`, `phase2_runtime_compat`, and `lifecycle_outcome_visibility_runtime`, before Event Fusion.
 
 ### Behavior contract
 
-This migration does not change:
+Retirement does not change:
 - the update-based stable translation-job ID algorithm;
 - first-event-ID preservation across later lifecycle writes;
 - retry status or lifecycle state updates;
 - the patched `StateStore.record_update_state` binding;
 - the patched `zero_silent_miss.translation_job_id` binding;
 - the `_phase2_correlation_stable` idempotency marker;
-- state or database schemas;
-- provider collection, Telegram delivery, schedules, secrets, or production dependencies.
+- state/database schemas, provider collection, Telegram delivery, schedules, secrets, or production dependencies.
 
-Import order is part of the contract. The canonical lifecycle-correlation runtime remains after `zero_silent_miss`, `phase2_runtime_compat`, and `lifecycle_outcome_visibility_runtime`, and before Event Fusion.
+### Retirement evidence
 
-### Removal policy
+The original PR #78 migration measured approximately 93.5% execution coverage across 32 test contexts and preserved the exact install position. The focused behavior test continues to verify stable event and translation correlation across stage-label changes and retries.
 
-Do not remove `app/phase2_correlation_stability.py` in this migration. Removal requires every gate in `config/module_migrations.json` to pass and must happen in a later focused pull request after a fresh LibCST plan shows no unresolved runtime caller.
+A fresh pre-removal plan from PR #89's final Maintenance artifact (`10505881127`) found exactly three remaining references: one legacy structural import plus two dynamic strings, all confined to compatibility assertions/registry data. There were zero production importers, zero import-order-sensitive legacy references, and zero parse errors; Grimp reported no direct/downstream importer or application entrypoint chain for the shim.
 
-### Evidence used for this migration
-
-Fresh Stage B import-graph evidence measured one direct importer (`app`) and one downstream importer. The most recent PR run with per-test Coverage.py evidence measured approximately 93.5% execution coverage across 32 test contexts for the module, stronger than the other small Phase 2 rename candidates. The dedicated `tests/test_phase2_correlation.py` regression test verifies that event and translation correlation IDs remain stable across stage-label changes and retries. Repository history also shows that the module was introduced specifically to freeze logical update correlation IDs, so the semantic target name describes an established responsibility rather than inventing a new abstraction.
+Full evidence and the post-merge production gate are recorded in `docs/research/phase2-correlation-stability-shim-retirement-2026-09-17.md`. Maintenance no longer generates a recurring LibCST plan for this retired migration.
 
 ## `app.phase2_final_visibility` → `app.lifecycle_outcome_visibility_runtime`
 
@@ -72,33 +50,19 @@ Status: **retired legacy path; canonical runtime only**
 Introduced: **2026-09-16**  
 Retired: **2026-09-17**
 
-The canonical implementation exposes the established partial-media and fidelity-rejection outcomes in durable lifecycle state and observability. Production package initialization continues to import `app.lifecycle_outcome_visibility_runtime` in the same position after `zero_silent_miss` and `phase2_runtime_compat`, immediately before `lifecycle_correlation_runtime` and Event Fusion.
+The canonical implementation exposes partial-media and fidelity-rejection outcomes in durable lifecycle state and observability. Production still imports `app.lifecycle_outcome_visibility_runtime` after `zero_silent_miss` and `phase2_runtime_compat`, immediately before `lifecycle_correlation_runtime` and Event Fusion.
 
-The historical `app.phase2_final_visibility` file is retired. The package-local binding `_phase2_final_visibility` still points directly to the canonical module; it does not recreate or import the retired path and is intentionally outside this focused module-path retirement.
+The package-local binding `_phase2_final_visibility` still points directly to the canonical module. It does not recreate or import the retired legacy module path and is outside the focused module-path retirement.
 
 ### Behavior contract
 
-This retirement does not change:
-- partial-media detection from `_last_media_delivery_report`;
-- the `media_status="partial_failed"` lifecycle update or `media_partial_failure` reason;
-- the `telegram_media_delivery_partial` observability event;
-- manual-review fidelity rejection detection;
-- the `translation_status="fidelity_rejected"` lifecycle update or `manual_review_required` reason;
-- the `translation_fidelity_rejected` observability event;
-- the `_phase2_partial_media_visible` and `_phase2_fidelity_visible` idempotency markers;
-- media delivery return values or Telegram send behavior;
-- state or database schemas;
-- provider collection, schedules, secrets, or production dependencies.
+Retirement does not change partial-media detection, `media_status="partial_failed"`, `media_partial_failure`, the partial-media observability event, fidelity rejection/manual-review classification, `translation_status="fidelity_rejected"`, `manual_review_required`, its observability event, idempotency markers, media return values, Telegram behavior, state/database schemas, providers, schedules, secrets, or production dependencies.
 
 ### Retirement evidence
 
-The original migration in PR #79 used a planning-first LibCST scan, preserved the exact import/install position, and measured about 84.5% execution coverage across 13 test contexts. Its focused tests cover partial-media lifecycle visibility and fidelity-rejection visibility.
+The original PR #79 migration measured about 84.5% execution coverage across 13 test contexts. A fresh pre-removal plan found three compatibility-only references and no production importer, no order-sensitive legacy reference, and no parse error. PR #89 then retired the path and completed a real post-merge production run through restore, live providers, full monitor pass, checkpoint, encrypted backup/outcome upload, and state/database persistence.
 
-A fresh pre-removal plan from PR #87's Maintenance artifact found three remaining references: one structural legacy import and two dynamic strings, all confined to compatibility assertions in `tests/test_phase2_outcomes.py` and migration-registry data. There were zero production importers, zero import-order-sensitive legacy references, and zero parse errors; Grimp found no direct/downstream importer or application entrypoint chain for the shim.
-
-Full evidence and the post-merge validation contract are recorded in `docs/research/phase2-final-visibility-shim-retirement-2026-09-17.md`.
-
-Maintenance CI no longer generates a recurring LibCST plan for this retired migration. The two still-active compatibility shims continue to receive read-only plans on every maintenance run.
+Full evidence is recorded in `docs/research/phase2-final-visibility-shim-retirement-2026-09-17.md`. Maintenance no longer generates a recurring LibCST plan for this retired migration.
 
 ## `app.channel_part4_finalfix` → `app.channel_source_fact_normalization_runtime`
 
@@ -106,30 +70,28 @@ Status: **retired legacy path; canonical runtime only**
 Introduced: **2026-09-16**  
 Retired: **2026-09-17**
 
-The canonical implementation uses a responsibility-based name for the established source-authorized normalization layer. It extends the hard-fact verifier's bounded ordinal vocabulary with English `first` through `tenth`, and canonicalizes a small set of member/term spellings in ordinary prose only when the source itself authorizes that identity or term.
+The canonical implementation owns source-authorized term normalization and the bounded English ordinal mapping used by hard-fact verification. Production imports `app.channel_source_fact_normalization_runtime` immediately after `channel_part4_hardening` and before `channel_part4_humanfix`, `channel_part4_qualityfix`, and `channel_part4_benchmark_hook`.
 
-The historical `app.channel_part4_finalfix` module file has been retired. Production package initialization continues to import `app.channel_source_fact_normalization_runtime` at the same position after `channel_part4_hardening` and before `channel_part4_humanfix`, `channel_part4_qualityfix`, and `channel_part4_benchmark_hook`.
-
-The package-local binding name `_channel_part4_finalfix` is intentionally left in `app/__init__.py` for this focused retirement because it points directly to the canonical module and does not recreate or import the retired module path. Renaming that private binding is not required for legacy-module retirement and can be considered separately if future evidence shows value.
+The package-local binding `_channel_part4_finalfix` still points directly to the canonical module. It does not recreate or import the retired module path and is outside the focused module-path retirement.
 
 ### Behavior contract
 
-This retirement does not change:
-- the bounded English ordinal mapping or its numeric values;
-- semantic-number verification in `channel_part4_hardening`;
-- the source aliases, canonical Persian spellings, or accepted output variants;
-- the rule that source authorization is required before a prose replacement;
-- hashtag and @mention protection boundaries;
-- the replacement regex or case-insensitive matching behavior;
-- the `hardening._canonicalize_source_authorized_terms` binding installed at import time;
-- writer classes, fallback translation, human-gate versions/fingerprints, provider collection, persisted state, Telegram delivery, schedules, secrets, or production dependencies.
+Retirement does not change ordinal values, semantic-number verification, source aliases/canonical Persian spellings, the source-authorization requirement, hashtag/@mention protection, replacement regex behavior, the hardening global binding, writer classes, fallback translation, human-gate fingerprints, providers, persisted state, Telegram delivery, schedules, secrets, or production dependencies.
 
 ### Retirement evidence
 
-The original migration in PR #80 had one direct production importer, one downstream importer, and 100% measured coverage across 12 test contexts before ownership moved. The focused behavioral tests were migrated to the canonical path then and remain canonical-only.
+The original PR #80 migration measured 100% execution coverage across 12 test contexts. The fresh retirement audit found eight remaining dynamic/manual strings, all synthetic maintenance fixtures or registry data, with zero structural import, zero order-sensitive reference, zero parse error, and no Grimp importer/entrypoint chain. PR #87 retired the path and completed full post-merge production, Watchdog, Render, Security, CodeQL, and Maintenance validation.
 
-A fresh pre-removal Maintenance run on `main` commit `4a2d6056586406620ff01cdef4cdf7bf9503a374` found eight remaining references and all eight were dynamic/manual strings. Inspection showed they are only synthetic historical-name fixtures in maintenance-tool tests plus the migration-registry assertion; there were zero structural imports, zero import-order-sensitive references, and zero parse errors. Grimp showed no direct importer, no downstream importer, and no application entrypoint chain for the shim.
+Full evidence is recorded in `docs/research/channel-part4-finalfix-shim-retirement-2026-09-17.md`. Maintenance no longer generates a recurring LibCST plan for this retired migration.
 
-Full evidence, exact run/artifact IDs, the production proof, and the post-merge validation contract are recorded in `docs/research/channel-part4-finalfix-shim-retirement-2026-09-17.md`.
+## Completion sequence
 
-Maintenance CI no longer generates a recurring LibCST plan for this retired migration.
+The registered-shim completion sequence is durable in `docs/stage-c-completion-roadmap.md`:
+
+1. channel source-fact legacy path — retired;
+2. lifecycle outcome visibility legacy path — retired;
+3. lifecycle correlation legacy path — retired in this focused step, pending its own post-merge production proof;
+4. degraded-X recovery legacy path — retire last after the preceding proof is green;
+5. run a fresh closure audit and explicitly classify the remaining historical implementation modules as either a future semantic-migration candidate or **retained by design**.
+
+Stage D architecture-boundary enforcement remains deferred until that closure audit establishes stable intended boundaries.
