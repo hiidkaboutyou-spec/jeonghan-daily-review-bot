@@ -22,14 +22,18 @@ class ModuleMigrationRegistryTests(unittest.TestCase):
             if item["legacy_module"] == legacy_module
         )
 
-    def test_registry_tracks_degraded_x_recovery_compatibility_shim(self) -> None:
+    def test_registry_tracks_retired_degraded_x_recovery_path(self) -> None:
         payload = self._payload()
         self.assertEqual(payload["schema_version"], 1)
 
         migration = self._migration("app.live_recovery_hardening")
         self.assertEqual(migration["canonical_module"], "app.x_degraded_recovery_runtime")
-        self.assertEqual(migration["status"], "compatibility-shim")
-        self.assertTrue(migration["single_module_object_required"])
+        self.assertEqual(migration["status"], "retired")
+        self.assertEqual(migration["retired_on"], "2026-09-17")
+        self.assertEqual(
+            migration["retirement_record"],
+            "docs/research/live-recovery-hardening-shim-retirement-2026-09-17.md",
+        )
         self.assertFalse(migration["runtime_behavior_change"])
         self.assertGreaterEqual(len(migration["removal_gates"]), 4)
 
@@ -76,14 +80,13 @@ class ModuleMigrationRegistryTests(unittest.TestCase):
         self.assertEqual(len(legacy), len(set(legacy)))
         self.assertEqual(len(canonical), len(set(canonical)))
 
-    def test_active_compatibility_shims_share_one_module_object(self) -> None:
-        for migration in self._payload()["migrations"]:
-            if migration["status"] != "compatibility-shim":
-                continue
-            with self.subTest(legacy_module=migration["legacy_module"]):
-                legacy = importlib.import_module(migration["legacy_module"])
-                canonical = importlib.import_module(migration["canonical_module"])
-                self.assertIs(legacy, canonical)
+    def test_registered_shim_subphase_has_no_active_compatibility_paths(self) -> None:
+        active = [
+            item["legacy_module"]
+            for item in self._payload()["migrations"]
+            if item["status"] == "compatibility-shim"
+        ]
+        self.assertEqual(active, [])
 
     def test_retired_legacy_paths_are_absent_while_canonical_paths_import(self) -> None:
         for migration in self._payload()["migrations"]:

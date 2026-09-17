@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from app import live_recovery_hardening as legacy_hardening
 from app import x_degraded_recovery_runtime as hardening
 
 
@@ -37,7 +35,7 @@ class _OutcomeBuilder:
         self.recovery = kwargs
 
 
-class LiveRecoveryHardeningTests(unittest.TestCase):
+class XDegradedRecoveryRuntimeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.original_provider_installed = hardening._PROVIDER_INSTALLED
         self.original_classification_installed = hardening._CLASSIFICATION_INSTALLED
@@ -46,17 +44,6 @@ class LiveRecoveryHardeningTests(unittest.TestCase):
     def _restore_flags(self) -> None:
         hardening._PROVIDER_INSTALLED = self.original_provider_installed
         hardening._CLASSIFICATION_INSTALLED = self.original_classification_installed
-
-    def test_legacy_import_resolves_to_canonical_module_and_shared_state(self) -> None:
-        self.assertIs(legacy_hardening, hardening)
-        self.assertIs(sys.modules["app.live_recovery_hardening"], hardening)
-        self.assertIs(sys.modules["app.x_degraded_recovery_runtime"], hardening)
-
-        legacy_hardening._PROVIDER_INSTALLED = not self.original_provider_installed
-        self.assertEqual(
-            hardening._PROVIDER_INSTALLED,
-            not self.original_provider_installed,
-        )
 
     def test_incomplete_collection_with_held_cursor_requires_recovery(self) -> None:
         def base_classify(_outcome):

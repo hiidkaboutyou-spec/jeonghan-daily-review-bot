@@ -84,15 +84,20 @@ jobs:
           set -euo pipefail
           .maintenance-env/bin/python -m unittest tests.test_module_refactor_plan -v
 
-      - name: Build active Stage C migration plans
+      - name: Confirm registered shim subphase is complete
         shell: bash
         run: |
           set -euo pipefail
-          .maintenance-env/bin/python tools/module_refactor_plan.py \
-            --old-module app.live_recovery_hardening \
-            --new-module app.x_degraded_recovery_runtime \
-            --json stage-c-x-degraded-recovery-plan.json \
-            --markdown stage-c-x-degraded-recovery-plan.md
+          .maintenance-env/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("config/module_migrations.json").read_text(encoding="utf-8"))
+          active = [item["legacy_module"] for item in payload["migrations"] if item["status"] == "compatibility-shim"]
+          if active:
+              raise SystemExit(f"active registered compatibility shims remain: {active}")
+          print("registered Stage C compatibility-shim subphase complete")
+          PY
 
       - name: Capture per-test Stage B coverage evidence
         if: github.event_name != 'push'
@@ -137,17 +142,6 @@ jobs:
           .maintenance-env/bin/vulture app tools --min-confidence 90 --sort-by-size > vulture-high-confidence.txt 2>&1 || true
           NO_COLOR=1 .maintenance-env/bin/complexipy app --failed > complexipy-hotspots.txt 2>&1 || true
 
-          # This scan models the production dependency graph, so maintenance-only
-          # scripts (whose dependencies live in requirements-maintenance.txt) are
-          # excluded together with the ephemeral venv. Known dynamic/CLI production
-          # dependencies are excluded from DEP002 only because static import analysis
-          # cannot see their intentional entry points:
-          # - agent-reach: importlib.find_spec("agent_reach") capability check
-          # - twitter-cli: `twitter` executable resolved with shutil.which
-          # - uvicorn: Docker CMD production server entry point
-          # `daily_watchdog` and `daily_watchdog_transport` are first-party fallback
-          # imports used when the semantic watchdog runner/transport is loaded through
-          # the stable direct-script command `python tools/daily_watchdog_runner.py`.
           .maintenance-env/bin/deptry . \
             --requirements-files requirements.txt \
             --known-first-party app \
@@ -164,11 +158,8 @@ jobs:
             echo "- Ruff definite Python errors: blocking."
             echo "- Stage B Grimp import-chain evidence: report-only; never authorizes moves/deletions."
             echo "- Stage B Coverage.py per-test evidence: collected on PR/manual/scheduled runs; no global coverage threshold yet."
-            echo "- Stage C LibCST refactor planner: blocking self-tests, read-only source behavior; no automatic apply."
-            echo "- Active Stage C degraded-X migration plan: generated read-only on every maintenance run while the final registered compatibility shim exists."
-            echo "- Retired Stage C lifecycle-correlation migration: removal evidence is durable in docs/research; no recurring plan is generated after shim retirement."
-            echo "- Retired Stage C lifecycle-outcome visibility migration: removal evidence is durable in docs/research; no recurring plan is generated after shim retirement."
-            echo "- Retired Stage C channel source-fact migration: removal evidence is durable in docs/research; no recurring plan is generated after shim retirement."
+            echo "- Stage C LibCST refactor planner: blocking self-tests and available for future planning; no automatic apply."
+            echo "- Registered Stage C compatibility-shim subphase: complete; retired-path proof is durable under docs/research and no recurring retired migration plans are generated."
             echo "- Import ordering and formatting: report-only during cleanup rollout."
             echo "- Vulture dead-code candidates: report-only; never auto-delete."
             echo "- Complexipy cognitive-complexity hotspots: report-only; used to prioritize human-reviewed refactors."
@@ -186,8 +177,6 @@ jobs:
             repo-structure.md
             module-family-evidence.json
             module-family-evidence.md
-            stage-c-x-degraded-recovery-plan.json
-            stage-c-x-degraded-recovery-plan.md
             ruff-import-order.txt
             ruff-format-check.txt
             vulture-high-confidence.txt
