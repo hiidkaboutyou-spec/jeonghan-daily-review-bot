@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import sys
 import unittest
 from pathlib import Path
 
@@ -57,14 +58,18 @@ class ModuleMigrationRegistryTests(unittest.TestCase):
         self.assertFalse(migration["runtime_behavior_change"])
         self.assertGreaterEqual(len(migration["removal_gates"]), 5)
 
-    def test_registry_tracks_channel_source_fact_normalization_compatibility_shim(self) -> None:
+    def test_registry_tracks_retired_channel_source_fact_normalization_path(self) -> None:
         migration = self._migration("app.channel_part4_finalfix")
         self.assertEqual(
             migration["canonical_module"],
             "app.channel_source_fact_normalization_runtime",
         )
-        self.assertEqual(migration["status"], "compatibility-shim")
-        self.assertTrue(migration["single_module_object_required"])
+        self.assertEqual(migration["status"], "retired")
+        self.assertEqual(migration["retired_on"], "2026-09-17")
+        self.assertEqual(
+            migration["retirement_record"],
+            "docs/research/channel-part4-finalfix-shim-retirement-2026-09-17.md",
+        )
         self.assertFalse(migration["runtime_behavior_change"])
         self.assertGreaterEqual(len(migration["removal_gates"]), 6)
 
@@ -75,12 +80,29 @@ class ModuleMigrationRegistryTests(unittest.TestCase):
         self.assertEqual(len(legacy), len(set(legacy)))
         self.assertEqual(len(canonical), len(set(canonical)))
 
-    def test_registered_legacy_and_canonical_paths_share_one_module_object(self) -> None:
+    def test_active_compatibility_shims_share_one_module_object(self) -> None:
         for migration in self._payload()["migrations"]:
+            if migration["status"] != "compatibility-shim":
+                continue
             with self.subTest(legacy_module=migration["legacy_module"]):
                 legacy = importlib.import_module(migration["legacy_module"])
                 canonical = importlib.import_module(migration["canonical_module"])
                 self.assertIs(legacy, canonical)
+
+    def test_retired_legacy_paths_are_absent_while_canonical_paths_import(self) -> None:
+        for migration in self._payload()["migrations"]:
+            if migration["status"] != "retired":
+                continue
+            legacy_module = migration["legacy_module"]
+            legacy_path = ROOT / (legacy_module.replace(".", "/") + ".py")
+            with self.subTest(legacy_module=legacy_module):
+                self.assertFalse(legacy_path.exists())
+                importlib.invalidate_caches()
+                sys.modules.pop(legacy_module, None)
+                with self.assertRaises(ModuleNotFoundError):
+                    importlib.import_module(legacy_module)
+                canonical = importlib.import_module(migration["canonical_module"])
+                self.assertIsNotNone(canonical)
 
 
 if __name__ == "__main__":
