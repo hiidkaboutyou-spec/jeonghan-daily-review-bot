@@ -40,3 +40,12 @@ Once the final retirement is merged and its zero-shim production run is green, r
 Record those decisions in `docs/repository-maintenance.md`. The registered-shim subphase is complete when `config/module_migrations.json` has no `compatibility-shim` records, Maintenance generates no plans for retired migrations, and the final zero-shim production validation is green.
 
 Stage D architecture enforcement remains deferred until the closure audit establishes stable intended boundaries.
+
+
+## Post-closure migration sequence
+
+The registered-shim closure audit completed in PR #95 and classified the remaining historical implementation modules. PR #97 then completed the focused coverage precursor for `app.channel_part4_humanfix`, measuring 98.44% execution coverage across 133 test contexts without changing production behavior.
+
+The current authorized migration is `app.channel_part4_humanfix` → `app.channel_human_quality_gate_runtime`. A read-only LibCST plan on the current main-derived branch found eight structural references, zero dynamic/manual references, one order-sensitive package-initializer reference, and zero parse errors. The migration must preserve the exact import position between source-fact normalization and quality repair, keep the historical path as a same-module-object shim, and preserve fingerprint/verifier mutation semantics used by `channel_part4_qualityfix`.
+
+After this migration is merged and independently production-proven, the next candidate is `app.channel_part4_qualityfix`; it must be planned in a separate PR and must not be folded into the human-quality-gate migration.
