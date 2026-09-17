@@ -84,7 +84,7 @@ jobs:
           set -euo pipefail
           .maintenance-env/bin/python -m unittest tests.test_module_refactor_plan -v
 
-      - name: Build candidate human quality gate migration plan
+      - name: Build active Stage C human quality gate migration plan
         shell: bash
         run: |
           set -euo pipefail
@@ -187,7 +187,6 @@ jobs:
             echo "- Stage B Grimp import-chain evidence: report-only; never authorizes moves/deletions."
             echo "- Stage B Coverage.py per-test evidence: collected on PR/manual/scheduled runs; no global coverage threshold yet."
             echo "- Stage C LibCST refactor planner: blocking self-tests and available for future planning; no automatic apply."
-            echo "- Candidate channel human-quality-gate migration plan: generated read-only before any production import change."
             echo "- Registered Stage C migration guard: retired paths must stay absent; at most one compatibility shim may be active at a time."
             echo "- Active channel human-quality-gate migration plan: generated read-only while the compatibility shim exists."
             echo "- Import ordering and formatting: report-only during cleanup rollout."
