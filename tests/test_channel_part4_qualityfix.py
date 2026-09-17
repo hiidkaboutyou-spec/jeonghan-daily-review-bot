@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from app import channel_part4_humanfix as humanfix
+from app import channel_human_quality_gate_runtime as humanfix
 from app.channel_part4_qualityfix import (
     _laughter_count_failures,
     _normalize_source_authorized_identity,
