@@ -68,16 +68,17 @@ Fresh Stage B import-graph evidence measured one direct importer (`app`) and one
 
 ## `app.phase2_final_visibility` → `app.lifecycle_outcome_visibility_runtime`
 
-Status: **compatibility shim active**  
-Introduced: **2026-09-16**
+Status: **retired legacy path; canonical runtime only**  
+Introduced: **2026-09-16**  
+Retired: **2026-09-17**
 
-The canonical implementation now uses the responsibility name `lifecycle_outcome_visibility_runtime`. It exposes two already-established outcomes in durable lifecycle state and observability: partial media delivery and translation fidelity rejection that requires manual review.
+The canonical implementation exposes the established partial-media and fidelity-rejection outcomes in durable lifecycle state and observability. Production package initialization continues to import `app.lifecycle_outcome_visibility_runtime` in the same position after `zero_silent_miss` and `phase2_runtime_compat`, immediately before `lifecycle_correlation_runtime` and Event Fusion.
 
-The old Phase 2 path remains as a same-module-object compatibility alias. Production package initialization imports `app.lifecycle_outcome_visibility_runtime` at the exact installation position formerly occupied by `app.phase2_final_visibility`. The private package binding name `_phase2_final_visibility` is intentionally retained during the compatibility phase as an extra guard against obscure callers relying on the package's existing private attribute.
+The historical `app.phase2_final_visibility` file is retired. The package-local binding `_phase2_final_visibility` still points directly to the canonical module; it does not recreate or import the retired path and is intentionally outside this focused module-path retirement.
 
 ### Behavior contract
 
-This migration does not change:
+This retirement does not change:
 - partial-media detection from `_last_media_delivery_report`;
 - the `media_status="partial_failed"` lifecycle update or `media_partial_failure` reason;
 - the `telegram_media_delivery_partial` observability event;
@@ -89,15 +90,15 @@ This migration does not change:
 - state or database schemas;
 - provider collection, schedules, secrets, or production dependencies.
 
-Import order is part of the contract. The canonical outcome-visibility runtime remains after `zero_silent_miss` and `phase2_runtime_compat`, immediately before `lifecycle_correlation_runtime`, and before Event Fusion.
+### Retirement evidence
 
-### Removal policy
+The original migration in PR #79 used a planning-first LibCST scan, preserved the exact import/install position, and measured about 84.5% execution coverage across 13 test contexts. Its focused tests cover partial-media lifecycle visibility and fidelity-rejection visibility.
 
-Do not remove `app/phase2_final_visibility.py` in this migration. Removal requires every gate in `config/module_migrations.json` to pass and must happen in a later focused pull request after a fresh LibCST plan shows no unresolved caller beyond the explicit compatibility contract.
+A fresh pre-removal plan from PR #87's Maintenance artifact found three remaining references: one structural legacy import and two dynamic strings, all confined to compatibility assertions in `tests/test_phase2_outcomes.py` and migration-registry data. There were zero production importers, zero import-order-sensitive legacy references, and zero parse errors; Grimp found no direct/downstream importer or application entrypoint chain for the shim.
 
-### Evidence used for this migration
+Full evidence and the post-merge validation contract are recorded in `docs/research/phase2-final-visibility-shim-retirement-2026-09-17.md`.
 
-The planning-first PR ran LibCST before any production source rename. The plan found exactly one structural reference, `app/__init__.py`, with no dynamic-string references, no manual-review references, and no parse errors; it correctly flagged the package initializer as import-order-sensitive. Fresh Stage B evidence measured one direct importer (`app`) and one downstream importer, with about 84.5% execution coverage across 13 test contexts. The dedicated `tests/test_phase2_outcomes.py` tests verify both partial-media lifecycle visibility and fidelity-rejection visibility. Repository history shows the module was introduced specifically to make those two outcomes explicit, so the semantic target name records an existing responsibility rather than changing architecture.
+Maintenance CI no longer generates a recurring LibCST plan for this retired migration. The two still-active compatibility shims continue to receive read-only plans on every maintenance run.
 
 ## `app.channel_part4_finalfix` → `app.channel_source_fact_normalization_runtime`
 
@@ -131,4 +132,4 @@ A fresh pre-removal Maintenance run on `main` commit `4a2d6056586406620ff01cdef4
 
 Full evidence, exact run/artifact IDs, the production proof, and the post-merge validation contract are recorded in `docs/research/channel-part4-finalfix-shim-retirement-2026-09-17.md`.
 
-Maintenance CI no longer generates a recurring LibCST plan for this retired migration. The three still-active compatibility shims continue to receive read-only plans on every maintenance run.
+Maintenance CI no longer generates a recurring LibCST plan for this retired migration.

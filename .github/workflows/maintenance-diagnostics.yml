@@ -98,11 +98,6 @@ jobs:
             --new-module app.lifecycle_correlation_runtime \
             --json stage-c-lifecycle-correlation-plan.json \
             --markdown stage-c-lifecycle-correlation-plan.md
-          .maintenance-env/bin/python tools/module_refactor_plan.py \
-            --old-module app.phase2_final_visibility \
-            --new-module app.lifecycle_outcome_visibility_runtime \
-            --json stage-c-lifecycle-outcome-visibility-plan.json \
-            --markdown stage-c-lifecycle-outcome-visibility-plan.md
 
       - name: Capture per-test Stage B coverage evidence
         if: github.event_name != 'push'
@@ -177,7 +172,7 @@ jobs:
             echo "- Stage C LibCST refactor planner: blocking self-tests, read-only source behavior; no automatic apply."
             echo "- Active Stage C degraded-X migration plan: generated read-only on every maintenance run while the compatibility shim exists."
             echo "- Active Stage C lifecycle-correlation migration plan: generated read-only on every maintenance run while the compatibility shim exists."
-            echo "- Active Stage C lifecycle-outcome visibility migration plan: generated read-only on every maintenance run while the compatibility shim exists."
+            echo "- Retired Stage C lifecycle-outcome visibility migration: removal evidence is durable in docs/research; no recurring plan is generated after shim retirement."
             echo "- Retired Stage C channel source-fact migration: removal evidence is durable in docs/research; no recurring plan is generated after shim retirement."
             echo "- Import ordering and formatting: report-only during cleanup rollout."
             echo "- Vulture dead-code candidates: report-only; never auto-delete."
@@ -200,8 +195,6 @@ jobs:
             stage-c-x-degraded-recovery-plan.md
             stage-c-lifecycle-correlation-plan.json
             stage-c-lifecycle-correlation-plan.md
-            stage-c-lifecycle-outcome-visibility-plan.json
-            stage-c-lifecycle-outcome-visibility-plan.md
             ruff-import-order.txt
             ruff-format-check.txt
             vulture-high-confidence.txt

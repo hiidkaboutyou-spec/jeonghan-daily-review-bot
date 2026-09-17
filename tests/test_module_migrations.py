@@ -47,14 +47,18 @@ class ModuleMigrationRegistryTests(unittest.TestCase):
         self.assertFalse(migration["runtime_behavior_change"])
         self.assertGreaterEqual(len(migration["removal_gates"]), 5)
 
-    def test_registry_tracks_lifecycle_outcome_visibility_compatibility_shim(self) -> None:
+    def test_registry_tracks_retired_lifecycle_outcome_visibility_path(self) -> None:
         migration = self._migration("app.phase2_final_visibility")
         self.assertEqual(
             migration["canonical_module"],
             "app.lifecycle_outcome_visibility_runtime",
         )
-        self.assertEqual(migration["status"], "compatibility-shim")
-        self.assertTrue(migration["single_module_object_required"])
+        self.assertEqual(migration["status"], "retired")
+        self.assertEqual(migration["retired_on"], "2026-09-17")
+        self.assertEqual(
+            migration["retirement_record"],
+            "docs/research/phase2-final-visibility-shim-retirement-2026-09-17.md",
+        )
         self.assertFalse(migration["runtime_behavior_change"])
         self.assertGreaterEqual(len(migration["removal_gates"]), 5)
 

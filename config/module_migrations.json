@@ -37,11 +37,13 @@
     {
       "legacy_module": "app.phase2_final_visibility",
       "canonical_module": "app.lifecycle_outcome_visibility_runtime",
-      "status": "compatibility-shim",
+      "status": "retired",
       "introduced_on": "2026-09-16",
+      "retired_on": "2026-09-17",
       "reason": "Replace a roadmap-phase name with the durable responsibility of exposing partial-media and fidelity-rejection lifecycle outcomes without changing delivery or observability behavior.",
       "single_module_object_required": true,
       "runtime_behavior_change": false,
+      "retirement_record": "docs/research/phase2-final-visibility-shim-retirement-2026-09-17.md",
       "removal_gates": [
         "No production, workflow, CLI, config, dynamic-import, or test caller requires the legacy module path.",
         "LibCST migration plan shows no unresolved legacy callers other than the compatibility contract itself.",

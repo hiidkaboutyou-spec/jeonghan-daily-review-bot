@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app import lifecycle_outcome_visibility_runtime as outcome_visibility_runtime
-from app import phase2_final_visibility as legacy_outcome_visibility_runtime
 from app.media import PreparedMedia
 from app.media_delivery import MediaDeliveryLedger
 from app.media_delivery_runtime import MediaDedupReviewApplication
@@ -61,17 +58,6 @@ def _update() -> Update:
 
 
 class Phase2OutcomeTests(unittest.TestCase):
-    def test_legacy_import_resolves_to_canonical_module(self):
-        self.assertIs(legacy_outcome_visibility_runtime, outcome_visibility_runtime)
-        self.assertIs(
-            sys.modules["app.phase2_final_visibility"],
-            outcome_visibility_runtime,
-        )
-        self.assertIs(
-            sys.modules["app.lifecycle_outcome_visibility_runtime"],
-            outcome_visibility_runtime,
-        )
-
     def test_partial_multi_asset_media_is_not_labeled_full_success(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
