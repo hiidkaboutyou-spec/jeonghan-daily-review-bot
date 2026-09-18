@@ -84,6 +84,21 @@ jobs:
           set -euo pipefail
           .maintenance-env/bin/python -m unittest tests.test_module_refactor_plan -v
 
+      - name: Build Stage C X recovery migration plans
+        shell: bash
+        run: |
+          set -euo pipefail
+          .maintenance-env/bin/python tools/module_refactor_plan.py \
+            --old-module app.phase3_recovery \
+            --new-module app.x_resumable_recovery_runtime \
+            --json stage-c-x-resumable-recovery-plan.json \
+            --markdown stage-c-x-resumable-recovery-plan.md
+          .maintenance-env/bin/python tools/module_refactor_plan.py \
+            --old-module app.phase3_recovery_hardening \
+            --new-module app.x_recovery_integrity_runtime \
+            --json stage-c-x-recovery-integrity-plan.json \
+            --markdown stage-c-x-recovery-integrity-plan.md
+
       - name: Validate registered migration state
         shell: bash
         run: |
@@ -201,6 +216,10 @@ jobs:
             module-family-evidence.json
             module-family-evidence.md
             stage-c-recovery-coverage.txt
+            stage-c-x-resumable-recovery-plan.json
+            stage-c-x-resumable-recovery-plan.md
+            stage-c-x-recovery-integrity-plan.json
+            stage-c-x-recovery-integrity-plan.md
             ruff-import-order.txt
             ruff-format-check.txt
             vulture-high-confidence.txt
