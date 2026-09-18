@@ -244,7 +244,7 @@ No remaining historical-name module is approved for direct deletion or unattende
 
 The future Stage C order is deliberately conservative: strengthen human-gate coverage, then consider the human-quality-gate migration; stabilize that dependency before quality-repair migration; separately strengthen critical recovery coverage and design the base/integrity recovery migration family. The four retain-by-design modules stay out of rename queues unless their underlying architecture changes.
 
-PR #97 completed the human-gate coverage precursor at 98.44% execution coverage across 133 test contexts. The current Stage C migration is therefore `app.channel_part4_humanfix` → `app.channel_human_quality_gate_runtime`, using a planning-first LibCST audit, an exact-position same-module-object compatibility shim, and one coherent importer-family migration. `app.channel_part4_qualityfix` must remain on its historical path until this dependency is independently production-proven.
+PR #97 completed the human-gate coverage precursor at 98.44% execution coverage across 133 test contexts, PR #98 migrated that responsibility to `app.channel_human_quality_gate_runtime`, and the later focused retirement removed `app.channel_part4_humanfix` only after independent production proof plus a final reference audit. The retired path must stay absent. `app.channel_part4_qualityfix` is now the next Stage C candidate, but only through a separate planning-first evidence pass after the retirement itself is production-proven.
 
 ### Stage D — enforce stable package boundaries
 

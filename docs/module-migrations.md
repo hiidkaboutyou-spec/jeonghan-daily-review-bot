@@ -46,17 +46,18 @@ The four original registered migrations are retired and production-proven. PR #9
 
 ## `app.channel_part4_humanfix` → `app.channel_human_quality_gate_runtime`
 
-Status: **compatibility shim active**  
-Introduced: **2026-09-18**
+Status: **retired legacy path; canonical runtime only**  
+Introduced: **2026-09-18**  
+Retired: **2026-09-18**
 
 The canonical runtime owns the established human-quality-gate responsibility: source-fidelity checks, speaker/metadata repair, optional human-polish generation and acceptance, writer patching, benchmark resume invalidation, and the human-gate fingerprint contract.
 
-The historical path remains a same-module-object compatibility alias. This is required because the downstream quality-repair layer intentionally mutates `HUMAN_GATE_VERSION`, `HUMAN_GATE_FINGERPRINT`, and `verify_hard_facts`; two Python module objects could otherwise diverge.
+The historical path was retained temporarily as a same-module-object compatibility alias because the downstream quality-repair layer mutates `HUMAN_GATE_VERSION`, `HUMAN_GATE_FINGERPRINT`, and `verify_hard_facts`. After the canonical runtime was independently production-proven and a fresh LibCST audit found only compatibility-registry test strings, the alias was removed in a focused retirement change.
 
 The planning-first Maintenance run found eight structural references, zero dynamic/manual references, one import-order-sensitive reference (`app/__init__.py`), and zero parse errors. The coherent importer family is `app/__init__.py`, `channel_part4_qualityfix`, `channel_part4_benchmark_hook`, the human/quality/freshness tests, and the human benchmark tool. All known callers migrate to the canonical path while preserving their local binding names.
 
 Behavior and install order are unchanged. The canonical runtime remains after `channel_part4_hardening` and `channel_source_fact_normalization_runtime`, and before `channel_part4_qualityfix` and `channel_part4_benchmark_hook`.
 
-The legacy shim must not be removed in this migration. Removal is a later focused PR after every gate in `config/module_migrations.json` passes and production behavior is independently verified. `channel_part4_qualityfix` remains the next deferred migration candidate only after this human-quality-gate path is stable.
+The legacy shim is now retired and must not be recreated. The detailed evidence is recorded in `docs/research/channel-human-quality-gate-shim-retirement-2026-09-18.md`. `channel_part4_qualityfix` is the next Stage C candidate, but only as a separate planning-first migration after this retirement receives independent post-merge production proof.
 
 Stage D architecture-boundary enforcement remains deferred until the remaining explicitly approved Stage C migrations are complete or intentionally deferred.

@@ -84,16 +84,6 @@ jobs:
           set -euo pipefail
           .maintenance-env/bin/python -m unittest tests.test_module_refactor_plan -v
 
-      - name: Build active Stage C human quality gate migration plan
-        shell: bash
-        run: |
-          set -euo pipefail
-          .maintenance-env/bin/python tools/module_refactor_plan.py \
-            --old-module app.channel_part4_humanfix \
-            --new-module app.channel_human_quality_gate_runtime \
-            --json stage-c-channel-human-quality-gate-plan.json \
-            --markdown stage-c-channel-human-quality-gate-plan.md
-
       - name: Validate registered migration state
         shell: bash
         run: |
@@ -206,8 +196,6 @@ jobs:
             repo-structure.md
             module-family-evidence.json
             module-family-evidence.md
-            stage-c-channel-human-quality-gate-plan.json
-            stage-c-channel-human-quality-gate-plan.md
             ruff-import-order.txt
             ruff-format-check.txt
             vulture-high-confidence.txt
