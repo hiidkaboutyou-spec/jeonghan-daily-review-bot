@@ -362,5 +362,157 @@ class RecoveryCoveragePrecursorTests(unittest.TestCase):
         )
 
 
+    def test_retry_delay_is_bounded_at_both_ends(self):
+        sleeper = AsyncMock()
+        with patch.object(phase3.asyncio, "sleep", new=sleeper):
+            asyncio.run(phase3._sleep_for_retry(0))
+            asyncio.run(phase3._sleep_for_retry(999))
+        self.assertEqual(
+            [call.args[0] for call in sleeper.await_args_list],
+            [phase3.RETRY_DELAYS[0], phase3.RETRY_DELAYS[-1]],
+        )
+
+    def test_requested_narrower_window_discards_wider_resumed_segment(self):
+        api = SimpleNamespace(
+            user_by_login=AsyncMock(return_value=SimpleNamespace(id=1)),
+            user_tweets_and_replies_raw=Mock(),
+        )
+        collector = _MinimalCollector(api=api)
+        state = Mock(spec=StateStore)
+        wider = self._checkpoint(end=self.end + timedelta(hours=2))
+        wider["next_cursor"] = "stale-wide-cursor"
+        state.get_x_retrieval_checkpoint.return_value = wider
+        collector._phase3_state = state
+
+        page = phase3._ProviderPage([], None, True, valid_response=True)
+        with patch.object(phase3, "_lookup_user", new=AsyncMock(return_value=SimpleNamespace(id=1))), patch.object(
+            phase3, "_fetch_page_with_retry", new=AsyncMock(return_value=page)
+        ), patch.object(phase3, "_clear_checkpoint") as clear, patch.object(
+            phase3, "observe"
+        ) as observe:
+            result = asyncio.run(
+                phase3._resumable_source_timeline(
+                    collector,
+                    "source",
+                    self.start,
+                    self.end,
+                    limit=20,
+                    include_replies=True,
+                )
+            )
+
+        self.assertEqual(result, [])
+        clear.assert_called_once()
+        start_events = [
+            call for call in observe.call_args_list
+            if call.args and call.args[0] == "source_fetch_start"
+        ]
+        self.assertEqual(len(start_events), 1)
+        self.assertFalse(start_events[0].kwargs["resume"])
+        self.assertFalse(start_events[0].kwargs["cursor_requested"])
+
+    def test_none_conversion_is_ignored_without_poisoning_checkpoint(self):
+        api = SimpleNamespace(
+            user_by_login=AsyncMock(return_value=SimpleNamespace(id=1)),
+            user_tweets_and_replies_raw=Mock(),
+        )
+        collector = _MinimalCollector(api=api)
+        collector._convert_tweet = Mock(return_value=None)
+        page = phase3._ProviderPage(
+            [SimpleNamespace(retweetedTweet=None)],
+            None,
+            True,
+            valid_response=True,
+        )
+        with patch.object(phase3, "_lookup_user", new=AsyncMock(return_value=SimpleNamespace(id=1))), patch.object(
+            phase3, "_fetch_page_with_retry", new=AsyncMock(return_value=page)
+        ):
+            result = asyncio.run(
+                phase3._resumable_source_timeline(
+                    collector,
+                    "source",
+                    self.start,
+                    self.end,
+                    limit=20,
+                    include_replies=True,
+                )
+            )
+        self.assertEqual(result, [])
+
+    def test_syndication_fallback_budget_exhaustion_fails_closed(self):
+        collector = _MinimalCollector(api=object())
+        collector._phase3_syndication_fallback_count = phase3.MAX_SYNDICATION_FALLBACKS_PER_WINDOW
+        syndication = Mock()
+        with patch.object(
+            phase3,
+            "_lookup_user",
+            new=AsyncMock(side_effect=XCollectionError("primary unavailable")),
+        ), patch.object(phase3, "collect_syndication_timeline", new=syndication), patch.object(
+            phase3, "_persist_checkpoint"
+        ):
+            with self.assertRaises(XCollectionError):
+                asyncio.run(
+                    phase3._resumable_source_timeline(
+                        collector,
+                        "source",
+                        self.start,
+                        self.end,
+                        limit=20,
+                        include_replies=True,
+                    )
+                )
+        syndication.assert_not_called()
+        self.assertEqual(
+            collector._phase3_syndication_fallback_count,
+            phase3.MAX_SYNDICATION_FALLBACKS_PER_WINDOW,
+        )
+
+    def test_successful_collect_window_merges_only_typed_partial_updates_and_restores_state(self):
+        collector = _MinimalCollector()
+        collector._phase3_allow_older_checkpoint = False
+        collector._phase3_partial_updates = {"previous": []}
+        collector._phase3_syndication_fallback_count = 2
+        base = _update("base", self.end - timedelta(hours=2))
+        extra = _update("extra", self.end - timedelta(hours=1))
+
+        async def successful(original_self, *_args, **_kwargs):
+            original_self._phase3_partial_updates = {
+                "source": [extra, "not-an-update"],
+                "ignored": "not-a-list",
+            }
+            return [base]
+
+        with patch.object(phase3, "_ORIGINAL_COLLECT_WINDOW", new=successful):
+            result = asyncio.run(phase3._resumable_collect_window(collector, self.start, self.end))
+
+        self.assertEqual([item.id for item in result], ["base", "extra"])
+        self.assertFalse(collector._phase3_allow_older_checkpoint)
+        self.assertEqual(collector._phase3_partial_updates, {"previous": []})
+        self.assertEqual(collector._phase3_syndication_fallback_count, 2)
+
+    def test_integrity_sanitizer_handles_update_parse_error_and_lookup_without_search(self):
+        broken = self._checkpoint()
+        broken_update = _update("bad", self.end - timedelta(hours=1)).to_dict()
+        broken_update["created_at"] = "definitely not a datetime"
+        broken["updates"] = [broken_update]
+        self.assertIsNone(phase3._sanitize_checkpoint(broken))
+
+        api = SimpleNamespace(user_by_login=AsyncMock(return_value=None))
+        with patch.object(phase3, "_sleep_for_retry", new=AsyncMock()), patch.object(
+            integrity, "observe"
+        ) as observe:
+            with self.assertRaises(XCollectionError):
+                asyncio.run(
+                    integrity._lookup_user_with_scoped_id_recovery(
+                        api,
+                        "source",
+                        "attempt",
+                    )
+                )
+        self.assertTrue(
+            any(call.kwargs.get("retry_outcome") == "profile_exhausted" for call in observe.call_args_list)
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
