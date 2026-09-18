@@ -84,7 +84,7 @@ jobs:
           set -euo pipefail
           .maintenance-env/bin/python -m unittest tests.test_module_refactor_plan -v
 
-      - name: Build Stage C X recovery migration plans
+      - name: Build Stage C active X recovery migration plan
         shell: bash
         run: |
           set -euo pipefail
@@ -93,11 +93,6 @@ jobs:
             --new-module app.x_resumable_recovery_runtime \
             --json stage-c-x-resumable-recovery-plan.json \
             --markdown stage-c-x-resumable-recovery-plan.md
-          .maintenance-env/bin/python tools/module_refactor_plan.py \
-            --old-module app.phase3_recovery_hardening \
-            --new-module app.x_recovery_integrity_runtime \
-            --json stage-c-x-recovery-integrity-plan.json \
-            --markdown stage-c-x-recovery-integrity-plan.md
 
       - name: Validate registered migration state
         shell: bash
@@ -144,7 +139,7 @@ jobs:
             --show-contexts -o module-test-coverage.json
           .maintenance-env/bin/coverage report --rcfile=.coveragerc-maintenance \
             --show-missing \
-            app/phase3_recovery.py app/phase3_recovery_hardening.py \
+            app/x_resumable_recovery_runtime.py app/phase3_recovery_hardening.py \
             > stage-c-recovery-coverage.txt
 
       - name: Build Stage B module-family evidence
@@ -197,7 +192,7 @@ jobs:
             echo "- Stage B Coverage.py per-test evidence: collected on PR/manual/scheduled runs; no global coverage threshold yet."
             echo "- Stage C LibCST refactor planner: blocking self-tests and available for future planning; no automatic apply."
             echo "- Registered Stage C migration guard: retired paths must stay absent; at most one compatibility shim may be active at a time."
-            echo "- No retired Stage C path receives a recurring migration plan; future candidates require a new planning-first evidence pass."
+            echo "- The active Stage C plan tracks app.phase3_recovery -> app.x_resumable_recovery_runtime only; integrity migration remains blocked until base production proof and shim retirement."
             echo "- Import ordering and formatting: report-only during cleanup rollout."
             echo "- Vulture dead-code candidates: report-only; never auto-delete."
             echo "- Complexipy cognitive-complexity hotspots: report-only; used to prioritize human-reviewed refactors."
@@ -218,8 +213,6 @@ jobs:
             stage-c-recovery-coverage.txt
             stage-c-x-resumable-recovery-plan.json
             stage-c-x-resumable-recovery-plan.md
-            stage-c-x-recovery-integrity-plan.json
-            stage-c-x-recovery-integrity-plan.md
             ruff-import-order.txt
             ruff-format-check.txt
             vulture-high-confidence.txt
