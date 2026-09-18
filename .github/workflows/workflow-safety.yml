@@ -1,0 +1,90 @@
+name: Hani Workflow Safety
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - "docs/security-diagnostics.md"
+      - "docs/research/github-capability-scan-2026-09-18.md"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+      - "docs/security-diagnostics.md"
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workflow-safety-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  actionlint:
+    name: GitHub Actions correctness
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # releases/v6, audited 2026-09-15
+        with:
+          persist-credentials: false
+
+      - name: Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version: "1.26.x"
+          cache: false
+
+      - name: Install pinned actionlint
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          "$(go env GOPATH)/bin/actionlint" -version
+
+      - name: Validate workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$(go env GOPATH)/bin/actionlint" -color -pyflakes ""
+
+  zizmor:
+    name: GitHub Actions security audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # releases/v6, audited 2026-09-15
+        with:
+          persist-credentials: false
+
+      - name: Run pinned zizmor (report-only rollout)
+        id: zizmor
+        continue-on-error: true
+        uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
+        with:
+          version: "1.29.0"
+          inputs: "."
+          collect: "workflows"
+          online-audits: "false"
+          persona: "regular"
+          min-severity: "medium"
+          min-confidence: "high"
+          advanced-security: "false"
+          annotations: "false"
+
+      - name: Record rollout status
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### Hani workflow security"
+            echo "- actionlint v1.7.12: blocking correctness gate."
+            echo "- zizmor v1.29.0: report-only during initial triage."
+            echo "- zizmor online audits: disabled; no extra GitHub token surface."
+            echo "- Production dependencies: unchanged."
+          } >> "$GITHUB_STEP_SUMMARY"
