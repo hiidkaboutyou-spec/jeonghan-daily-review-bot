@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
-from app import phase3_recovery as phase3
+from app import x_resumable_recovery_runtime as phase3
 from app import phase3_recovery_hardening as integrity
 from app.models import Update
 from app.state import StateStore
