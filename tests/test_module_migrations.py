@@ -113,8 +113,13 @@ class ModuleMigrationRegistryTests(unittest.TestCase):
             migration["canonical_module"],
             "app.x_resumable_recovery_runtime",
         )
-        self.assertEqual(migration["status"], "compatibility-shim")
+        self.assertEqual(migration["status"], "retired")
         self.assertEqual(migration["introduced_on"], "2026-09-18")
+        self.assertEqual(migration["retired_on"], "2026-09-18")
+        self.assertEqual(
+            migration["retirement_record"],
+            "docs/research/x-resumable-recovery-shim-retirement-2026-09-18.md",
+        )
         self.assertTrue(migration["single_module_object_required"])
         self.assertFalse(migration["runtime_behavior_change"])
         self.assertGreaterEqual(len(migration["removal_gates"]), 8)
