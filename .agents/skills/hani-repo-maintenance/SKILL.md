@@ -79,6 +79,16 @@ Do not treat historical-looking module names as dead code. Hani intentionally co
 - Dynamic string references are always manual-review findings and must never be auto-rewritten.
 - LibCST does not authorize a refactor by itself. The Stage B graph, focused tests, compatibility shim, migration registry, full CI, and post-merge production validation remain mandatory.
 
+### Import Linter
+
+- Maintenance-only; never a production runtime dependency.
+- Stage D begins with one report-only protected contract in `.importlinter`.
+- The pilot protects `app.x_recovery_integrity_runtime`: direct production import ownership stays with the `app` package initializer.
+- Run with `--no-cache` and no `ignore_imports` during the pilot.
+- A broken contract is evidence to investigate, not permission to rewrite imports.
+- Do not add another contract until current Grimp evidence and tests prove the intended boundary already exists.
+- Do not make the pilot blocking in the same PR that introduces it.
+
 ### Native structure inventory
 
 Use `tools/repo_structure_inventory.py` to map module responsibilities, internal import edges, parse errors, and historical naming candidates. Use `tools/module_family_evidence.py` to combine historical-name candidates with Grimp import-chain evidence and optional per-test Coverage.py evidence. Use `tools/module_refactor_plan.py` to build a syntax-aware, non-mutating migration plan for one selected module. These reports identify what must be reviewed; they do not prescribe deletion or automatically apply changes.
@@ -87,7 +97,7 @@ Use `tools/repo_structure_inventory.py` to map module responsibilities, internal
 
 - **Rope:** active and capable, but its higher-level stateful rename/move engine is reference-only for now. Hani's import-time patch stack benefits from a narrower explicit LibCST plan before any transformation.
 - **Bowler:** rejected. The upstream repository is archived and recommends LibCST for modern Python codemods.
-- **Import Linter 2.15:** approved for a Stage D report-only pilot after Stage C closure; maintenance-only, one narrow already-true contract first, no broad ignore rules.
+- **Import Linter 2.15:** active Stage D report-only pilot; maintenance-only, one protected recovery-integrity ownership contract, `--no-cache`, no ignore rules.
 - **Tach:** deferred alternative; do not install in parallel with the Import Linter pilot.
 - **Pydeps:** defer unless visual cycle analysis becomes materially useful; Grimp plus the native inventory already provide Stage B dependency evidence.
 
