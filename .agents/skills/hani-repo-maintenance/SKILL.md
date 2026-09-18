@@ -82,6 +82,7 @@ Do not treat historical-looking module names as dead code. Hani intentionally co
 ### Import Linter
 
 - Maintenance-only; never a production runtime dependency.
+- Security Diagnostics must audit the installed maintenance dependency environment separately with pip-audit/OSV; this vulnerability gate is blocking.
 - Stage D begins with one report-only protected contract in `.importlinter`.
 - The pilot protects `app.x_recovery_integrity_runtime`: direct production import ownership stays with the `app` package initializer.
 - Run with `--no-cache` and no `ignore_imports` during the pilot.
