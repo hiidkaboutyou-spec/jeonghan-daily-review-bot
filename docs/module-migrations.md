@@ -87,27 +87,23 @@ The canonical `app.x_resumable_recovery_runtime` contains the previous base impl
 
 Production callers `app`, `app.completeness_provider_proof`, and `app.phase3_recovery_hardening` now bind to the canonical base path. The integrity layer still owns its existing implementation and continues to patch `_update_dicts`, `_sanitize_checkpoint`, and `_lookup_user` on the canonical base module; `completeness_provider_proof` continues to replace `_provider_page` on that same object.
 
-Persisted `x_retrieval_checkpoints`, checkpoint version/identity/normalization, retry semantics and cursor safety are unchanged. Migration evidence: `docs/research/x-resumable-recovery-semantic-migration-2026-09-18.md`. Retirement evidence: `docs/research/x-resumable-recovery-shim-retirement-2026-09-18.md`. The next candidate is planning-first `app.phase3_recovery_hardening` → `app.x_recovery_integrity_runtime`.
-
-Do not retire the shim until independent main production proof and a fresh final reference audit. Do not begin the integrity semantic migration before the base migration is production-proven.
+Persisted `x_retrieval_checkpoints`, checkpoint version/identity/normalization, retry semantics and cursor safety are unchanged. Migration evidence: `docs/research/x-resumable-recovery-semantic-migration-2026-09-18.md`. Retirement evidence: `docs/research/x-resumable-recovery-shim-retirement-2026-09-18.md`. The integrity migration subsequently moved the historical `app.phase3_recovery_hardening` implementation to `app.x_recovery_integrity_runtime` and is retired separately below.
 
 Stage D architecture-boundary enforcement remains deferred until the remaining explicitly approved Stage C migrations are complete or intentionally deferred.
 
-## Active X recovery integrity migration
+## `app.phase3_recovery_hardening` → `app.x_recovery_integrity_runtime`
 
-`app.phase3_recovery_hardening` → `app.x_recovery_integrity_runtime` is the
-single active Stage C compatibility migration.
+Status: **retired legacy path; canonical runtime only**  
+Introduced: **2026-09-18**  
+Retired: **2026-09-18**
 
-The canonical implementation is unchanged and continues to patch the canonical
-`app.x_resumable_recovery_runtime` object at import time. The historical path is
-a same-module-object alias during compatibility.
+PR #111 migrated the integrity implementation to the semantic canonical path while preserving import order and import-time mutation of `app.x_resumable_recovery_runtime`. The historical path remained temporarily as a same-module-object compatibility alias until a real-main production proof and fresh final reference/import audit completed.
 
-The four historical-name strings in `tests/test_module_family_evidence.py` are
-synthetic maintenance fixtures, not callers, and intentionally remain unchanged.
+The final audit reported six legacy strings, zero structural references, zero import-order-sensitive references, zero direct importers, zero downstream importers, and zero parse errors. Four strings are intentional synthetic historical-name fixtures in `tests/test_module_family_evidence.py`; the remaining migration-registry assertions were converted to retirement assertions in PR #112.
 
-No persisted recovery key/schema/retry/cursor semantics change. Retirement requires
-independent production proof plus a fresh final reference/import audit.
+PR #112 removes the historical alias, records the registry entry as retired, and asserts that there are no active compatibility shims. The canonical implementation is unchanged. Persisted recovery keys/schema, checkpoint identity/version/normalization, retries, provider fallback behavior, source authorization, cursor semantics, Telegram/AO3 behavior, schedules, secrets, and production dependencies remain unchanged.
 
-Evidence:
-`docs/research/x-recovery-integrity-semantic-migration-2026-09-18.md`.
+Migration evidence: `docs/research/x-recovery-integrity-semantic-migration-2026-09-18.md`. Retirement evidence: `docs/research/x-recovery-integrity-shim-retirement-2026-09-18.md`.
+
+After PR #112 merges, require independent real-main production proof before starting any new Stage C structural migration. Then generate a fresh inventory/evidence report and select the next family only from current evidence; the retain-by-design modules remain deferred unless their architecture materially changes.
 
