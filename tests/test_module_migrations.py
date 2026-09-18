@@ -90,14 +90,19 @@ class ModuleMigrationRegistryTests(unittest.TestCase):
         self.assertFalse(migration["runtime_behavior_change"])
         self.assertGreaterEqual(len(migration["removal_gates"]), 7)
 
-    def test_registry_tracks_channel_quality_repair_compatibility_shim(self) -> None:
+    def test_registry_tracks_retired_channel_quality_repair_path(self) -> None:
         migration = self._migration("app.channel_part4_qualityfix")
         self.assertEqual(
             migration["canonical_module"],
             "app.channel_quality_repair_runtime",
         )
-        self.assertEqual(migration["status"], "compatibility-shim")
+        self.assertEqual(migration["status"], "retired")
         self.assertEqual(migration["introduced_on"], "2026-09-18")
+        self.assertEqual(migration["retired_on"], "2026-09-18")
+        self.assertEqual(
+            migration["retirement_record"],
+            "docs/research/channel-quality-repair-shim-retirement-2026-09-18.md",
+        )
         self.assertTrue(migration["single_module_object_required"])
         self.assertFalse(migration["runtime_behavior_change"])
         self.assertGreaterEqual(len(migration["removal_gates"]), 8)
@@ -109,13 +114,13 @@ class ModuleMigrationRegistryTests(unittest.TestCase):
         self.assertEqual(len(legacy), len(set(legacy)))
         self.assertEqual(len(canonical), len(set(canonical)))
 
-    def test_registered_migration_state_has_at_most_one_active_shim(self) -> None:
+    def test_registered_migration_state_has_no_active_shim(self) -> None:
         active = [
             item["legacy_module"]
             for item in self._payload()["migrations"]
             if item["status"] == "compatibility-shim"
         ]
-        self.assertEqual(active, ["app.channel_part4_qualityfix"])
+        self.assertEqual(active, [])
 
     def test_active_legacy_and_canonical_paths_share_one_module_object(self) -> None:
         for migration in self._payload()["migrations"]:
