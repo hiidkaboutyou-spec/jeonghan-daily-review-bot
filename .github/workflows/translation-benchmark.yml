@@ -47,10 +47,10 @@ jobs:
       GEMINI_MODEL: gemini-3.5-flash-lite
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # releases/v6, audited 2026-09-15
 
       - name: Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # releases/v6, audited 2026-09-15
         with:
           python-version: "3.11"
           cache: pip
@@ -109,10 +109,10 @@ jobs:
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # releases/v6, audited 2026-09-15
 
       - name: Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # releases/v6, audited 2026-09-15
         with:
           python-version: "3.11"
           cache: pip
@@ -130,7 +130,7 @@ jobs:
           python -m unittest discover -s tests -p "test_*.py" -v
 
       - name: Restore PART 4 benchmark checkpoint
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: .state/part4-real-benchmark.json
           key: part4-benchmark-v8-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -173,14 +173,14 @@ jobs:
 
       - name: Save PART 4 benchmark checkpoint
         if: always() && hashFiles('.state/part4-real-benchmark.json') != ''
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: .state/part4-real-benchmark.json
           key: part4-benchmark-v8-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload PART 4 benchmark artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: part4-real-translation-benchmark
           path: .state/part4-real-benchmark.json
@@ -198,10 +198,10 @@ jobs:
       GEMINI_MODEL: gemini-3.5-flash-lite
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # releases/v6, audited 2026-09-15
 
       - name: Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # releases/v6, audited 2026-09-15
         with:
           python-version: "3.11"
           cache: pip
@@ -249,7 +249,7 @@ jobs:
 
       - name: Upload writing quality evaluation
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: writing-quality-evaluation-${{ github.sha }}
           path: .state/writing-quality-evaluation.json
