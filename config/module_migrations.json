@@ -116,6 +116,26 @@
       ],
       "retired_on": "2026-09-18",
       "retirement_record": "docs/research/channel-quality-repair-shim-retirement-2026-09-18.md"
+    },
+    {
+      "legacy_module": "app.phase3_recovery",
+      "canonical_module": "app.x_resumable_recovery_runtime",
+      "status": "compatibility-shim",
+      "introduced_on": "2026-09-18",
+      "reason": "Replace the roadmap-phase base recovery name with the stable resumable-X-recovery runtime responsibility while preserving checkpoint persistence, bounded retry/fallback, source-scoped cursor, collector installation, and completeness-provider patch semantics.",
+      "single_module_object_required": true,
+      "runtime_behavior_change": false,
+      "removal_gates": [
+        "Production imports app.x_resumable_recovery_runtime directly; the legacy app.phase3_recovery path is required only by the explicit compatibility contract.",
+        "A fresh LibCST plan shows no unresolved legacy caller beyond the compatibility shim, migration registry, and explicit compatibility assertions.",
+        "app.phase3_recovery and app.x_resumable_recovery_runtime resolve to the exact same Python module object.",
+        "app.phase3_recovery_hardening and app.completeness_provider_proof both patch the canonical base recovery module object; no duplicate recovery globals or patch targets exist.",
+        "Persisted StateStore key x_retrieval_checkpoints, CHECKPOINT_VERSION, checkpoint-id derivation, schema normalization, retry/fallback behavior, and cursor advancement semantics remain unchanged.",
+        "Import/install order remains configured-source layers, base resumable recovery, recovery integrity hardening, degraded-provider recovery, source ledger, then later completeness provider-proof/runtime layers.",
+        "Focused recovery, hardening, completeness, durable-state, module-migration tests and the full project validation suite are green after caller migration.",
+        "A production main run passes state/database restore, project validation, runtime smoke, live-provider checks, a complete automatic monitor pass, database checkpoint, encrypted backup/outcome upload, and state/database persistence.",
+        "The legacy shim is removed only in a later focused pull request after production proof; the integrity migration must not create a second active shim."
+      ]
     }
   ]
 }
