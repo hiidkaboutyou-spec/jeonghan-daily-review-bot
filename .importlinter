@@ -13,3 +13,18 @@ as_packages = False
 broken_contract_guidance =
     Do not import app.x_recovery_integrity_runtime directly.
     Keep import-time installation owned by app/__init__.py; use the stable runtime interface instead.
+
+[importlinter:contract:stage-d-x-resumable-recovery-owner]
+name = X resumable recovery runtime is owned only by its deliberate recovery layers
+type = protected
+protected_modules =
+    app.x_resumable_recovery_runtime
+allowed_importers =
+    app
+    app.completeness_provider_proof
+    app.x_recovery_integrity_runtime
+as_packages = False
+broken_contract_guidance =
+    Do not couple new application modules directly to app.x_resumable_recovery_runtime.
+    Keep direct ownership limited to app package initialization, recovery integrity, and completeness provider proof.
+
