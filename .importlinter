@@ -1,0 +1,12 @@
+[importlinter]
+root_package = app
+exclude_type_checking_imports = True
+
+[importlinter:contract:stage-d-x-recovery-integrity-owner]
+name = X recovery integrity runtime is installed only by app package initialization
+type = protected
+protected_modules =
+    app.x_recovery_integrity_runtime
+allowed_importers =
+    app
+as_packages = False
