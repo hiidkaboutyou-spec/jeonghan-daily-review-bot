@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from app import channel_human_quality_gate_runtime as humanfix
-from app.channel_part4_qualityfix import (
+from app.channel_quality_repair_runtime import (
     _laughter_count_failures,
     _normalize_source_authorized_identity,
     _normalize_source_authorized_japanese,
@@ -62,7 +62,7 @@ class Part4QualityFixTests(unittest.TestCase):
         self.assertEqual(fixed.count("ㅋㅋㅋ"), 2)
 
     def test_actual_fallback_line_repairs_name_and_missing_emoji(self):
-        from app import channel_part4_qualityfix as qualityfix
+        from app import channel_quality_repair_runtime as qualityfix
 
         with patch.object(qualityfix, "_BASE_TRANSLATE_LINE", return_value="جئونگان: سلام 😂"):
             fixed = _safe_fallback_translate_line("Jeonghan: hi 😂 🤣")
