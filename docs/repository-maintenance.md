@@ -115,25 +115,26 @@ License: MIT
 
 The repository is archived/read-only. Its older fissix/lib2to3-oriented codemod stack is not a good new dependency for modern Hani refactors; upstream guidance points modern Python codemod work toward LibCST instead.
 
-### Import Linter 2.15 — Stage D report-only pilot
+### Import Linter 2.15 — Stage D blocking contract
 
 Repository: `seddonym/import-linter`
 Reviewed release commit: `31927f1457e3df673912cb5efb0afa6dbc37585f`
 License: BSD-2-Clause
 
-Import Linter is installed only in `requirements-maintenance.txt`; it is not part of the production Docker dependency graph. Version 2.15 requires Python >=3.10 and Grimp >=3.17, matching Hani's Python 3.11 maintenance environment and existing Grimp 3.17 evidence stack.
+Import Linter remains installed only in `requirements-maintenance.txt`; it is not part of the production Docker dependency graph. Version 2.15 requires Python >=3.10 and Grimp >=3.17, matching Hani's Python 3.11 maintenance environment and existing Grimp 3.17 evidence stack.
 
-The first pilot contract in `.importlinter` is deliberately narrow: `app.x_recovery_integrity_runtime` is protected and may be imported directly only by the `app` package initializer. This preserves the already production-proven ownership of the import-time integrity installer without restructuring any runtime module.
+The single Stage D contract protects `app.x_recovery_integrity_runtime`. With `as_packages=False`, upstream implementation/tests confirm that `allowed_importers = app` means the exact `app` package initializer is allowed while `app.*` descendants are not. This preserves the production-proven ownership of the import-time integrity installer without restructuring runtime code.
 
-Pilot rules:
-- report-only: a broken contract is captured as an artifact, not a blocking failure;
-- `--no-cache`: avoid adding Import Linter cache concurrency/state to CI;
-- maintenance dependency vulnerabilities are a blocking Security Diagnostics gate even while the architecture contract itself is report-only;
-- the initial audit found vulnerable `setuptools 79.0.1`; maintenance now pins `setuptools==84.0.0` while production requirements remain untouched;
+Enforcement rules:
+- blocking: a broken protected contract fails Maintenance CI;
+- `--no-cache`: avoid Import Linter cache concurrency/state in CI;
 - no `ignore_imports`: violations remain visible instead of being normalized away;
-- exact config scope is protected by `tests/test_architecture_contract_config.py`;
-- never encode a desired boundary until current Grimp evidence and tests prove the boundary already exists;
-- promote a contract to blocking only in a later focused change after report evidence, dynamic-import review, and production validation.
+- `broken_contract_guidance` explains how to restore the intended boundary;
+- `tests/test_architecture_contract_config.py` locks the exact one-contract scope;
+- `tools/protected_import_bypass_audit.py` separately blocks literal dynamic-loading bypasses and parse errors across `app/`, `tools/`, and `tests/`;
+- maintenance dependency vulnerabilities remain a separate blocking Security Diagnostics gate;
+- maintenance pins `setuptools==84.0.0` after the pilot audit exposed vulnerable `setuptools 79.0.1`; production requirements remain untouched;
+- do not add a second architecture contract until a separate report-only observation proves another intended boundary.
 
 ### Tach 0.35.0 — deferred alternative
 
@@ -204,9 +205,9 @@ A clean plan still does not prove a move is safe. Dynamic imports, subprocess/CL
 
 `Hani Maintenance Diagnostics` uses three levels:
 
-1. **Blocking:** Ruff definite Python errors, inventory/plan parse errors when invoked, and the existing unit suite when per-test Stage B coverage is collected.
+1. **Blocking:** Ruff definite Python errors; migration-state coherence; Import Linter's single recovery-integrity protected contract; the protected literal dynamic-import bypass audit; inventory/planner parse errors when invoked; and the existing unit suite when per-test Stage B coverage is collected.
 2. **Report-only:** Grimp relationships, Coverage.py evidence, Ruff import ordering/format checks, Vulture candidates, Deptry findings, and Complexipy hotspots.
-3. **Human/agent review:** every move, rename, deletion, dependency removal, complexity refactor, compatibility-shim removal, or package-boundary change.
+3. **Human/agent review:** every move, rename, deletion, dependency removal, complexity refactor, compatibility-shim removal, package-boundary change, or proposal for an additional architecture contract.
 
 Maintenance tooling is installed only in an ephemeral CI virtual environment from `requirements-maintenance.txt`. It is not part of the production Docker dependency graph.
 
@@ -266,7 +267,9 @@ Fresh Maintenance #138 inventory confirms zero active compatibility shims, zero 
 
 Current stage.
 
-Stage D starts with architecture observation and one narrow report-only contract, not a package rewrite. The first Import Linter 2.15 pilot protects the recovery-integrity install boundary: only the `app` package initializer may directly import `app.x_recovery_integrity_runtime`. The check runs with `--no-cache`, no ignore rules, remains outside the production dependency graph, and uploads `import-linter-report.txt`. A later PR may make the contract blocking only after the report is proven stable on PR and real-main maintenance runs. Tach remains deferred unless Import Linter proves insufficient.
+Stage D started with a report-only Import Linter 2.15 pilot for the recovery-integrity install boundary. PR #115 then proved that contract on its PR head and real `main` with 1 kept / 0 broken, while Security, Daily, Fanfic, Watchdog and maintenance dependency auditing remained green.
+
+The current Stage D promotion makes that same single contract blocking only after adding a focused AST-based literal dynamic-import bypass audit. Static direct imports are enforced by Import Linter; literal dynamic loaders and `sys.modules` access are enforced separately. Both gates fail on violations, Import Linter still runs with `--no-cache`, and there are no ignore rules. Do not add a second contract until a separate evidence/report-only cycle proves another boundary. Tach remains deferred unless Import Linter proves insufficient.
 
 ## Non-negotiable cleanup rules
 
