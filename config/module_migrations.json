@@ -95,6 +95,25 @@
       ],
       "retired_on": "2026-09-18",
       "retirement_record": "docs/research/channel-human-quality-gate-shim-retirement-2026-09-18.md"
+    },
+    {
+      "legacy_module": "app.channel_part4_qualityfix",
+      "canonical_module": "app.channel_quality_repair_runtime",
+      "status": "compatibility-shim",
+      "introduced_on": "2026-09-18",
+      "reason": "Replace the historical PART 4 quality-fix name with the stable channel quality-repair runtime responsibility while preserving source-authorized repair, deterministic fallback hardening, writer/verifier installation, and human-gate fingerprint mutation semantics.",
+      "single_module_object_required": true,
+      "runtime_behavior_change": false,
+      "removal_gates": [
+        "No production, workflow, CLI, config, dynamic-import, benchmark-tool, or test caller requires the legacy module path.",
+        "A fresh LibCST plan shows no unresolved legacy caller beyond explicit compatibility-registry assertions.",
+        "Focused quality-repair, human-quality-gate, translation-publishability, and benchmark-freshness tests plus the full project validation suite are green after caller migration.",
+        "Import order remains channel_part4_hardening, channel_source_fact_normalization_runtime, channel_human_quality_gate_runtime, channel_quality_repair_runtime, channel_part4_benchmark_hook.",
+        "The quality-repair layer continues to mutate HUMAN_GATE_VERSION, HUMAN_GATE_FINGERPRINT, and verify_hard_facts on the single canonical human-quality-gate module object, and the historical quality-repair path resolves to the exact same module object.",
+        "The human translation benchmark production fingerprint tracks app/channel_quality_repair_runtime.py and no longer tracks the compatibility shim.",
+        "A production main run passes state/database restore, project validation, runtime smoke, live-provider checks, a complete monitor pass, database checkpoint, encrypted backup/outcome upload, and state/database persistence after the final caller migration.",
+        "Legacy shim removal is performed only in a later focused pull request after production proof; it is never removed in this migration PR."
+      ]
     }
   ]
 }

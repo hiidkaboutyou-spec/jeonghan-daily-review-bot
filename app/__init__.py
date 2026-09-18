@@ -6,7 +6,7 @@
 from . import channel_part4_hardening as _channel_part4_hardening  # noqa: F401,E402
 from . import channel_source_fact_normalization_runtime as _channel_part4_finalfix  # noqa: F401,E402
 from . import channel_human_quality_gate_runtime as _channel_part4_humanfix  # noqa: F401,E402
-from . import channel_part4_qualityfix as _channel_part4_qualityfix  # noqa: F401,E402
+from . import channel_quality_repair_runtime as _channel_part4_qualityfix  # noqa: F401,E402
 from . import channel_part4_benchmark_hook as _channel_part4_benchmark_hook  # noqa: F401,E402
 
 # Every non-Fanfic X retrieval path is source-authoritative. Fanfic/AO3 keeps its

@@ -18,7 +18,7 @@ from app.translation_safety import (
     safe_metadata_body,
     semantic_quality_failures,
 )
-from app.channel_part4_qualityfix import _safe_fallback_translate_line
+from app.channel_quality_repair_runtime import _safe_fallback_translate_line
 
 
 def update(text: str, *, media=None, quoted_text="", quoted_author="") -> Update:
