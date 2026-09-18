@@ -127,6 +127,10 @@ jobs:
             -m unittest discover -s tests -p "test_*.py"
           .maintenance-env/bin/coverage json --rcfile=.coveragerc-maintenance \
             --show-contexts -o module-test-coverage.json
+          .maintenance-env/bin/coverage report --rcfile=.coveragerc-maintenance \
+            --show-missing \
+            app/phase3_recovery.py app/phase3_recovery_hardening.py \
+            > stage-c-recovery-coverage.txt
 
       - name: Build Stage B module-family evidence
         shell: bash
@@ -196,6 +200,7 @@ jobs:
             repo-structure.md
             module-family-evidence.json
             module-family-evidence.md
+            stage-c-recovery-coverage.txt
             ruff-import-order.txt
             ruff-format-check.txt
             vulture-high-confidence.txt
