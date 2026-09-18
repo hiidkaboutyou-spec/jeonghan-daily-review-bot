@@ -44,3 +44,19 @@ When a check fails, use `.agents/skills/hani-incident-triage/SKILL.md`. The inte
 ## Rollback
 
 Removing this diagnostic layer requires only deleting the two new workflows, `requirements-security.txt`, the incident-triage skill, its tests, and this document, then removing the corresponding capability-manifest entries. No runtime state or database migration is involved.
+
+## GitHub Actions workflow safety
+
+Workflow-specific security and correctness are intentionally separated from Python dependency/source scans.
+
+The dedicated `Hani Workflow Safety` workflow adds:
+
+- **actionlint v1.7.12** as a blocking correctness gate for workflow syntax, expressions, action inputs/outputs, reusable-workflow contracts, cron/globs and shell snippets;
+- **zizmor v1.29.0** through its SHA-pinned official action as an initial report-only security audit.
+
+The zizmor rollout begins offline (`online-audits: false`), with `contents: read` only and no Advanced Security upload. This avoids adding token/write surface while existing workflow findings are triaged. It must not be promoted to blocking until the initial findings are reviewed and any real issues are fixed.
+
+Both tools are CI-only and must never be imported by or installed into production Hani runtime dependencies.
+
+Detailed pin/safety evidence: `docs/research/workflow-safety-rollout-2026-09-18.md`.
+
