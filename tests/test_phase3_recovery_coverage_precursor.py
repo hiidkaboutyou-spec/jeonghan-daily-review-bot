@@ -440,7 +440,8 @@ class RecoveryCoveragePrecursorTests(unittest.TestCase):
         self.assertEqual(result, [])
 
     def test_syndication_fallback_budget_exhaustion_fails_closed(self):
-        collector = _MinimalCollector(api=object())
+        api = SimpleNamespace(user_tweets_and_replies_raw=Mock())
+        collector = _MinimalCollector(api=api)
         collector._phase3_syndication_fallback_count = phase3.MAX_SYNDICATION_FALLBACKS_PER_WINDOW
         syndication = Mock()
         with patch.object(
@@ -489,6 +490,24 @@ class RecoveryCoveragePrecursorTests(unittest.TestCase):
         self.assertFalse(collector._phase3_allow_older_checkpoint)
         self.assertEqual(collector._phase3_partial_updates, {"previous": []})
         self.assertEqual(collector._phase3_syndication_fallback_count, 2)
+
+    def test_integrity_lookup_accepts_first_profile_without_retry_or_search(self):
+        user = SimpleNamespace(id=17, username="source")
+        api = SimpleNamespace(user_by_login=AsyncMock(return_value=user))
+        with patch.object(phase3, "_sleep_for_retry", new=AsyncMock()), patch.object(
+            integrity, "observe"
+        ) as observe:
+            result = asyncio.run(
+                integrity._lookup_user_with_scoped_id_recovery(
+                    api,
+                    "source",
+                    "attempt",
+                )
+            )
+        self.assertIs(result, user)
+        self.assertFalse(
+            any(call.kwargs.get("retry_outcome") == "profile_recovered" for call in observe.call_args_list)
+        )
 
     def test_integrity_sanitizer_handles_update_parse_error_and_lookup_without_search(self):
         broken = self._checkpoint()
