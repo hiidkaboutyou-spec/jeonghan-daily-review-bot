@@ -8,6 +8,8 @@ on:
       - "tests/**"
       - "requirements*.txt"
       - ".coveragerc-maintenance"
+      - ".importlinter"
+      - ".importlinter"
       - ".github/workflows/maintenance-diagnostics.yml"
       - "config/agent_capabilities.json"
       - "config/module_migrations.json"
@@ -142,6 +144,20 @@ jobs:
             --markdown module-family-evidence.md
           rm -f module-test-coverage.json .coverage.maintenance
 
+      - name: Run Stage D Import Linter pilot
+        shell: bash
+        run: |
+          set -u
+          set +e
+          .maintenance-env/bin/lint-imports --config .importlinter --no-cache > import-linter-report.txt 2>&1
+          status=$?
+          set -e
+          {
+            echo
+            echo "report_only_exit_status=$status"
+          } >> import-linter-report.txt
+          echo "Import Linter pilot is report-only; inspect import-linter-report.txt before considering enforcement." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Collect non-blocking cleanup reports
         shell: bash
         run: |
@@ -183,6 +199,7 @@ jobs:
             echo "- LibCST refactor planner: blocking self-tests and available only for explicitly approved future migrations; no automatic apply."
             echo "- Stage C closure guard: every registered migration is retired; any active compatibility shim is now a blocking error."
             echo "- Stage C is closed after the X recovery integrity retirement; no recurring plan is generated for retired module paths."
+            echo "- Stage D Import Linter 2.15 pilot: report-only, no cache, one protected contract, no ignore_imports."
             echo "- Import ordering and formatting: report-only during cleanup rollout."
             echo "- Vulture dead-code candidates: report-only; never auto-delete."
             echo "- Complexipy cognitive-complexity hotspots: report-only; used to prioritize human-reviewed refactors."
@@ -206,5 +223,6 @@ jobs:
             vulture-high-confidence.txt
             complexipy-hotspots.txt
             deptry-report.txt
+            import-linter-report.txt
           if-no-files-found: warn
           retention-days: 14
