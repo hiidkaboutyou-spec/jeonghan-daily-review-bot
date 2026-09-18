@@ -24,7 +24,7 @@ _PRODUCTION_FINGERPRINT_PATHS = (
     ROOT / "app/channel_translation_v2.py",
     ROOT / "app/channel_translation_playbook.py",
     ROOT / "app/channel_human_quality_gate_runtime.py",
-    ROOT / "app/channel_part4_qualityfix.py",
+    ROOT / "app/channel_quality_repair_runtime.py",
     ROOT / "app/translation_safety.py",
     ROOT / "app/channel_entities.py",
     ROOT / "app/channel_quality.py",
