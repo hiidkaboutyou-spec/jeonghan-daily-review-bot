@@ -244,7 +244,7 @@ No remaining historical-name module is approved for direct deletion or unattende
 
 The future Stage C order is deliberately conservative: strengthen human-gate coverage, then consider the human-quality-gate migration; stabilize that dependency before quality-repair migration; separately strengthen critical recovery coverage and design the base/integrity recovery migration family. The four retain-by-design modules stay out of rename queues unless their underlying architecture changes.
 
-PR #97/#98 and the later retirement completed the human-quality-gate migration; PR #101–#104 completed quality-repair migration/retirement; PR #105 completed the X-recovery coverage precursor. PR #106 established the migration sequence from fresh LibCST/Grimp evidence. The base migration to `app.x_resumable_recovery_runtime` is production-proven and its historical `app.phase3_recovery` shim is retired after a fresh final audit found only two migration-test strings, zero structural references, zero direct/downstream importers, and zero parse errors. Persisted `x_retrieval_checkpoints` and all checkpoint/retry/cursor semantics remain unchanged. The next Stage C gate is a fresh planning-first pass for `app.phase3_recovery_hardening` → `app.x_recovery_integrity_runtime`; no implementation move is authorized until that new evidence is inspected.
+PR #97/#98 and the later retirement completed the human-quality-gate migration; PR #101–#104 completed quality-repair migration/retirement; PR #105 completed the X-recovery coverage precursor; PR #106 established the recovery migration sequence; PR #108/#110 migrated and retired the base recovery path; PR #111 migrated the integrity implementation to `app.x_recovery_integrity_runtime`. PR #112 is the focused retirement of the final registered compatibility shim, `app.phase3_recovery_hardening`. Its final audit found zero structural/runtime importers and only synthetic maintenance fixtures plus migration-registry assertions. Persisted `x_retrieval_checkpoints` and all checkpoint/retry/cursor semantics remain unchanged. After PR #112 merges and receives independent real-main production proof, Stage C must run a fresh repository inventory/evidence pass before selecting any additional historical module family.
 
 ### Stage D — enforce stable package boundaries
 
@@ -265,17 +265,20 @@ Only after the remaining explicitly deferred Stage C migrations have either comp
 - No validation PR may send live Telegram messages or mutate production state.
 - Every structural change gets focused tests, normal project validation, and post-merge production verification.
 
-## Active X recovery integrity migration — 2026-09-18
+## X recovery integrity retirement checkpoint — 2026-09-18
 
-The base recovery path is canonical and its historical shim remains retired.
-The single active Stage C shim is now
-`app.phase3_recovery_hardening` → `app.x_recovery_integrity_runtime`.
+The canonical integrity runtime is `app.x_recovery_integrity_runtime`. The historical
+`app.phase3_recovery_hardening` compatibility path is retired by PR #112 after a fresh
+audit found zero structural references, zero direct/downstream importers, zero
+import-order-sensitive references, and only non-runtime maintenance/registry strings.
 
-The canonical integrity implementation is unchanged and patches only the canonical
-base recovery module. Preserve exact import order and all checkpoint/retry/cursor
-semantics. Synthetic historical-name fixtures in
-`tests/test_module_family_evidence.py` remain fixtures, not callers.
+The canonical implementation remains unchanged and continues to patch only
+`app.x_resumable_recovery_runtime`. Persisted checkpoint identity/schema, retry/fallback
+accounting, source authorization, cursor advancement, provider behavior, Telegram,
+AO3, secrets, schedules, and production dependencies are unchanged.
 
-Require full CI, real-main production proof, and a fresh final reference/import
-audit before retirement.
+Do not recreate the retired path. After merge, require independent real-main
+production proof and then generate a fresh Stage C inventory/evidence report before
+selecting another module family. The four retain-by-design historical modules remain
+out of the rename queue unless their underlying architecture changes.
 
