@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from app.config import ROOT
 from app.models import Update
-from app.phase3_recovery import (
+from app.x_resumable_recovery_runtime import (
     MAX_SOURCE_RETRIES,
     _ProviderPage,
     _checkpoint_id,
@@ -91,7 +91,7 @@ class Phase3RecoveryTests(unittest.TestCase):
         self.end = datetime(2026, 8, 14, 18, 0, tzinfo=timezone.utc)
         self.start = self.end - timedelta(hours=4)
         self.syndication = patch(
-            "app.phase3_recovery.collect_syndication_timeline",
+            "app.x_resumable_recovery_runtime.collect_syndication_timeline",
             side_effect=SyndicationError("offline in unit test"),
         )
         self.syndication.start()
@@ -101,12 +101,12 @@ class Phase3RecoveryTests(unittest.TestCase):
         recovered = _update("fallback", self.end - timedelta(hours=1))
         self.syndication.stop()
         with tempfile.TemporaryDirectory() as temp, patch(
-            "app.phase3_recovery.collect_syndication_timeline",
+            "app.x_resumable_recovery_runtime.collect_syndication_timeline",
             return_value=SimpleNamespace(updates=[recovered], raw_seen=1),
         ), patch(
-            "app.phase3_recovery._provider_page",
+            "app.x_resumable_recovery_runtime._provider_page",
             new=AsyncMock(side_effect=[TimeoutError("down")] * (MAX_SOURCE_RETRIES + 1)),
-        ), patch("app.phase3_recovery._sleep_for_retry", new=AsyncMock()), patch(
+        ), patch("app.x_resumable_recovery_runtime._sleep_for_retry", new=AsyncMock()), patch(
             "app.source_authority_hardening.asyncio.sleep", new=AsyncMock()
         ):
             collector = self._collector_with_state(temp)
@@ -135,7 +135,7 @@ class Phase3RecoveryTests(unittest.TestCase):
             ),
         ]
         with tempfile.TemporaryDirectory() as temp, patch(
-            "app.phase3_recovery._provider_page", new=AsyncMock(side_effect=pages)
+            "app.x_resumable_recovery_runtime._provider_page", new=AsyncMock(side_effect=pages)
         ):
             collector = self._collector_with_state(temp)
             result = asyncio.run(
@@ -154,9 +154,9 @@ class Phase3RecoveryTests(unittest.TestCase):
         page1 = _ProviderPage([_tweet("3", self.end - timedelta(hours=1))], "c1", False)
         failures = [TimeoutError("timeout")] * (MAX_SOURCE_RETRIES + 1)
         with tempfile.TemporaryDirectory() as temp, patch(
-            "app.phase3_recovery._provider_page",
+            "app.x_resumable_recovery_runtime._provider_page",
             new=AsyncMock(side_effect=[page1, *failures]),
-        ), patch("app.phase3_recovery._sleep_for_retry", new=AsyncMock()):
+        ), patch("app.x_resumable_recovery_runtime._sleep_for_retry", new=AsyncMock()):
             collector = self._collector_with_state(temp)
             with self.assertRaises(XCollectionError):
                 asyncio.run(
@@ -180,9 +180,9 @@ class Phase3RecoveryTests(unittest.TestCase):
         page1 = _ProviderPage([_tweet("3", self.end - timedelta(hours=1))], "c1", False)
         failures = [TimeoutError("timeout")] * (MAX_SOURCE_RETRIES + 1)
         with tempfile.TemporaryDirectory() as temp, patch(
-            "app.phase3_recovery._provider_page",
+            "app.x_resumable_recovery_runtime._provider_page",
             new=AsyncMock(side_effect=[page1, *failures]),
-        ), patch("app.phase3_recovery._sleep_for_retry", new=AsyncMock()), patch(
+        ), patch("app.x_resumable_recovery_runtime._sleep_for_retry", new=AsyncMock()), patch(
             "app.source_authority_hardening.asyncio.sleep", new=AsyncMock()
         ):
             collector = self._collector_with_state(temp)
@@ -196,9 +196,9 @@ class Phase3RecoveryTests(unittest.TestCase):
         page1 = _ProviderPage([_tweet("3", self.end - timedelta(hours=1))], "c1", False)
         failures = [TimeoutError("timeout")] * (MAX_SOURCE_RETRIES + 1)
         with tempfile.TemporaryDirectory() as temp, patch(
-            "app.phase3_recovery._provider_page",
+            "app.x_resumable_recovery_runtime._provider_page",
             new=AsyncMock(side_effect=[page1, *failures]),
-        ), patch("app.phase3_recovery._sleep_for_retry", new=AsyncMock()):
+        ), patch("app.x_resumable_recovery_runtime._sleep_for_retry", new=AsyncMock()):
             collector = self._collector_with_state(temp)
             with self.assertRaises(XCollectionError):
                 asyncio.run(
@@ -216,7 +216,7 @@ class Phase3RecoveryTests(unittest.TestCase):
                 False,
             )
             provider = AsyncMock(return_value=resumed_page)
-            with patch("app.phase3_recovery._provider_page", new=provider):
+            with patch("app.x_resumable_recovery_runtime._provider_page", new=provider):
                 result = asyncio.run(
                     _resumable_source_timeline(
                         collector, "source", self.start, self.end, limit=200, include_replies=True
@@ -229,9 +229,9 @@ class Phase3RecoveryTests(unittest.TestCase):
         page1 = _ProviderPage([_tweet("3", self.end - timedelta(hours=1))], "c1", False)
         failures = [RuntimeError("temporary")] * (MAX_SOURCE_RETRIES + 1)
         with tempfile.TemporaryDirectory() as temp, patch(
-            "app.phase3_recovery._provider_page",
+            "app.x_resumable_recovery_runtime._provider_page",
             new=AsyncMock(side_effect=[page1, *failures]),
-        ), patch("app.phase3_recovery._sleep_for_retry", new=AsyncMock()):
+        ), patch("app.x_resumable_recovery_runtime._sleep_for_retry", new=AsyncMock()):
             collector = self._collector_with_state(temp)
             with self.assertRaises(XCollectionError):
                 asyncio.run(
@@ -248,7 +248,7 @@ class Phase3RecoveryTests(unittest.TestCase):
                 "c2",
                 False,
             )
-            with patch("app.phase3_recovery._provider_page", new=AsyncMock(return_value=overlap)):
+            with patch("app.x_resumable_recovery_runtime._provider_page", new=AsyncMock(return_value=overlap)):
                 result = asyncio.run(
                     _resumable_source_timeline(
                         collector, "source", self.start, self.end, limit=200, include_replies=True
@@ -260,8 +260,8 @@ class Phase3RecoveryTests(unittest.TestCase):
         provider = AsyncMock(side_effect=[TimeoutError("down")] * (MAX_SOURCE_RETRIES + 1))
         sleeper = AsyncMock()
         with tempfile.TemporaryDirectory() as temp, patch(
-            "app.phase3_recovery._provider_page", new=provider
-        ), patch("app.phase3_recovery._sleep_for_retry", new=sleeper):
+            "app.x_resumable_recovery_runtime._provider_page", new=provider
+        ), patch("app.x_resumable_recovery_runtime._sleep_for_retry", new=sleeper):
             collector = self._collector_with_state(temp)
             with self.assertRaises(XCollectionError):
                 asyncio.run(
@@ -279,9 +279,9 @@ class Phase3RecoveryTests(unittest.TestCase):
         page1 = _ProviderPage([_tweet("p1", now - timedelta(hours=1))], "c1", False)
         failures = [TimeoutError("timeout")] * (MAX_SOURCE_RETRIES + 1)
         with tempfile.TemporaryDirectory() as temp, patch(
-            "app.phase3_recovery._provider_page",
+            "app.x_resumable_recovery_runtime._provider_page",
             new=AsyncMock(side_effect=[page1, *failures]),
-        ), patch("app.phase3_recovery._sleep_for_retry", new=AsyncMock()):
+        ), patch("app.x_resumable_recovery_runtime._sleep_for_retry", new=AsyncMock()):
             app = WebhookAwarePersonalAssistant.__new__(WebhookAwarePersonalAssistant)
             app.state = StateStore(Path(temp) / "state.json")
             app.state.data["last_auto_run"] = old.isoformat()
@@ -302,9 +302,9 @@ class Phase3RecoveryTests(unittest.TestCase):
         page1 = _ProviderPage([_tweet("p1", now - timedelta(hours=1))], "c1", False)
         failures = [TimeoutError("timeout")] * (MAX_SOURCE_RETRIES + 1)
         with tempfile.TemporaryDirectory() as temp, patch(
-            "app.phase3_recovery._provider_page",
+            "app.x_resumable_recovery_runtime._provider_page",
             new=AsyncMock(side_effect=[page1, *failures]),
-        ), patch("app.phase3_recovery._sleep_for_retry", new=AsyncMock()):
+        ), patch("app.x_resumable_recovery_runtime._sleep_for_retry", new=AsyncMock()):
             app = WebhookAwarePersonalAssistant.__new__(WebhookAwarePersonalAssistant)
             app.state = StateStore(Path(temp) / "state.json")
             app.state.data["last_auto_run"] = old.isoformat()
@@ -326,7 +326,7 @@ class Phase3RecoveryTests(unittest.TestCase):
             )
             head = _ProviderPage([], None, True)
             with patch(
-                "app.phase3_recovery._provider_page",
+                "app.x_resumable_recovery_runtime._provider_page",
                 new=AsyncMock(side_effect=[resumed, head]),
             ):
                 asyncio.run(app.run_scheduled_scan())
@@ -340,8 +340,8 @@ class Phase3RecoveryTests(unittest.TestCase):
         ]
         failures = [TimeoutError("down")] * (MAX_SOURCE_RETRIES + 1)
         with tempfile.TemporaryDirectory() as temp, patch(
-            "app.phase3_recovery._provider_page", new=AsyncMock(side_effect=failures)
-        ), patch("app.phase3_recovery._sleep_for_retry", new=AsyncMock()):
+            "app.x_resumable_recovery_runtime._provider_page", new=AsyncMock(side_effect=failures)
+        ), patch("app.x_resumable_recovery_runtime._sleep_for_retry", new=AsyncMock()):
             collector = self._collector_with_state(temp, recovery=recovered)
             result = asyncio.run(collector.collect_window(self.start, self.end, max_per_query=20))
             self.assertEqual([item.id for item in result], ["safe"])
@@ -357,7 +357,7 @@ class Phase3RecoveryTests(unittest.TestCase):
             False,
         )
         with tempfile.TemporaryDirectory() as temp, patch(
-            "app.phase3_recovery._provider_page", new=AsyncMock(return_value=page)
+            "app.x_resumable_recovery_runtime._provider_page", new=AsyncMock(return_value=page)
         ):
             collector = self._collector_with_state(temp)
             result = asyncio.run(
@@ -393,8 +393,8 @@ class Phase3RecoveryTests(unittest.TestCase):
             )
 
         with tempfile.TemporaryDirectory() as temp, patch(
-            "app.phase3_recovery._provider_page", new=AsyncMock(side_effect=page_for_user)
-        ), patch("app.phase3_recovery._sleep_for_retry", new=AsyncMock()), patch(
+            "app.x_resumable_recovery_runtime._provider_page", new=AsyncMock(side_effect=page_for_user)
+        ), patch("app.x_resumable_recovery_runtime._sleep_for_retry", new=AsyncMock()), patch(
             "app.source_authority_hardening.asyncio.sleep", new=AsyncMock()
         ):
             collector = self._collector_with_state(temp, api=api, sources=sources)
@@ -414,8 +414,8 @@ class Phase3RecoveryTests(unittest.TestCase):
         provider = AsyncMock(side_effect=[TimeoutError("one"), TimeoutError("two"), page])
         sleeper = AsyncMock()
         with tempfile.TemporaryDirectory() as temp, patch(
-            "app.phase3_recovery._provider_page", new=provider
-        ), patch("app.phase3_recovery._sleep_for_retry", new=sleeper):
+            "app.x_resumable_recovery_runtime._provider_page", new=provider
+        ), patch("app.x_resumable_recovery_runtime._sleep_for_retry", new=sleeper):
             collector = self._collector_with_state(temp)
             result = asyncio.run(
                 _resumable_source_timeline(
@@ -430,8 +430,8 @@ class Phase3RecoveryTests(unittest.TestCase):
         provider = AsyncMock(side_effect=[RuntimeError("rate")] * (MAX_SOURCE_RETRIES + 1))
         sleeper = AsyncMock()
         with tempfile.TemporaryDirectory() as temp, patch(
-            "app.phase3_recovery._provider_page", new=provider
-        ), patch("app.phase3_recovery._sleep_for_retry", new=sleeper):
+            "app.x_resumable_recovery_runtime._provider_page", new=provider
+        ), patch("app.x_resumable_recovery_runtime._sleep_for_retry", new=sleeper):
             collector = self._collector_with_state(temp)
             with self.assertRaises(XCollectionError):
                 asyncio.run(
@@ -446,7 +446,7 @@ class Phase3RecoveryTests(unittest.TestCase):
         api = _FakeAPI(profile_results=[None, None, None])
         sleeper = AsyncMock()
         with tempfile.TemporaryDirectory() as temp, patch(
-            "app.phase3_recovery._sleep_for_retry", new=sleeper
+            "app.x_resumable_recovery_runtime._sleep_for_retry", new=sleeper
         ):
             collector = self._collector_with_state(temp, api=api)
             with self.assertRaises(XCollectionError):
@@ -489,9 +489,9 @@ class Phase3RecoveryTests(unittest.TestCase):
         page1 = _ProviderPage([_tweet("3", self.end - timedelta(hours=1))], "c1", False)
         failures = [TimeoutError("down")] * (MAX_SOURCE_RETRIES + 1)
         with tempfile.TemporaryDirectory() as temp, patch(
-            "app.phase3_recovery._provider_page",
+            "app.x_resumable_recovery_runtime._provider_page",
             new=AsyncMock(side_effect=[page1, *failures]),
-        ), patch("app.phase3_recovery._sleep_for_retry", new=AsyncMock()):
+        ), patch("app.x_resumable_recovery_runtime._sleep_for_retry", new=AsyncMock()):
             first = self._collector_with_state(temp)
             with self.assertRaises(XCollectionError):
                 asyncio.run(
@@ -510,7 +510,7 @@ class Phase3RecoveryTests(unittest.TestCase):
                 True,
             )
             provider = AsyncMock(return_value=resumed_page)
-            with patch("app.phase3_recovery._provider_page", new=provider):
+            with patch("app.x_resumable_recovery_runtime._provider_page", new=provider):
                 result = asyncio.run(
                     _resumable_source_timeline(
                         second, "source", self.start, self.end, limit=200, include_replies=True
@@ -539,7 +539,7 @@ class Phase3RecoveryTests(unittest.TestCase):
             ),
         ]
         with tempfile.TemporaryDirectory() as temp, patch(
-            "app.phase3_recovery._provider_page", new=AsyncMock(side_effect=pages)
+            "app.x_resumable_recovery_runtime._provider_page", new=AsyncMock(side_effect=pages)
         ):
             collector = self._collector_with_state(temp)
             result = asyncio.run(
@@ -552,7 +552,7 @@ class Phase3RecoveryTests(unittest.TestCase):
     def test_duplicate_provider_cursor_fails_partial_not_loop(self):
         page = _ProviderPage([_tweet("3", self.end - timedelta(hours=1))], "same", False)
         with tempfile.TemporaryDirectory() as temp, patch(
-            "app.phase3_recovery._provider_page",
+            "app.x_resumable_recovery_runtime._provider_page",
             new=AsyncMock(side_effect=[page, page]),
         ):
             collector = self._collector_with_state(temp)
@@ -575,7 +575,7 @@ class Phase3RecoveryTests(unittest.TestCase):
             False,
         )
         with tempfile.TemporaryDirectory() as temp, patch(
-            "app.phase3_recovery._provider_page", new=AsyncMock(return_value=page)
+            "app.x_resumable_recovery_runtime._provider_page", new=AsyncMock(return_value=page)
         ):
             collector = self._collector_with_state(temp)
             with self.assertRaises(XCompletenessError):
@@ -609,7 +609,7 @@ class Phase3RecoveryTests(unittest.TestCase):
             True,
         )
         with tempfile.TemporaryDirectory() as temp, patch(
-            "app.phase3_recovery._provider_page", new=AsyncMock(return_value=page)
+            "app.x_resumable_recovery_runtime._provider_page", new=AsyncMock(return_value=page)
         ):
             collector = self._collector_with_state(temp)
             result = asyncio.run(
