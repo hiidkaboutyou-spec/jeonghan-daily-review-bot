@@ -7,4 +7,5 @@ complexipy==8.0.1
 coverage==7.16.1
 grimp==3.17
 import-linter==2.15
+setuptools==84.0.0
 libcst==1.9.0
