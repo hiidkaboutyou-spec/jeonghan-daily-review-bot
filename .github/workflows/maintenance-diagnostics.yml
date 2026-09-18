@@ -9,7 +9,6 @@ on:
       - "requirements*.txt"
       - ".coveragerc-maintenance"
       - ".importlinter"
-      - ".importlinter"
       - ".github/workflows/maintenance-diagnostics.yml"
       - "config/agent_capabilities.json"
       - "config/module_migrations.json"
@@ -24,6 +23,7 @@ on:
       - "tests/**"
       - "requirements*.txt"
       - ".coveragerc-maintenance"
+      - ".importlinter"
       - ".github/workflows/maintenance-diagnostics.yml"
       - "config/agent_capabilities.json"
       - "config/module_migrations.json"
@@ -144,19 +144,41 @@ jobs:
             --markdown module-family-evidence.md
           rm -f module-test-coverage.json .coverage.maintenance
 
-      - name: Run Stage D Import Linter pilot
+      - name: Validate protected import bypass audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          .maintenance-env/bin/python -m unittest tests.test_protected_import_bypass_audit -v
+
+      - name: Audit protected runtime dynamic-import bypasses
+        shell: bash
+        run: |
+          set -euo pipefail
+          .maintenance-env/bin/python tools/protected_import_bypass_audit.py \
+            --protected-module app.x_recovery_integrity_runtime \
+            --json protected-import-bypass-audit.json \
+            --markdown protected-import-bypass-audit.md
+
+      - name: Enforce Stage D Import Linter contract
         shell: bash
         run: |
           set -u
           set +e
-          .maintenance-env/bin/lint-imports --config .importlinter --no-cache > import-linter-report.txt 2>&1
+          .maintenance-env/bin/lint-imports \
+            --config .importlinter \
+            --no-cache \
+            --no-logo \
+            > import-linter-report.txt 2>&1
           status=$?
           set -e
+          cat import-linter-report.txt
           {
             echo
-            echo "report_only_exit_status=$status"
+            echo "blocking_exit_status=$status"
           } >> import-linter-report.txt
-          echo "Import Linter pilot is report-only; inspect import-linter-report.txt before considering enforcement." >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ]; then
+            exit "$status"
+          fi
 
       - name: Collect non-blocking cleanup reports
         shell: bash
@@ -199,7 +221,8 @@ jobs:
             echo "- LibCST refactor planner: blocking self-tests and available only for explicitly approved future migrations; no automatic apply."
             echo "- Stage C closure guard: every registered migration is retired; any active compatibility shim is now a blocking error."
             echo "- Stage C is closed after the X recovery integrity retirement; no recurring plan is generated for retired module paths."
-            echo "- Stage D Import Linter 2.15 pilot: report-only, no cache, one protected contract, no ignore_imports."
+            echo "- Stage D Import Linter 2.15: blocking for the single production-proven recovery-integrity ownership contract; no cache and no ignore_imports."
+            echo "- Literal dynamic-import bypass audit for app.x_recovery_integrity_runtime: blocking, AST-based, parse-error-failing."
             echo "- Import ordering and formatting: report-only during cleanup rollout."
             echo "- Vulture dead-code candidates: report-only; never auto-delete."
             echo "- Complexipy cognitive-complexity hotspots: report-only; used to prioritize human-reviewed refactors."
@@ -224,5 +247,7 @@ jobs:
             complexipy-hotspots.txt
             deptry-report.txt
             import-linter-report.txt
+            protected-import-bypass-audit.json
+            protected-import-bypass-audit.md
           if-no-files-found: warn
           retention-days: 14
