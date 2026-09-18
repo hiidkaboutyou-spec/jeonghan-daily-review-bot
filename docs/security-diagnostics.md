@@ -60,3 +60,7 @@ Both tools are CI-only and must never be imported by or installed into productio
 
 Detailed pin/safety evidence: `docs/research/workflow-safety-rollout-2026-09-18.md`.
 
+### Initial scanner baseline
+
+The initial rollout found 29 floating action references and one Daily Watchdog actor-condition finding at high confidence. All 29 action references are now immutable-SHA pinned. The actor-condition item remains report-only pending a focused watchdog provenance audit; do not suppress it globally or weaken watchdog authorization merely to make the scanner green.
+
