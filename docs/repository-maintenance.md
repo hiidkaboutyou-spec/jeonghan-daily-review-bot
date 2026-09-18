@@ -264,3 +264,18 @@ Only after the remaining explicitly deferred Stage C migrations have either comp
 - No change to persisted state/schema without migration and rollback.
 - No validation PR may send live Telegram messages or mutate production state.
 - Every structural change gets focused tests, normal project validation, and post-merge production verification.
+
+## Active X recovery migration — 2026-09-18
+
+The base semantic migration is now active:
+`app.phase3_recovery` → `app.x_resumable_recovery_runtime`.
+
+The canonical file owns the former implementation unchanged; the historical path
+is a same-module-object alias. `app/__init__.py`,
+`app.phase3_recovery_hardening`, and `app.completeness_provider_proof` bind to
+the canonical module directly.
+
+Do not rename persisted recovery keys or checkpoint fields during this migration.
+Do not begin `app.x_recovery_integrity_runtime` while the base shim remains active.
+The next structural action after merge is production proof followed by a fresh
+retirement audit of the base legacy path.
