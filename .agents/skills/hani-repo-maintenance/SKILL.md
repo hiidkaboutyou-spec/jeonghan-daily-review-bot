@@ -82,14 +82,14 @@ Do not treat historical-looking module names as dead code. Hani intentionally co
 ### Import Linter
 
 - Maintenance-only; never a production runtime dependency.
-- Security Diagnostics must audit the installed maintenance dependency environment separately with pip-audit/OSV; this vulnerability gate is blocking.
+- Security Diagnostics audits the installed maintenance dependency environment separately with pip-audit/OSV; this vulnerability gate is blocking.
 - Current maintenance security floor pins `setuptools==84.0.0`; do not relax this solely to satisfy another tool.
-- Stage D begins with one report-only protected contract in `.importlinter`.
-- The pilot protects `app.x_recovery_integrity_runtime`: direct production import ownership stays with the `app` package initializer.
-- Run with `--no-cache` and no `ignore_imports` during the pilot.
-- A broken contract is evidence to investigate, not permission to rewrite imports.
-- Do not add another contract until current Grimp evidence and tests prove the intended boundary already exists.
-- Do not make the pilot blocking in the same PR that introduces it.
+- Stage D currently has exactly one blocking protected contract in `.importlinter`.
+- It protects `app.x_recovery_integrity_runtime`: only the exact `app` package initializer may directly import it. `as_packages=False` is required so `app.*` descendants are not implicitly allowed.
+- Run Import Linter with `--no-cache` and no `ignore_imports`.
+- `tools/protected_import_bypass_audit.py` is the companion blocking gate for literal dynamic-loading/sys.modules bypasses; parse errors also fail.
+- A broken architecture gate is evidence to investigate, not permission for an automatic rewrite.
+- Do not add a second architecture contract until current Grimp evidence, focused tests, a report-only observation period, and production proof establish another intended boundary.
 
 ### Native structure inventory
 
@@ -99,7 +99,7 @@ Use `tools/repo_structure_inventory.py` to map module responsibilities, internal
 
 - **Rope:** active and capable, but its higher-level stateful rename/move engine is reference-only for now. Hani's import-time patch stack benefits from a narrower explicit LibCST plan before any transformation.
 - **Bowler:** rejected. The upstream repository is archived and recommends LibCST for modern Python codemods.
-- **Import Linter 2.15:** active Stage D report-only pilot; maintenance-only, one protected recovery-integrity ownership contract, `--no-cache`, no ignore rules.
+- **Import Linter 2.15:** active Stage D enforcement; maintenance-only, exactly one blocking protected recovery-integrity ownership contract, `--no-cache`, no ignore rules, with a separate literal dynamic-import bypass audit.
 - **Tach:** deferred alternative; do not install in parallel with the Import Linter pilot.
 - **Pydeps:** defer unless visual cycle analysis becomes materially useful; Grimp plus the native inventory already provide Stage B dependency evidence.
 
