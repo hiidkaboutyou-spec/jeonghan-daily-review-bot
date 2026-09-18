@@ -49,3 +49,18 @@ The registered-shim closure audit completed in PR #95 and classified the remaini
 The `app.channel_part4_humanfix` → `app.channel_human_quality_gate_runtime` semantic migration completed in PR #98 and received independent production proof. PR #99 recorded the final retirement-readiness evidence. The historical compatibility shim is now retired in a separate focused change after the final LibCST audit found only migration-registry contract strings and no runtime caller.
 
 Fresh planning for `app.channel_part4_qualityfix` completed in PR #101, PR #102 production-proved the benchmark-freshness precursor, PR #103 completed the semantic migration, and PR #104 retired the historical shim with independent production proof. PR #105 completed the X-recovery coverage precursor (base 76.6% / 129 contexts; integrity 99.2% / 33 contexts). PR #106 generated fresh dual LibCST plans. The base candidate had 56 references (11 structural, 45 dynamic/manual, one order-sensitive, zero parse errors) and three direct importers; the integrity candidate had six references (two structural, four dynamic/manual, one order-sensitive, zero parse errors). The active Stage C move is now `app.phase3_recovery` → `app.x_resumable_recovery_runtime`: the base implementation is unchanged, the old path is a same-module-object shim, all audited production/test callers bind to the canonical path, and focused Maintenance coverage follows the canonical implementation. Persisted key `x_retrieval_checkpoints` and all checkpoint/cursor semantics are unchanged. Require full CI plus independent real-main production proof and a fresh retirement audit before removing the base shim; only after that may `app.phase3_recovery_hardening` → `app.x_recovery_integrity_runtime` begin. Detailed migration evidence: `docs/research/x-resumable-recovery-semantic-migration-2026-09-18.md`.
+
+## Base X-recovery shim retired
+
+The base migration is independently production-proven and its historical shim is
+now retired.
+
+Final audit evidence:
+- LibCST: 2 references, both migration-test strings; 0 structural; 0 order-sensitive;
+  0 parse errors.
+- Grimp: 0 direct importers; 0 downstream importers.
+- Daily #4205 and the full post-merge validation set are green.
+
+The next Stage C gate is **planning first** for
+`app.phase3_recovery_hardening` → `app.x_recovery_integrity_runtime`.
+No integrity implementation move belongs in the base-shim retirement change.
