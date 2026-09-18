@@ -11,7 +11,7 @@ from unittest.mock import patch
 from app.archive_store import ArchiveStore
 from app.message_delivery import MessageDeliveryStore
 from app.models import EventGroup, MediaItem, Update
-from app.phase3_recovery import _checkpoint_id
+from app.x_resumable_recovery_runtime import _checkpoint_id
 from app.realtime_ingest import realtime_shadow_enabled
 from app.state import StateCorruptionError, StateStore
 from app.zero_silent_miss import media_asset_id, translation_job_id
