@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import aclosing
 from typing import Any
 
-from . import phase3_recovery as _phase3
+from . import x_resumable_recovery_runtime as _phase3
 from .models import Update, ensure_utc
 from .observability import observe
 from .x_client import XCollectionError, normalize_handle
