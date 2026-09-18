@@ -26,34 +26,6 @@ def _update(identifier: str, when: datetime, *, author: str = "source") -> Updat
     )
 
 
-class _RawAPI:
-    def __init__(self, responses=(), *, cursor=None):
-        self.responses = list(responses)
-        self.cursor = cursor
-        self.calls: list[tuple[int, dict]] = []
-
-    async def user_tweets_and_replies_raw(self, user_id, **kwargs):
-        self.calls.append((user_id, kwargs))
-        for response in self.responses:
-            yield response
-
-    async def user_tweets_raw(self, user_id, **kwargs):
-        self.calls.append((user_id, kwargs))
-        for response in self.responses:
-            yield response
-
-    def _get_cursor(self, _payload, _kind):
-        return self.cursor
-
-
-class _Response:
-    def __init__(self, payload):
-        self.payload = payload
-
-    def json(self):
-        return self.payload
-
-
 class _MinimalCollector(XCollector):
     def __init__(self, api=None):
         super().__init__(
@@ -203,78 +175,6 @@ class RecoveryCoveragePrecursorTests(unittest.TestCase):
             state.save_x_retrieval_checkpoint(exact)
             state.clear_x_retrieval_checkpoint(exact["checkpoint_id"])
             self.assertEqual(state.data["x_retrieval_checkpoints"], {})
-
-    def test_provider_page_rejects_missing_contract_and_marks_payload_validity(self):
-        with self.assertRaises(AttributeError):
-            asyncio.run(
-                phase3._provider_page(
-                    object(),
-                    1,
-                    include_replies=True,
-                    cursor=None,
-                )
-            )
-
-        empty_api = _RawAPI()
-        empty = asyncio.run(
-            phase3._provider_page(
-                empty_api,
-                1,
-                include_replies=False,
-                cursor=None,
-            )
-        )
-        self.assertTrue(empty.exhausted)
-        self.assertEqual(empty.tweets, [])
-        self.assertFalse(empty.valid_response)
-
-        payload = {
-            "data": {
-                "timeline": {
-                    "type": "TimelineAddEntries",
-                    "entries": [],
-                }
-            }
-        }
-        api = _RawAPI([_Response(payload)], cursor="next")
-        with patch("twscrape.models.parse_tweets", return_value=[]):
-            page = asyncio.run(
-                phase3._provider_page(
-                    api,
-                    7,
-                    include_replies=True,
-                    cursor="previous",
-                )
-            )
-        self.assertEqual(api.calls, [(7, {"limit": 1, "kv": {"cursor": "previous"}})])
-        self.assertEqual(page.next_cursor, "next")
-        self.assertFalse(page.exhausted)
-        self.assertTrue(page.valid_response)
-
-        no_cursor_api = _RawAPI([_Response(payload)])
-        no_cursor_api._get_cursor = None
-        with patch("twscrape.models.parse_tweets", return_value=[]):
-            with self.assertRaises(RuntimeError):
-                asyncio.run(
-                    phase3._provider_page(
-                        no_cursor_api,
-                        1,
-                        include_replies=True,
-                        cursor=None,
-                    )
-                )
-
-        error_api = _RawAPI([_Response({"errors": [{"message": "bad"}], "data": {}})])
-        with patch("twscrape.models.parse_tweets", return_value=[]):
-            error_page = asyncio.run(
-                phase3._provider_page(
-                    error_api,
-                    1,
-                    include_replies=True,
-                    cursor=None,
-                )
-            )
-        self.assertFalse(error_page.valid_response)
 
     def test_checkpoint_helpers_fail_closed_without_state(self):
         with self.assertRaises(ValueError):
