@@ -84,16 +84,6 @@ jobs:
           set -euo pipefail
           .maintenance-env/bin/python -m unittest tests.test_module_refactor_plan -v
 
-      - name: Build Stage C X recovery integrity migration plan
-        shell: bash
-        run: |
-          set -euo pipefail
-          .maintenance-env/bin/python tools/module_refactor_plan.py \
-            --old-module app.phase3_recovery_hardening \
-            --new-module app.x_recovery_integrity_runtime \
-            --json stage-c-x-recovery-integrity-plan.json \
-            --markdown stage-c-x-recovery-integrity-plan.md
-
       - name: Validate registered migration state
         shell: bash
         run: |
@@ -120,8 +110,8 @@ jobs:
                       errors.append(f"active compatibility shim missing: {item['legacy_module']}")
               else:
                   errors.append(f"unknown migration status {status!r}: {item['legacy_module']}")
-          if len(active) > 1:
-              errors.append(f"more than one active Stage C compatibility shim: {active}")
+          if active:
+              errors.append(f"Stage C is closed; active compatibility shims are forbidden: {active}")
           if errors:
               raise SystemExit("\n".join(errors))
           print(f"registered migration state coherent; active shims: {active}")
@@ -190,9 +180,9 @@ jobs:
             echo "- Ruff definite Python errors: blocking."
             echo "- Stage B Grimp import-chain evidence: report-only; never authorizes moves/deletions."
             echo "- Stage B Coverage.py per-test evidence: collected on PR/manual/scheduled runs; no global coverage threshold yet."
-            echo "- Stage C LibCST refactor planner: blocking self-tests and available for future planning; no automatic apply."
-            echo "- Registered Stage C migration guard: retired paths must stay absent; at most one compatibility shim may be active at a time."
-            echo "- Retired base recovery receives no recurring plan; fresh planning now targets app.phase3_recovery_hardening -> app.x_recovery_integrity_runtime only."
+            echo "- LibCST refactor planner: blocking self-tests and available only for explicitly approved future migrations; no automatic apply."
+            echo "- Stage C closure guard: every registered migration is retired; any active compatibility shim is now a blocking error."
+            echo "- Stage C is closed after the X recovery integrity retirement; no recurring plan is generated for retired module paths."
             echo "- Import ordering and formatting: report-only during cleanup rollout."
             echo "- Vulture dead-code candidates: report-only; never auto-delete."
             echo "- Complexipy cognitive-complexity hotspots: report-only; used to prioritize human-reviewed refactors."
@@ -211,8 +201,6 @@ jobs:
             module-family-evidence.json
             module-family-evidence.md
             stage-c-recovery-coverage.txt
-            stage-c-x-recovery-integrity-plan.json
-            stage-c-x-recovery-integrity-plan.md
             ruff-import-order.txt
             ruff-format-check.txt
             vulture-high-confidence.txt

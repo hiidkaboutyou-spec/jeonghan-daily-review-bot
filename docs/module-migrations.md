@@ -1,5 +1,7 @@
 # Stage C module migration history
 
+Stage C is closed as of 2026-09-18. Every registered migration in `config/module_migrations.json` is retired; any future active compatibility shim requires a new researched migration plan rather than reopening an old path. Closure proof and the Stage D entry gate are recorded in `docs/research/stage-c-closure-stage-d-entry-2026-09-18.md`.
+
 This file records compatibility-preserving Stage C module migrations and retirements. The machine-readable source of truth is `config/module_migrations.json`; detailed retirement proof lives under `docs/research/`.
 
 ## `app.live_recovery_hardening` → `app.x_degraded_recovery_runtime`
