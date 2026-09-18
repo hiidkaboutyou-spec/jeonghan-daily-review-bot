@@ -115,21 +115,28 @@ License: MIT
 
 The repository is archived/read-only. Its older fissix/lib2to3-oriented codemod stack is not a good new dependency for modern Hani refactors; upstream guidance points modern Python codemod work toward LibCST instead.
 
-### Import Linter 2.15 — reference only for now
+### Import Linter 2.15 — approved for a Stage D report-only pilot
 
 Repository: `seddonym/import-linter`
-Reviewed commit: `31927f1457e3df673912cb5efb0afa6dbc37585f`
+Reviewed release commit: `31927f1457e3df673912cb5efb0afa6dbc37585f`
 License: BSD-2-Clause
 
-Decision: do not install yet. It is useful after packages have stable responsibilities. Adding architecture contracts now would freeze transitional coupling rather than describe the intended architecture.
+Import Linter is the preferred first architecture-boundary pilot because Hani already uses its underlying Grimp import graph in maintenance CI. Version 2.15 is actively maintained and supports forbidden, protected, layers, independence, and acyclic-siblings contracts.
 
-### Tach 0.35.1 — reference only for later architecture enforcement
+Adoption rules:
+- maintenance/CI only; never a production runtime dependency;
+- begin report-only and with one narrow, already-true contract;
+- never encode a desired boundary until current Grimp evidence and tests prove the boundary already exists;
+- do not use ignore-import wildcards to hide broad violations;
+- promote a contract to blocking only in a later focused change after its false-positive and dynamic-import surface is reviewed.
+
+### Tach 0.35.0 — deferred alternative
 
 Repository: `tach-org/tach`
-Reviewed release commit: `65df67ac51a8d0e8f9e0398ea72c924fea34fd25`
+Latest reviewed release: `v0.35.0`
 License: MIT
 
-Tach can visualize/enforce dependencies, interfaces, and cycles, but its value depends on intentional stable module boundaries. Defer it to Stage D.
+Tach remains a viable later option for dependency/interface enforcement and cycle detection, but it introduces a second architecture model and toolchain. Hani will not install both tools during the pilot. Import Linter is preferred first because it reuses the Grimp model already present in maintenance diagnostics.
 
 ### Pydeps 3.0.8 — reference only
 
@@ -212,7 +219,7 @@ Key outcome: `live_recovery_hardening` required focused regression coverage beca
 
 ### Stage C — consolidate one family at a time
 
-Current stage.
+Completed on 2026-09-18.
 
 Rules:
 - add missing focused tests before moving an active module;
@@ -244,11 +251,17 @@ No remaining historical-name module is approved for direct deletion or unattende
 
 The future Stage C order is deliberately conservative: strengthen human-gate coverage, then consider the human-quality-gate migration; stabilize that dependency before quality-repair migration; separately strengthen critical recovery coverage and design the base/integrity recovery migration family. The four retain-by-design modules stay out of rename queues unless their underlying architecture changes.
 
-PR #97/#98 and the later retirement completed the human-quality-gate migration; PR #101–#104 completed quality-repair migration/retirement; PR #105 completed the X-recovery coverage precursor; PR #106 established the recovery migration sequence; PR #108/#110 migrated and retired the base recovery path; PR #111 migrated the integrity implementation to `app.x_recovery_integrity_runtime`. PR #112 is the focused retirement of the final registered compatibility shim, `app.phase3_recovery_hardening`. Its final audit found zero structural/runtime importers and only synthetic maintenance fixtures plus migration-registry assertions. Persisted `x_retrieval_checkpoints` and all checkpoint/retry/cursor semantics remain unchanged. After PR #112 merges and receives independent real-main production proof, Stage C must run a fresh repository inventory/evidence pass before selecting any additional historical module family.
+PR #97/#98 and the later retirement completed the human-quality-gate migration; PR #101–#104 completed quality-repair migration/retirement; PR #105 completed the X-recovery coverage precursor; PR #106 established the recovery migration sequence; PR #108/#110 migrated and retired the base recovery path; PR #111 migrated the integrity implementation to `app.x_recovery_integrity_runtime`; PR #112 retired the final registered compatibility shim.
+
+PR #112 merged as `aa5cf158f84876557546af001985a6cca42e5943`. Independent real-main proof then passed Daily #4221, Maintenance #138, Render #315, Security #146, CodeQL #107, Fanfic #987, and Watchdog #3324/#3325. The Daily production run passed runtime smoke, live-provider checks, one complete automatic monitor pass, database checkpoint, production outcome upload, and state/database persistence.
+
+Fresh Maintenance #138 inventory confirms zero active compatibility shims, zero parse errors, and exactly four historical-name modules: `app.channel_part4_benchmark_hook`, `app.channel_part4_hardening`, `app.phase2_runtime_compat`, and `app.source_authority_hardening`. All four remain runtime-linked/high-risk and are retained by design. The rename-oriented Stage C queue is therefore closed; do not invent another historical-name migration without a new architectural reason.
 
 ### Stage D — enforce stable package boundaries
 
-Only after the remaining explicitly deferred Stage C migrations have either completed or been intentionally deferred should Tach, Import Linter, or equivalent architecture contracts be reconsidered. The tool must describe the architecture we intentionally want, not freeze accidental historical coupling.
+Current stage.
+
+Stage D starts with architecture observation and one narrow report-only contract, not a package rewrite. Import Linter 2.15 is the preferred pilot because it builds on the Grimp model already used by Hani. The first pilot must protect a boundary that current code already satisfies, remain outside the production dependency graph, and produce a report artifact before any enforcement is made blocking. Tach remains deferred unless Import Linter proves insufficient.
 
 ## Non-negotiable cleanup rules
 
