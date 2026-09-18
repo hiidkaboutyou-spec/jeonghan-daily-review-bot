@@ -75,4 +75,20 @@ The quality-repair runtime continues to mutate the canonical human-quality-gate 
 
 A fresh main-SHA retirement audit found zero importers/downstream importers and only two compatibility-registry test strings for the historical path. The shim is therefore retired and must not be recreated. Detailed retirement evidence: `docs/research/channel-quality-repair-shim-retirement-2026-09-18.md`.
 
+
+## `app.phase3_recovery` → `app.x_resumable_recovery_runtime`
+
+Status: **compatibility shim active**  
+Introduced: **2026-09-18**
+
+PR #105 strengthened direct recovery coverage before any structural move. PR #106 then produced fresh dual-family LibCST/Grimp evidence and proved the base and integrity modules must migrate sequentially.
+
+The canonical `app.x_resumable_recovery_runtime` contains the previous base implementation unchanged. The historical `app.phase3_recovery` path is only a same-module-object compatibility alias.
+
+Production callers `app`, `app.completeness_provider_proof`, and `app.phase3_recovery_hardening` now bind to the canonical base path. The integrity layer still owns its existing implementation and continues to patch `_update_dicts`, `_sanitize_checkpoint`, and `_lookup_user` on the canonical base module; `completeness_provider_proof` continues to replace `_provider_page` on that same object.
+
+Persisted `x_retrieval_checkpoints`, checkpoint version/identity/normalization, retry semantics and cursor safety are unchanged. Detailed evidence: `docs/research/x-resumable-recovery-semantic-migration-2026-09-18.md`.
+
+Do not retire the shim until independent main production proof and a fresh final reference audit. Do not begin the integrity semantic migration before the base migration is production-proven.
+
 Stage D architecture-boundary enforcement remains deferred until the remaining explicitly approved Stage C migrations are complete or intentionally deferred.

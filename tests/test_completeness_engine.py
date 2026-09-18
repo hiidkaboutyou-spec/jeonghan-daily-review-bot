@@ -108,7 +108,7 @@ class CompletenessEngineTests(unittest.TestCase):
         self.assertEqual(detail["missing_expected_ids"], ["2"])
 
     def test_provider_structure_ignores_pinned_boundary_and_proves_ordered_normal_boundary(self):
-        from app.phase3_recovery import _provider_page
+        from app.x_resumable_recovery_runtime import _provider_page
         from app.completeness_provider_proof import _timeline_structure
 
         payload = {
@@ -162,7 +162,7 @@ class CompletenessEngineTests(unittest.TestCase):
         self.assertEqual(evidence.expected_window_ids, {"30"})
 
     def test_non_monotonic_top_level_page_cannot_prove_boundary(self):
-        from app.phase3_recovery import _provider_page
+        from app.x_resumable_recovery_runtime import _provider_page
 
         payload = {"data": {"timeline": {"instructions": [{
             "type": "TimelineAddEntries",
@@ -220,7 +220,7 @@ class CompletenessEngineTests(unittest.TestCase):
 
     def test_runtime_empty_success_requires_valid_raw_terminal_page(self):
         from app.x_client import XCollector
-        from app.phase3_recovery import _ProviderPage
+        from app.x_resumable_recovery_runtime import _ProviderPage
         if not self.binary.exists():
             self.skipTest("Rust binary integration runs in Rust CI after cargo build")
         collector = XCollector({}, [{"handle": "alpha", "enabled": True}], [])
@@ -231,7 +231,7 @@ class CompletenessEngineTests(unittest.TestCase):
         ))
         with patch.dict(os.environ, {"EDITORIAL_CORE_BINARY": str(self.binary)}):
             for valid, expected in ((False, "unproven"), (True, "complete")):
-                with patch("app.phase3_recovery._fetch_page_with_retry", new=AsyncMock(return_value=_ProviderPage([], None, True, valid))):
+                with patch("app.x_resumable_recovery_runtime._fetch_page_with_retry", new=AsyncMock(return_value=_ProviderPage([], None, True, valid))):
                     result = asyncio.run(collector._collect_source_timeline(
                         "alpha", self.start, self.end, limit=20, include_replies=False))
                 self.assertEqual(result, [])
@@ -260,7 +260,7 @@ class CompletenessEngineTests(unittest.TestCase):
         self.assertEqual(row["evidence"]["raw_observation_count"], 1)
 
     def test_provider_error_or_missing_response_is_not_terminal_proof(self):
-        from app.phase3_recovery import _provider_page
+        from app.x_resumable_recovery_runtime import _provider_page
         for payload, expected in [
             (None, False),
             ({"errors": [{"message": "unavailable"}]}, False),

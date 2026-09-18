@@ -11,7 +11,7 @@ from contextlib import aclosing
 from datetime import datetime, timezone
 from typing import Any
 
-from . import phase3_recovery as recovery
+from . import x_resumable_recovery_runtime as recovery
 from .completeness_evidence import active_evidence
 
 

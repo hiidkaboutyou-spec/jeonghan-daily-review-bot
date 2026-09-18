@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from app import phase3_recovery as phase3
+from app import x_resumable_recovery_runtime as phase3
 from app.models import Update
 from app.state import StateStore
 from app.x_client import XCollectionError, XCollector
@@ -70,7 +70,7 @@ class Phase3RecoveryHardeningTests(unittest.TestCase):
         self.end = datetime(2026, 8, 14, 18, 0, tzinfo=timezone.utc)
         self.start = self.end - timedelta(hours=4)
         self.syndication = patch(
-            "app.phase3_recovery.collect_syndication_timeline",
+            "app.x_resumable_recovery_runtime.collect_syndication_timeline",
             side_effect=SyndicationError("offline in unit test"),
         )
         self.syndication.start()
@@ -123,8 +123,8 @@ class Phase3RecoveryHardeningTests(unittest.TestCase):
                 exhausted=True,
             )
         )
-        with patch("app.phase3_recovery._provider_page", new=provider), patch(
-            "app.phase3_recovery._sleep_for_retry", new=AsyncMock()
+        with patch("app.x_resumable_recovery_runtime._provider_page", new=provider), patch(
+            "app.x_resumable_recovery_runtime._sleep_for_retry", new=AsyncMock()
         ):
             result = asyncio.run(
                 phase3._resumable_source_timeline(
@@ -146,8 +146,8 @@ class Phase3RecoveryHardeningTests(unittest.TestCase):
         api = _ScopedIdentityAPI(scoped_username="external")
         collector = _Collector(api)
         provider = AsyncMock()
-        with patch("app.phase3_recovery._provider_page", new=provider), patch(
-            "app.phase3_recovery._sleep_for_retry", new=AsyncMock()
+        with patch("app.x_resumable_recovery_runtime._provider_page", new=provider), patch(
+            "app.x_resumable_recovery_runtime._sleep_for_retry", new=AsyncMock()
         ):
             with self.assertRaises(XCollectionError):
                 asyncio.run(

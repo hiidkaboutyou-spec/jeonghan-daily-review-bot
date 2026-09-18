@@ -116,6 +116,25 @@
       ],
       "retired_on": "2026-09-18",
       "retirement_record": "docs/research/channel-quality-repair-shim-retirement-2026-09-18.md"
+    },
+    {
+      "legacy_module": "app.phase3_recovery",
+      "canonical_module": "app.x_resumable_recovery_runtime",
+      "status": "compatibility-shim",
+      "introduced_on": "2026-09-18",
+      "reason": "Replace the historical Phase 3 recovery name with the stable X resumable-recovery runtime responsibility while preserving checkpoint identity/schema, source-scoped retry/resume semantics, cursor safety, and import-time integrity/provider-proof mutation on one module object.",
+      "single_module_object_required": true,
+      "runtime_behavior_change": false,
+      "removal_gates": [
+        "No production, workflow, CLI, config, dynamic-import, or test caller requires the legacy module path.",
+        "A fresh LibCST plan shows no unresolved legacy caller beyond explicit migration-registry and module-identity compatibility assertions.",
+        "Focused recovery, recovery-integrity, completeness, durable-state, provider-proof, source-authority, and full project validation suites are green after caller migration.",
+        "Package install order keeps x_resumable_recovery_runtime at the former phase3_recovery position, before phase3_recovery_hardening and x_provider_recovery, while completeness_provider_proof continues to patch the same canonical base module later in startup.",
+        "phase3_recovery_hardening continues to mutate _update_dicts, _sanitize_checkpoint, and _lookup_user on the exact canonical base module object, and completeness_provider_proof continues to replace _provider_page on that same object.",
+        "Persisted StateStore key x_retrieval_checkpoints, CHECKPOINT_VERSION, checkpoint-id derivation, compatible-checkpoint lookup, malformed-state normalization, retry accounting, and success-cursor advancement rules remain unchanged.",
+        "A production main run passes state/database restore, project validation, runtime smoke, live-provider checks, a complete monitor pass, database checkpoint, encrypted backup/outcome upload, and state/database persistence after the semantic migration.",
+        "Legacy shim removal is performed only in a later focused pull request after production proof and a fresh final reference audit; integrity-layer semantic migration must not begin before the base path is independently proven."
+      ]
     }
   ]
 }
