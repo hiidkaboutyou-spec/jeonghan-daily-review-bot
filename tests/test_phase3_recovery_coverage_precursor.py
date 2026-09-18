@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 from app import x_resumable_recovery_runtime as phase3
-from app import phase3_recovery_hardening as integrity
+from app import x_recovery_integrity_runtime as integrity
 from app.models import Update
 from app.state import StateStore
 from app.x_client import XCollectionError, XCollector

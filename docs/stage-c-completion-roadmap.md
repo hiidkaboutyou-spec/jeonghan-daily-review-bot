@@ -64,3 +64,23 @@ Final audit evidence:
 The next Stage C gate is **planning first** for
 `app.phase3_recovery_hardening` → `app.x_recovery_integrity_runtime`.
 No integrity implementation move belongs in the base-shim retirement change.
+
+## Active X-recovery integrity semantic migration
+
+Base recovery is canonical, its historical shim is retired, and the next semantic
+boundary is now active:
+
+`app.phase3_recovery_hardening` → `app.x_recovery_integrity_runtime`.
+
+Fresh evidence from Maintenance #127: 6 references total, 2 structural, 4
+synthetic/manual fixture strings, 1 order-sensitive import, 0 parse errors,
+99.2% coverage across 33 contexts, and only `app` as a runtime importer.
+
+The implementation remains unchanged under a same-module-object compatibility shim.
+The next sequence is strict:
+
+`integrity migration` → `real-main production proof` → `fresh retirement audit`
+→ `integrity shim retirement`.
+
+Do not combine migration and retirement.
+

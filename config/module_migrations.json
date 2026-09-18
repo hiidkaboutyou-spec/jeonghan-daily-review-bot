@@ -137,6 +137,27 @@
       ],
       "retired_on": "2026-09-18",
       "retirement_record": "docs/research/x-resumable-recovery-shim-retirement-2026-09-18.md"
+    },
+    {
+      "legacy_module": "app.phase3_recovery_hardening",
+      "canonical_module": "app.x_recovery_integrity_runtime",
+      "status": "compatibility-shim",
+      "introduced_on": "2026-09-18",
+      "reason": "Replace the historical Phase 3 recovery-hardening name with the stable X recovery-integrity responsibility while preserving lossless checkpoint serialization, no-age-expiry sanitation, scoped profile-identity recovery, and import-time mutation of the canonical resumable recovery module.",
+      "single_module_object_required": true,
+      "runtime_behavior_change": false,
+      "removal_gates": [
+        "Production package startup imports app.x_recovery_integrity_runtime directly at the exact former phase3_recovery_hardening position.",
+        "The focused recovery coverage suite imports the canonical integrity module directly; the four phase3_recovery_hardening strings in tests/test_module_family_evidence.py remain synthetic historical-name fixtures and are not runtime callers.",
+        "A fresh LibCST plan shows no unresolved legacy caller beyond the compatibility shim, migration registry/assertions, and the explicitly permitted synthetic maintenance fixtures.",
+        "app.phase3_recovery_hardening and app.x_recovery_integrity_runtime resolve to the exact same Python module object while the compatibility phase is active.",
+        "The canonical integrity module remains byte-for-byte equivalent to the pre-migration implementation and still mutates only _update_dicts, _sanitize_checkpoint, and _lookup_user on app.x_resumable_recovery_runtime.",
+        "Import order remains configured-source layers, x_resumable_recovery_runtime, x_recovery_integrity_runtime, x_provider_recovery, source_ledger_runtime, then later completeness provider-proof/runtime layers.",
+        "Persisted x_retrieval_checkpoints, CHECKPOINT_VERSION, checkpoint identity/schema, retry/fallback accounting, source authorization, and cursor advancement semantics remain unchanged.",
+        "Focused recovery/integrity/durable-state/completeness tests plus the full project validation suite are green after caller migration.",
+        "A real main production run passes state/database restore, project validation, runtime smoke, live-provider checks, one complete automatic monitor pass, DB checkpoint, encrypted backup/outcome upload, and state/database persistence.",
+        "The historical integrity shim is removed only in a later focused PR after production proof and a fresh final reference/import audit."
+      ]
     }
   ]
 }

@@ -139,7 +139,7 @@ jobs:
             --show-contexts -o module-test-coverage.json
           .maintenance-env/bin/coverage report --rcfile=.coveragerc-maintenance \
             --show-missing \
-            app/x_resumable_recovery_runtime.py app/phase3_recovery_hardening.py \
+            app/x_resumable_recovery_runtime.py app/x_recovery_integrity_runtime.py \
             > stage-c-recovery-coverage.txt
 
       - name: Build Stage B module-family evidence

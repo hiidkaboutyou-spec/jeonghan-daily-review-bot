@@ -26,7 +26,7 @@ from . import configured_source_complete_windows as _configured_source_complete_
 
 # Existing recovery remains responsible for provider pagination/checkpoints/retries.
 from . import x_resumable_recovery_runtime as _phase3_recovery  # noqa: F401,E402
-from . import phase3_recovery_hardening as _phase3_recovery_hardening  # noqa: F401,E402
+from . import x_recovery_integrity_runtime as _phase3_recovery_hardening  # noqa: F401,E402
 
 # A provider-wide authenticated X outage is degraded, not fatal. This layer sits after
 # Phase 3 so it can bypass expensive authenticated retries and use the existing public
