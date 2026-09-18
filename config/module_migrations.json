@@ -141,7 +141,7 @@
     {
       "legacy_module": "app.phase3_recovery_hardening",
       "canonical_module": "app.x_recovery_integrity_runtime",
-      "status": "compatibility-shim",
+      "status": "retired",
       "introduced_on": "2026-09-18",
       "reason": "Replace the historical Phase 3 recovery-hardening name with the stable X recovery-integrity responsibility while preserving lossless checkpoint serialization, no-age-expiry sanitation, scoped profile-identity recovery, and import-time mutation of the canonical resumable recovery module.",
       "single_module_object_required": true,
@@ -157,7 +157,9 @@
         "Focused recovery/integrity/durable-state/completeness tests plus the full project validation suite are green after caller migration.",
         "A real main production run passes state/database restore, project validation, runtime smoke, live-provider checks, one complete automatic monitor pass, DB checkpoint, encrypted backup/outcome upload, and state/database persistence.",
         "The historical integrity shim is removed only in a later focused PR after production proof and a fresh final reference/import audit."
-      ]
+      ],
+      "retired_on": "2026-09-18",
+      "retirement_record": "docs/research/x-recovery-integrity-shim-retirement-2026-09-18.md"
     }
   ]
 }
