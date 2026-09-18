@@ -31,6 +31,7 @@ Rationale:
 
 - `import-linter==2.15` is in `requirements-maintenance.txt` only.
 - Production `requirements.txt` and Docker dependencies are unchanged.
+- Security Diagnostics now audits the installed maintenance dependency environment separately with `pip-audit`/OSV on Python 3.11, in addition to the unchanged production dependency audit.
 - The pilot uses `--no-cache` because Import Linter/Grimp file caching is not concurrency-safe.
 - The contract contains no `ignore_imports`.
 - `tests/test_architecture_contract_config.py` locks the exact one-contract scope and rejects hidden ignore rules.
