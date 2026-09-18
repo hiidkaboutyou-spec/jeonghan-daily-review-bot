@@ -17,7 +17,7 @@ class ArchitectureContractConfigTests(unittest.TestCase):
         self.assertEqual(loaded, [str(CONFIG)])
         return parser
 
-    def test_stage_d_pilot_is_narrow_and_ignore_free(self) -> None:
+    def test_stage_d_contract_is_narrow_ignore_free_and_actionable(self) -> None:
         parser = self._config()
         self.assertEqual(parser.get("importlinter", "root_package"), "app")
         self.assertTrue(parser.getboolean("importlinter", "exclude_type_checking_imports"))
@@ -34,6 +34,9 @@ class ArchitectureContractConfigTests(unittest.TestCase):
         self.assertEqual(parser.get(CONTRACT, "allowed_importers").split(), ["app"])
         self.assertFalse(parser.getboolean(CONTRACT, "as_packages"))
         self.assertFalse(parser.has_option(CONTRACT, "ignore_imports"))
+        guidance = parser.get(CONTRACT, "broken_contract_guidance")
+        self.assertIn("Do not import app.x_recovery_integrity_runtime directly.", guidance)
+        self.assertIn("app/__init__.py", guidance)
 
 
 if __name__ == "__main__":
