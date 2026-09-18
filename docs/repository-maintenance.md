@@ -128,6 +128,7 @@ The first pilot contract in `.importlinter` is deliberately narrow: `app.x_recov
 Pilot rules:
 - report-only: a broken contract is captured as an artifact, not a blocking failure;
 - `--no-cache`: avoid adding Import Linter cache concurrency/state to CI;
+- maintenance dependency vulnerabilities are a blocking Security Diagnostics gate even while the architecture contract itself is report-only;
 - no `ignore_imports`: violations remain visible instead of being normalized away;
 - exact config scope is protected by `tests/test_architecture_contract_config.py`;
 - never encode a desired boundary until current Grimp evidence and tests prove the boundary already exists;
