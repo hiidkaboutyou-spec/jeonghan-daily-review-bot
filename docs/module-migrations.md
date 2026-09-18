@@ -76,3 +76,23 @@ The quality-repair runtime continues to mutate the canonical human-quality-gate 
 A fresh main-SHA retirement audit found zero importers/downstream importers and only two compatibility-registry test strings for the historical path. The shim is therefore retired and must not be recreated. Detailed retirement evidence: `docs/research/channel-quality-repair-shim-retirement-2026-09-18.md`.
 
 Stage D architecture-boundary enforcement remains deferred until the remaining explicitly approved Stage C migrations are complete or intentionally deferred.
+
+## Active X resumable recovery migration
+
+`app.phase3_recovery` → `app.x_resumable_recovery_runtime` is the single active
+Stage C compatibility migration.
+
+The canonical module owns the unchanged resumable recovery implementation. The
+legacy module is a same-module-object alias only. Production package startup,
+recovery integrity hardening, and completeness provider-proof import the canonical
+module directly so all patching targets one module object.
+
+Persisted key `x_retrieval_checkpoints`, checkpoint/version semantics, retry and
+cursor behavior are not migration surfaces and must remain unchanged.
+
+The shim may be retired only after independent production proof and a fresh
+legacy-reference audit. The integrity migration remains blocked until this active
+shim is retired.
+
+Evidence:
+`docs/research/x-resumable-recovery-semantic-migration-2026-09-18.md`.
