@@ -49,3 +49,23 @@ The registered-shim closure audit completed in PR #95 and classified the remaini
 The `app.channel_part4_humanfix` → `app.channel_human_quality_gate_runtime` semantic migration completed in PR #98 and received independent production proof. PR #99 recorded the final retirement-readiness evidence. The historical compatibility shim is now retired in a separate focused change after the final LibCST audit found only migration-registry contract strings and no runtime caller.
 
 Fresh planning for `app.channel_part4_qualityfix` completed in PR #101, PR #102 production-proved the benchmark-freshness precursor, PR #103 completed the semantic migration, and PR #104 retired the historical shim with independent production proof. PR #105 completed the X-recovery coverage precursor (base 76.6% / 129 contexts; integrity 99.2% / 33 contexts). PR #106 then generated fresh dual LibCST plans. The base candidate `app.phase3_recovery` → `app.x_resumable_recovery_runtime` has 56 references (11 structural, 45 dynamic/manual, one order-sensitive, zero parse errors) and three direct importers; the integrity candidate `app.phase3_recovery_hardening` → `app.x_recovery_integrity_runtime` has six references (two structural, four dynamic/manual, one order-sensitive, zero parse errors) and one direct importer. Because integrity hardening and `completeness_provider_proof` both mutate names on the base recovery module object, the migrations must be sequential: migrate and production-prove the base recovery first with a same-module-object shim and unchanged persisted key `x_retrieval_checkpoints`; only then plan/execute the integrity move. Detailed evidence: `docs/research/x-recovery-semantic-boundary-planning-2026-09-18.md`.
+
+## Active base X-recovery semantic migration
+
+The planning gate from PR #106 is now being executed only for the base recovery
+boundary:
+
+`app.phase3_recovery` → `app.x_resumable_recovery_runtime`.
+
+The implementation is unchanged and the historical path is retained as a
+same-module-object compatibility shim. All production patch owners converge on the
+canonical object. Maintenance CI now plans only this active migration and measures
+coverage on the canonical base file.
+
+Next sequence is strict:
+
+`base migration` → `real-main production proof` → `fresh retirement audit` →
+`base shim retirement` → only then
+`phase3_recovery_hardening` → `x_recovery_integrity_runtime`.
+
+No second active compatibility shim is allowed.
