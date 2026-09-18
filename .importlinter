@@ -10,3 +10,6 @@ protected_modules =
 allowed_importers =
     app
 as_packages = False
+broken_contract_guidance =
+    Do not import app.x_recovery_integrity_runtime directly.
+    Keep import-time installation owned by app/__init__.py; use the stable runtime interface instead.
