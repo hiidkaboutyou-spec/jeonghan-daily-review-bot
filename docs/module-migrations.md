@@ -92,3 +92,22 @@ Persisted `x_retrieval_checkpoints`, checkpoint version/identity/normalization, 
 Do not retire the shim until independent main production proof and a fresh final reference audit. Do not begin the integrity semantic migration before the base migration is production-proven.
 
 Stage D architecture-boundary enforcement remains deferred until the remaining explicitly approved Stage C migrations are complete or intentionally deferred.
+
+## Active X recovery integrity migration
+
+`app.phase3_recovery_hardening` → `app.x_recovery_integrity_runtime` is the
+single active Stage C compatibility migration.
+
+The canonical implementation is unchanged and continues to patch the canonical
+`app.x_resumable_recovery_runtime` object at import time. The historical path is
+a same-module-object alias during compatibility.
+
+The four historical-name strings in `tests/test_module_family_evidence.py` are
+synthetic maintenance fixtures, not callers, and intentionally remain unchanged.
+
+No persisted recovery key/schema/retry/cursor semantics change. Retirement requires
+independent production proof plus a fresh final reference/import audit.
+
+Evidence:
+`docs/research/x-recovery-integrity-semantic-migration-2026-09-18.md`.
+
