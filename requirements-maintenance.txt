@@ -6,4 +6,5 @@ deptry==0.25.1
 complexipy==8.0.1
 coverage==7.16.1
 grimp==3.17
+import-linter==2.15
 libcst==1.9.0
