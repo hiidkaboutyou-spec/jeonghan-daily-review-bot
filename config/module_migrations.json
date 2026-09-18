@@ -120,7 +120,7 @@
     {
       "legacy_module": "app.phase3_recovery",
       "canonical_module": "app.x_resumable_recovery_runtime",
-      "status": "compatibility-shim",
+      "status": "retired",
       "introduced_on": "2026-09-18",
       "reason": "Replace the historical Phase 3 recovery name with the stable X resumable-recovery runtime responsibility while preserving checkpoint identity/schema, source-scoped retry/resume semantics, cursor safety, and import-time integrity/provider-proof mutation on one module object.",
       "single_module_object_required": true,
@@ -134,7 +134,9 @@
         "Persisted StateStore key x_retrieval_checkpoints, CHECKPOINT_VERSION, checkpoint-id derivation, compatible-checkpoint lookup, malformed-state normalization, retry accounting, and success-cursor advancement rules remain unchanged.",
         "A production main run passes state/database restore, project validation, runtime smoke, live-provider checks, a complete monitor pass, database checkpoint, encrypted backup/outcome upload, and state/database persistence after the semantic migration.",
         "Legacy shim removal is performed only in a later focused pull request after production proof and a fresh final reference audit; integrity-layer semantic migration must not begin before the base path is independently proven."
-      ]
+      ],
+      "retired_on": "2026-09-18",
+      "retirement_record": "docs/research/x-resumable-recovery-shim-retirement-2026-09-18.md"
     }
   ]
 }

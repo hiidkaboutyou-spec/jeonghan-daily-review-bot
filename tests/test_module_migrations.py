@@ -107,14 +107,19 @@ class ModuleMigrationRegistryTests(unittest.TestCase):
         self.assertFalse(migration["runtime_behavior_change"])
         self.assertGreaterEqual(len(migration["removal_gates"]), 8)
 
-    def test_registry_tracks_active_x_resumable_recovery_migration(self) -> None:
+    def test_registry_tracks_retired_x_resumable_recovery_migration(self) -> None:
         migration = self._migration("app.phase3_recovery")
         self.assertEqual(
             migration["canonical_module"],
             "app.x_resumable_recovery_runtime",
         )
-        self.assertEqual(migration["status"], "compatibility-shim")
+        self.assertEqual(migration["status"], "retired")
         self.assertEqual(migration["introduced_on"], "2026-09-18")
+        self.assertEqual(migration["retired_on"], "2026-09-18")
+        self.assertEqual(
+            migration["retirement_record"],
+            "docs/research/x-resumable-recovery-shim-retirement-2026-09-18.md",
+        )
         self.assertTrue(migration["single_module_object_required"])
         self.assertFalse(migration["runtime_behavior_change"])
         self.assertGreaterEqual(len(migration["removal_gates"]), 8)
@@ -126,13 +131,13 @@ class ModuleMigrationRegistryTests(unittest.TestCase):
         self.assertEqual(len(legacy), len(set(legacy)))
         self.assertEqual(len(canonical), len(set(canonical)))
 
-    def test_registered_migration_state_has_at_most_one_active_shim(self) -> None:
+    def test_registered_migration_state_has_no_active_shim(self) -> None:
         active = [
             item["legacy_module"]
             for item in self._payload()["migrations"]
             if item["status"] == "compatibility-shim"
         ]
-        self.assertEqual(active, ["app.phase3_recovery"])
+        self.assertEqual(active, [])
 
     def test_active_legacy_and_canonical_paths_share_one_module_object(self) -> None:
         for migration in self._payload()["migrations"]:
