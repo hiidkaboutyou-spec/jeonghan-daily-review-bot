@@ -115,20 +115,23 @@ License: MIT
 
 The repository is archived/read-only. Its older fissix/lib2to3-oriented codemod stack is not a good new dependency for modern Hani refactors; upstream guidance points modern Python codemod work toward LibCST instead.
 
-### Import Linter 2.15 — approved for a Stage D report-only pilot
+### Import Linter 2.15 — Stage D report-only pilot
 
 Repository: `seddonym/import-linter`
 Reviewed release commit: `31927f1457e3df673912cb5efb0afa6dbc37585f`
 License: BSD-2-Clause
 
-Import Linter is the preferred first architecture-boundary pilot because Hani already uses its underlying Grimp import graph in maintenance CI. Version 2.15 is actively maintained and supports forbidden, protected, layers, independence, and acyclic-siblings contracts.
+Import Linter is installed only in `requirements-maintenance.txt`; it is not part of the production Docker dependency graph. Version 2.15 requires Python >=3.10 and Grimp >=3.17, matching Hani's Python 3.11 maintenance environment and existing Grimp 3.17 evidence stack.
 
-Adoption rules:
-- maintenance/CI only; never a production runtime dependency;
-- begin report-only and with one narrow, already-true contract;
+The first pilot contract in `.importlinter` is deliberately narrow: `app.x_recovery_integrity_runtime` is protected and may be imported directly only by the `app` package initializer. This preserves the already production-proven ownership of the import-time integrity installer without restructuring any runtime module.
+
+Pilot rules:
+- report-only: a broken contract is captured as an artifact, not a blocking failure;
+- `--no-cache`: avoid adding Import Linter cache concurrency/state to CI;
+- no `ignore_imports`: violations remain visible instead of being normalized away;
+- exact config scope is protected by `tests/test_architecture_contract_config.py`;
 - never encode a desired boundary until current Grimp evidence and tests prove the boundary already exists;
-- do not use ignore-import wildcards to hide broad violations;
-- promote a contract to blocking only in a later focused change after its false-positive and dynamic-import surface is reviewed.
+- promote a contract to blocking only in a later focused change after report evidence, dynamic-import review, and production validation.
 
 ### Tach 0.35.0 — deferred alternative
 
@@ -261,7 +264,7 @@ Fresh Maintenance #138 inventory confirms zero active compatibility shims, zero 
 
 Current stage.
 
-Stage D starts with architecture observation and one narrow report-only contract, not a package rewrite. Import Linter 2.15 is the preferred pilot because it builds on the Grimp model already used by Hani. The first pilot must protect a boundary that current code already satisfies, remain outside the production dependency graph, and produce a report artifact before any enforcement is made blocking. Tach remains deferred unless Import Linter proves insufficient.
+Stage D starts with architecture observation and one narrow report-only contract, not a package rewrite. The first Import Linter 2.15 pilot protects the recovery-integrity install boundary: only the `app` package initializer may directly import `app.x_recovery_integrity_runtime`. The check runs with `--no-cache`, no ignore rules, remains outside the production dependency graph, and uploads `import-linter-report.txt`. A later PR may make the contract blocking only after the report is proven stable on PR and real-main maintenance runs. Tach remains deferred unless Import Linter proves insufficient.
 
 ## Non-negotiable cleanup rules
 
