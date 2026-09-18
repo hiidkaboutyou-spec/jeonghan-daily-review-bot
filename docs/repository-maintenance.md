@@ -264,3 +264,18 @@ Only after the remaining explicitly deferred Stage C migrations have either comp
 - No change to persisted state/schema without migration and rollback.
 - No validation PR may send live Telegram messages or mutate production state.
 - Every structural change gets focused tests, normal project validation, and post-merge production verification.
+
+## Active X recovery integrity migration — 2026-09-18
+
+The base recovery path is canonical and its historical shim remains retired.
+The single active Stage C shim is now
+`app.phase3_recovery_hardening` → `app.x_recovery_integrity_runtime`.
+
+The canonical integrity implementation is unchanged and patches only the canonical
+base recovery module. Preserve exact import order and all checkpoint/retry/cursor
+semantics. Synthetic historical-name fixtures in
+`tests/test_module_family_evidence.py` remain fixtures, not callers.
+
+Require full CI, real-main production proof, and a fresh final reference/import
+audit before retirement.
+
