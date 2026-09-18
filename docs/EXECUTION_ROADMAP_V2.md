@@ -680,6 +680,19 @@ Some safe preparation can overlap:
 - Tumblr feature extraction can be prototyped offline, but must not reach production styling until the channel corpus/authority hierarchy is implemented;
 - RTL fixtures can be built early from historical examples.
 
+## Cross-cutting audited hardening track — 2026-09-18
+
+These tasks came from a repository-by-repository GitHub capability audit. They must remain isolated from behavior-changing migrations and be adopted only where they close a demonstrated gap.
+
+1. **Workflow security now:** add CI-only, pinned `actionlint` for blocking GitHub Actions correctness checks and pinned `zizmor` initially report-only for workflow security findings. Neither belongs in production dependencies.
+2. **SQLite backup correctness:** harden private-state backup by using Python's SQLite online backup API to create a consistent temporary snapshot before validation/encryption; do not depend solely on prior workflow WAL checkpoint ordering.
+3. **X parser regression fixtures:** capture representative provider payloads and lock parsers/backends with offline fixture tests. Reuse Hani's existing collector chain rather than installing a second X stack.
+4. **Translation MQM-lite:** extend the existing benchmark with deterministic error classes for omission/addition, entity/speaker, numbers/dates, tone/register, emoji/laughter and fandom/relationship nuance.
+5. **Perceptual media dedupe experiment:** add only as feature-flagged/advisory grouping after exact URL/bytes/Telegram identities; never suppress near-duplicates automatically until calibrated on real channel assets.
+6. **Durable-job patterns only when needed:** visibility timeout/dead-letter/once-ledger concepts may be adapted for future background jobs; do not introduce a second queue or agent framework now.
+
+Detailed repository decisions live in `docs/research/github-capability-scan-2026-09-18.md`.
+
 ## Rollout strategy
 
 For all behavior-changing phases:
