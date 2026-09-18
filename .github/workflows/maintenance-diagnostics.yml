@@ -181,24 +181,16 @@ jobs:
             exit "$status"
           fi
 
-      - name: Observe resumable recovery dynamic-import boundary
+      - name: Enforce resumable recovery dynamic-import boundary
         shell: bash
         run: |
-          set -u
-          set +e
+          set -euo pipefail
           .maintenance-env/bin/python tools/protected_import_bypass_audit.py \
             --protected-module app.x_resumable_recovery_runtime \
             --json resumable-recovery-bypass-audit.json \
             --markdown resumable-recovery-bypass-audit.md
-          status=$?
-          set -e
-          {
-            echo
-            echo "report_only_exit_status=$status"
-          } >> resumable-recovery-bypass-audit.md
-          echo "Resumable recovery dynamic-import candidate is report-only; inspect resumable-recovery-bypass-audit.md." >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Observe resumable recovery Import Linter boundary
+      - name: Enforce resumable recovery Import Linter boundary
         shell: bash
         run: |
           set -u
@@ -214,9 +206,11 @@ jobs:
           cat import-linter-resumable-report.txt
           {
             echo
-            echo "report_only_exit_status=$status"
+            echo "blocking_exit_status=$status"
           } >> import-linter-resumable-report.txt
-          echo "Resumable recovery protected contract is report-only; inspect import-linter-resumable-report.txt before any promotion." >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ]; then
+            exit "$status"
+          fi
 
       - name: Collect non-blocking cleanup reports
         shell: bash
@@ -261,7 +255,7 @@ jobs:
             echo "- Stage C is closed after the X recovery integrity retirement; no recurring plan is generated for retired module paths."
             echo "- Stage D Import Linter 2.15: blocking for the single production-proven recovery-integrity ownership contract; no cache and no ignore_imports."
             echo "- Literal dynamic-import bypass audit for app.x_recovery_integrity_runtime: blocking, AST-based, parse-error-failing."
-            echo "- Stage D candidate app.x_resumable_recovery_runtime boundary: report-only static protected contract plus report-only literal dynamic-import audit."
+            echo "- Stage D app.x_resumable_recovery_runtime boundary: blocking static protected contract plus blocking literal dynamic-import audit."
             echo "- Import ordering and formatting: report-only during cleanup rollout."
             echo "- Vulture dead-code candidates: report-only; never auto-delete."
             echo "- Complexipy cognitive-complexity hotspots: report-only; used to prioritize human-reviewed refactors."
