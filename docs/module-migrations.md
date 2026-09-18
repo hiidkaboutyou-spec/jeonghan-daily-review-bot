@@ -60,4 +60,20 @@ Behavior and install order are unchanged. The canonical runtime remains after `c
 
 The legacy shim is now retired and must not be recreated. The detailed evidence is recorded in `docs/research/channel-human-quality-gate-shim-retirement-2026-09-18.md`. `channel_part4_qualityfix` is the next Stage C candidate, but only as a separate planning-first migration after this retirement receives independent post-merge production proof.
 
+
+## `app.channel_part4_qualityfix` → `app.channel_quality_repair_runtime`
+
+Status: **compatibility shim active**  
+Introduced: **2026-09-18**
+
+Fresh planning in PR #101 measured 99.1% coverage across 129 test contexts and found four structural LibCST references, zero dynamic/manual references, one order-sensitive package-initializer reference, and zero parse errors. PR #102 then production-proved the prerequisite benchmark-freshness fix so the quality-repair implementation itself is bound into the human benchmark production fingerprint.
+
+The canonical runtime owns source-authorized translation quality repair and deterministic fallback hardening. The historical module is a same-module-object compatibility alias; there is only one implementation body.
+
+Runtime order is unchanged: `channel_part4_hardening`, `channel_source_fact_normalization_runtime`, `channel_human_quality_gate_runtime`, `channel_quality_repair_runtime`, `channel_part4_benchmark_hook`.
+
+The quality-repair runtime continues to mutate the canonical human-quality-gate `HUMAN_GATE_VERSION`, `HUMAN_GATE_FINGERPRINT`, and `verify_hard_facts` bindings. The human benchmark fingerprint now tracks `app/channel_quality_repair_runtime.py`, not the compatibility shim.
+
+The shim must remain until a later focused retirement proves there is no remaining legacy caller and the semantic runtime has independent post-merge production proof. Detailed migration evidence: `docs/research/channel-quality-repair-semantic-migration-2026-09-18.md`.
+
 Stage D architecture-boundary enforcement remains deferred until the remaining explicitly approved Stage C migrations are complete or intentionally deferred.
