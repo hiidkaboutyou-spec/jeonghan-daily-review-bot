@@ -32,6 +32,7 @@ Rationale:
 - `import-linter==2.15` is in `requirements-maintenance.txt` only.
 - Production `requirements.txt` and Docker dependencies are unchanged.
 - Security Diagnostics now audits the installed maintenance dependency environment separately with `pip-audit`/OSV on Python 3.11, in addition to the unchanged production dependency audit.
+- The first audit exposed pre-existing `setuptools==79.0.1` as vulnerable to CVE-2026-59890 / PYSEC-2026-3447. Import Linter 2.15 itself had no reported vulnerability. The maintenance environment now pins `setuptools==84.0.0`, the current PyPI release and newer than the 83.0.0 fixed version; production dependencies remain unchanged.
 - The pilot uses `--no-cache` because Import Linter/Grimp file caching is not concurrency-safe.
 - The contract contains no `ignore_imports`.
 - `tests/test_architecture_contract_config.py` locks the exact one-contract scope and rejects hidden ignore rules.
