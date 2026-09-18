@@ -139,8 +139,11 @@ def scan_python_file(path: Path, root: Path, protected_module: str) -> tuple[lis
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                local = alias.asname or alias.name.split(".", 1)[0]
-                aliases[local] = alias.name
+                if alias.asname:
+                    aliases[alias.asname] = alias.name
+                else:
+                    top_level = alias.name.split(".", 1)[0]
+                    aliases[top_level] = top_level
         elif isinstance(node, ast.ImportFrom) and node.module:
             for alias in node.names:
                 if alias.name == "*":
