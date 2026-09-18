@@ -83,6 +83,7 @@ Do not treat historical-looking module names as dead code. Hani intentionally co
 
 - Maintenance-only; never a production runtime dependency.
 - Security Diagnostics must audit the installed maintenance dependency environment separately with pip-audit/OSV; this vulnerability gate is blocking.
+- Current maintenance security floor pins `setuptools==84.0.0`; do not relax this solely to satisfy another tool.
 - Stage D begins with one report-only protected contract in `.importlinter`.
 - The pilot protects `app.x_recovery_integrity_runtime`: direct production import ownership stays with the `app` package initializer.
 - Run with `--no-cache` and no `ignore_imports` during the pilot.
