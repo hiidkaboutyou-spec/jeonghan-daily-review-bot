@@ -107,7 +107,7 @@ class ModuleMigrationRegistryTests(unittest.TestCase):
         self.assertFalse(migration["runtime_behavior_change"])
         self.assertGreaterEqual(len(migration["removal_gates"]), 8)
 
-    def test_registry_tracks_active_x_resumable_recovery_migration(self) -> None:
+    def test_registry_tracks_retired_x_resumable_recovery_migration(self) -> None:
         migration = self._migration("app.phase3_recovery")
         self.assertEqual(
             migration["canonical_module"],
