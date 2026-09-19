@@ -110,6 +110,40 @@ def outcome_useful_work_performed(data: dict[str, Any]) -> bool:
 # GitHub Actions artifact fetching
 # ---------------------------------------------------------------------------
 
+class _NoAuthRedirectHandler(request.HTTPRedirectHandler):
+    """Redirect handler that strips the Authorization header on cross-host
+    redirects.
+
+    The artifact zip endpoint (api.github.com) 302-redirects to a pre-signed
+    Azure Blob Storage URL.  Python's urllib forwards the Authorization header
+    on redirect by default, and Azure rejects it with 401
+    InvalidAuthenticationInfo.  Stripping auth headers on redirect fixes the
+    download without weakening same-host auth.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new_req = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new_req is not None:
+            origin_host = request.urlsplit(req.full_url).netloc
+            dest_host = request.urlsplit(newurl).netloc
+            if origin_host != dest_host:
+                new_req.headers.pop("Authorization", None)
+        return new_req
+
+
+def _download_artifact_zip(url: str, token: str, timeout: int) -> bytes | None:
+    """Download the artifact zip, following redirects without auth leakage."""
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "jeonghan-daily-watchdog",
+    }
+    req = request.Request(url, headers=headers, method="GET")
+    opener = request.build_opener(_NoAuthRedirectHandler)
+    with opener.open(req, timeout=timeout) as response:
+        return response.read() or None
+
 class GitHubActionsClient:
     def __init__(self, repository: str, token: str, *, timeout: int = 30) -> None:
         if "/" not in repository:
@@ -221,16 +255,7 @@ class GitHubActionsClient:
             if not artifact_id:
                 return None
             zip_url = f"{self.base}/actions/artifacts/{artifact_id}/zip"
-            # We need raw bytes for the zip
-            headers = {
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {self.token}",
-                "X-GitHub-Api-Version": "2022-11-28",
-                "User-Agent": "jeonghan-daily-watchdog",
-            }
-            req = request.Request(zip_url, headers=headers, method="GET")
-            with request.urlopen(req, timeout=self.timeout) as response:
-                zip_data = response.read()
+            zip_data = _download_artifact_zip(zip_url, self.token, self.timeout)
 
             if not zip_data:
                 return None
