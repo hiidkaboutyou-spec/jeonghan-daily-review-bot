@@ -28,3 +28,24 @@ broken_contract_guidance =
     Do not couple new application modules directly to app.x_resumable_recovery_runtime.
     Keep direct ownership limited to app package initialization, recovery integrity, and completeness provider proof.
 
+[importlinter:contract:stage-d-fanfic-daily-shadow-isolation]
+name = Fanfic digest is isolated from the Daily-only translation style and presentation shadow stack
+type = forbidden
+source_modules =
+    app.fic_digest
+forbidden_modules =
+    app.translation_fusion
+    app.translation_fusion_runtime
+    app.translation_fusion_state_compat
+    app.channel_style_rewrite
+    app.channel_style_rewrite_state_compat
+    app.user_voice_calibration
+    app.user_voice_calibration_state_compat
+    app.forward_ready_package
+    app.forward_ready_state_compat
+    app.fused_private_review_delivery
+as_packages = False
+broken_contract_guidance =
+    Keep app.fic_digest independent from Daily-only Translation Fusion, style/calibration,
+    forward-ready, and fused private-review presentation modules. Shared primitives such as
+    app.ai, app.telegram, app.x_client, app.message_delivery, and app.gemini_structured remain allowed.
