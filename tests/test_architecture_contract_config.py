@@ -8,7 +8,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / ".importlinter"
 BLOCKING_CONTRACT = "importlinter:contract:stage-d-x-recovery-integrity-owner"
-PILOT_CONTRACT = "importlinter:contract:stage-d-x-resumable-recovery-owner"
+SECOND_BLOCKING_CONTRACT = "importlinter:contract:stage-d-x-resumable-recovery-owner"
+WORKFLOW = ROOT / ".github" / "workflows" / "maintenance-diagnostics.yml"
 
 
 class ArchitectureContractConfigTests(unittest.TestCase):
@@ -25,7 +26,7 @@ class ArchitectureContractConfigTests(unittest.TestCase):
 
         self.assertEqual(
             [section for section in parser.sections() if section.startswith("importlinter:contract:")],
-            [BLOCKING_CONTRACT, PILOT_CONTRACT],
+            [BLOCKING_CONTRACT, SECOND_BLOCKING_CONTRACT],
         )
 
         self.assertEqual(parser.get(BLOCKING_CONTRACT, "type"), "protected")
@@ -40,20 +41,29 @@ class ArchitectureContractConfigTests(unittest.TestCase):
         self.assertIn("Do not import app.x_recovery_integrity_runtime directly.", blocking_guidance)
         self.assertIn("app/__init__.py", blocking_guidance)
 
-        self.assertEqual(parser.get(PILOT_CONTRACT, "type"), "protected")
+        self.assertEqual(parser.get(SECOND_BLOCKING_CONTRACT, "type"), "protected")
         self.assertEqual(
-            parser.get(PILOT_CONTRACT, "protected_modules").split(),
+            parser.get(SECOND_BLOCKING_CONTRACT, "protected_modules").split(),
             ["app.x_resumable_recovery_runtime"],
         )
         self.assertEqual(
-            parser.get(PILOT_CONTRACT, "allowed_importers").split(),
+            parser.get(SECOND_BLOCKING_CONTRACT, "allowed_importers").split(),
             ["app", "app.completeness_provider_proof", "app.x_recovery_integrity_runtime"],
         )
-        self.assertFalse(parser.getboolean(PILOT_CONTRACT, "as_packages"))
-        self.assertFalse(parser.has_option(PILOT_CONTRACT, "ignore_imports"))
-        pilot_guidance = parser.get(PILOT_CONTRACT, "broken_contract_guidance")
+        self.assertFalse(parser.getboolean(SECOND_BLOCKING_CONTRACT, "as_packages"))
+        self.assertFalse(parser.has_option(SECOND_BLOCKING_CONTRACT, "ignore_imports"))
+        pilot_guidance = parser.get(SECOND_BLOCKING_CONTRACT, "broken_contract_guidance")
         self.assertIn("Do not couple new application modules directly", pilot_guidance)
         self.assertIn("completeness provider proof", pilot_guidance)
+
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("--contract stage-d-x-recovery-integrity-owner", workflow)
+        self.assertIn("--contract stage-d-x-resumable-recovery-owner", workflow)
+        self.assertIn("Enforce Stage D Import Linter contract", workflow)
+        self.assertIn("Enforce resumable recovery Import Linter boundary", workflow)
+        self.assertIn("Enforce resumable recovery dynamic-import boundary", workflow)
+        self.assertNotIn("Resumable recovery protected contract is report-only", workflow)
+        self.assertNotIn("Resumable recovery dynamic-import candidate is report-only", workflow)
 
 
 if __name__ == "__main__":

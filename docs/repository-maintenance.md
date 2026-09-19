@@ -123,24 +123,22 @@ License: BSD-2-Clause
 
 Import Linter remains installed only in `requirements-maintenance.txt`; it is not part of the production Docker dependency graph. Version 2.15 requires Python >=3.10 and Grimp >=3.17, matching Hani's Python 3.11 maintenance environment and existing Grimp 3.17 evidence stack.
 
-Stage D now has one blocking contract plus one report-only candidate.
+Stage D now has two blocking protected contracts.
 
-The blocking contract protects `app.x_recovery_integrity_runtime`. With `as_packages=False`, upstream implementation/tests confirm that `allowed_importers = app` means the exact `app` package initializer is allowed while `app.*` descendants are not. This preserves the production-proven ownership of the import-time integrity installer without restructuring runtime code.
+The first protects `app.x_recovery_integrity_runtime`. With `as_packages=False`, `allowed_importers = app` means the exact `app` package initializer is allowed while `app.*` descendants are not. This preserves the production-proven ownership of the import-time integrity installer.
 
-The report-only candidate protects `app.x_resumable_recovery_runtime` and allows exactly `app`, `app.x_recovery_integrity_runtime`, and `app.completeness_provider_proof` as direct importers. Fresh real-main Grimp evidence and recovery migration docs independently identify those three modules as the deliberate owners of the canonical recovery module object.
+The second protects `app.x_resumable_recovery_runtime` and allows exactly `app`, `app.x_recovery_integrity_runtime`, and `app.completeness_provider_proof` as direct importers. That allow-list is not inferred merely from graph degree: Stage C recovery migration records, current source, PR #117 candidate evidence, and real-main Maintenance #153 all identify those exact three modules as the deliberate owners of the canonical recovery module object.
 
-Enforcement/observation rules:
-- recovery-integrity remains blocking;
-- resumable-recovery is report-only until a later promotion PR;
-- CI selects each Import Linter contract explicitly with `--contract` so the pilot cannot silently become blocking;
+Enforcement rules:
+- both recovery contracts are blocking and selected explicitly with `--contract`;
 - `--no-cache`: avoid Import Linter cache concurrency/state in CI;
 - no `ignore_imports`: violations remain visible instead of being normalized away;
 - `broken_contract_guidance` explains how to restore each intended boundary;
-- `tests/test_architecture_contract_config.py` locks exactly two narrow contracts and their allow-lists;
-- `tools/protected_import_bypass_audit.py` remains blocking for the integrity contract and is reused report-only for the resumable-recovery candidate;
+- `tests/test_architecture_contract_config.py` locks exactly two contracts, their exact allow-lists, and the blocking workflow steps;
+- `tools/protected_import_bypass_audit.py` is blocking for both protected modules and parse errors;
 - maintenance dependency vulnerabilities remain a separate blocking Security Diagnostics gate;
 - maintenance pins `setuptools==84.0.0`; production requirements remain untouched;
-- do not promote the candidate until PR-head and real-main static/dynamic evidence both stay clean.
+- do not add a third architecture candidate until a new report-only observation cycle proves another stable boundary.
 
 ### Tach 0.35.0 — deferred alternative
 
@@ -211,7 +209,7 @@ A clean plan still does not prove a move is safe. Dynamic imports, subprocess/CL
 
 `Hani Maintenance Diagnostics` uses three levels:
 
-1. **Blocking:** Ruff definite Python errors; migration-state coherence; Import Linter's single recovery-integrity protected contract; the protected literal dynamic-import bypass audit; inventory/planner parse errors when invoked; and the existing unit suite when per-test Stage B coverage is collected.
+1. **Blocking:** Ruff definite Python errors; migration-state coherence; both recovery-family Import Linter protected contracts; literal dynamic-import bypass audits for both protected recovery modules; inventory/planner parse errors when invoked; and the existing unit suite when per-test Stage B coverage is collected.
 2. **Report-only:** Grimp relationships, Coverage.py evidence, Ruff import ordering/format checks, Vulture candidates, Deptry findings, and Complexipy hotspots.
 3. **Human/agent review:** every move, rename, deletion, dependency removal, complexity refactor, compatibility-shim removal, package-boundary change, or proposal for an additional architecture contract.
 
@@ -275,9 +273,9 @@ Current stage.
 
 Stage D started with a report-only Import Linter 2.15 pilot for the recovery-integrity install boundary. PR #115 proved that contract on its PR head and real `main`; PR #116 then promoted the same invariant to blocking only after adding a focused AST-based literal dynamic-import bypass audit. Static direct imports are enforced by Import Linter, literal dynamic loaders and `sys.modules` access are enforced separately, both use no ignore rules, and real-main production validation stayed green.
 
-The next evidence cycle now observes a **second candidate only**: `app.x_resumable_recovery_runtime`. Fresh Maintenance #151 import evidence reports exactly three direct owners—`app`, `app.x_recovery_integrity_runtime`, and `app.completeness_provider_proof`—which matches the durable recovery migration design: package startup owns install order, integrity patches checkpoint/profile helpers, and provider-proof replaces the provider-page implementation on the same canonical module object.
+PR #117 introduced `app.x_resumable_recovery_runtime` as a separate report-only second candidate after fresh Maintenance #151 evidence identified exactly three deliberate direct owners: `app`, `app.x_recovery_integrity_runtime`, and `app.completeness_provider_proof`. PR-head Maintenance #152 then reported 1 kept / 0 broken and zero literal dynamic bypasses. After PR #117 merged as `d4220ed1528bb7b4ae8cb410f3d9127bb9dc4567`, real-main Maintenance #153 repeated the same static/dynamic result, Security #161 and Workflow Safety #30 stayed green, Daily #4239 passed runtime smoke, live-provider checks, one complete automatic monitor pass, DB checkpoint, outcome upload and both state/database saves, and Watchdog #3344 passed independently.
 
-This second contract is deliberately report-only. CI selects the already-proven integrity contract separately for blocking enforcement, then records both static Import Linter and dynamic-bypass reports for the resumable-recovery candidate. Do not promote it in the same PR and do not add a third candidate until this one has PR-head and real-main evidence. Detailed rationale is in `docs/research/stage-d-resumable-recovery-boundary-pilot-2026-09-19.md`. Tach remains deferred unless Import Linter proves insufficient.
+That completed the report-only observation gate. The current promotion makes the same resumable-recovery contract and its literal dynamic-bypass audit blocking without changing runtime code, state/schema, providers, delivery, schedules, secrets, or production dependencies. Detailed pilot rationale remains in `docs/research/stage-d-resumable-recovery-boundary-pilot-2026-09-19.md`; promotion evidence is recorded separately. Do not add a third candidate in this promotion cycle. Tach remains deferred unless Import Linter proves insufficient.
 
 ## Non-negotiable cleanup rules
 

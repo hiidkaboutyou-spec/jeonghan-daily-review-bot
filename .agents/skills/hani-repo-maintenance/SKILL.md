@@ -84,14 +84,15 @@ Do not treat historical-looking module names as dead code. Hani intentionally co
 - Maintenance-only; never a production runtime dependency.
 - Security Diagnostics audits the installed maintenance dependency environment separately with pip-audit/OSV; this vulnerability gate is blocking.
 - Current maintenance security floor pins `setuptools==84.0.0`; do not relax this solely to satisfy another tool.
-- Stage D currently has one blocking protected contract plus one report-only candidate in `.importlinter`.
-- Blocking: `app.x_recovery_integrity_runtime`; only the exact `app` package initializer may directly import it.
-- Report-only candidate: `app.x_resumable_recovery_runtime`; its exact allowed importers are `app`, `app.x_recovery_integrity_runtime`, and `app.completeness_provider_proof`.
+- Stage D currently has exactly two blocking protected contracts in `.importlinter`.
+- `app.x_recovery_integrity_runtime`: only the exact `app` package initializer may directly import it.
+- `app.x_resumable_recovery_runtime`: exact allowed importers are `app`, `app.x_recovery_integrity_runtime`, and `app.completeness_provider_proof`.
 - `as_packages=False` is required for both so descendants are not implicitly allowed.
-- Run Import Linter with `--no-cache`, no `ignore_imports`, and explicit `--contract` selection so a candidate cannot become blocking accidentally.
-- `tools/protected_import_bypass_audit.py` is the companion blocking gate for the integrity contract and is reused report-only for the resumable-recovery candidate.
-- A broken architecture gate/report is evidence to investigate, not permission for an automatic rewrite.
-- Do not promote the resumable-recovery candidate until PR-head and real-main static/dynamic reports are clean; do not add a third candidate in the same observation cycle.
+- Run Import Linter with `--no-cache`, no `ignore_imports`, and explicit `--contract` selection for each boundary.
+- `tools/protected_import_bypass_audit.py` is the companion blocking gate for both protected recovery modules; parse errors also fail.
+- `tests/test_architecture_contract_config.py` locks both allow-lists and the blocking workflow mode.
+- A broken architecture gate is evidence to investigate, not permission for an automatic rewrite or allow-list expansion.
+- Do not add a third architecture candidate until a separate report-only observation cycle proves another intended boundary.
 
 ### Native structure inventory
 
@@ -101,7 +102,7 @@ Use `tools/repo_structure_inventory.py` to map module responsibilities, internal
 
 - **Rope:** active and capable, but its higher-level stateful rename/move engine is reference-only for now. Hani's import-time patch stack benefits from a narrower explicit LibCST plan before any transformation.
 - **Bowler:** rejected. The upstream repository is archived and recommends LibCST for modern Python codemods.
-- **Import Linter 2.15:** active Stage D enforcement plus observation; maintenance-only, one blocking recovery-integrity contract and one report-only resumable-recovery candidate, explicit `--contract` selection, `--no-cache`, no ignore rules.
+- **Import Linter 2.15:** active Stage D enforcement; maintenance-only, exactly two blocking recovery-family protected contracts, explicit `--contract` selection, `--no-cache`, no ignore rules, with blocking literal dynamic-import audits for both.
 - **Tach:** deferred alternative; do not install in parallel with the Import Linter pilot.
 - **Pydeps:** defer unless visual cycle analysis becomes materially useful; Grimp plus the native inventory already provide Stage B dependency evidence.
 
