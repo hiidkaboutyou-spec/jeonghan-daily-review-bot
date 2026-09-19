@@ -9,6 +9,19 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / ".importlinter"
 BLOCKING_CONTRACT = "importlinter:contract:stage-d-x-recovery-integrity-owner"
 SECOND_BLOCKING_CONTRACT = "importlinter:contract:stage-d-x-resumable-recovery-owner"
+FANFIC_PILOT_CONTRACT = "importlinter:contract:stage-d-fanfic-daily-shadow-isolation"
+FANFIC_FORBIDDEN = [
+    "app.translation_fusion",
+    "app.translation_fusion_runtime",
+    "app.translation_fusion_state_compat",
+    "app.channel_style_rewrite",
+    "app.channel_style_rewrite_state_compat",
+    "app.user_voice_calibration",
+    "app.user_voice_calibration_state_compat",
+    "app.forward_ready_package",
+    "app.forward_ready_state_compat",
+    "app.fused_private_review_delivery",
+]
 WORKFLOW = ROOT / ".github" / "workflows" / "maintenance-diagnostics.yml"
 
 
@@ -26,7 +39,7 @@ class ArchitectureContractConfigTests(unittest.TestCase):
 
         self.assertEqual(
             [section for section in parser.sections() if section.startswith("importlinter:contract:")],
-            [BLOCKING_CONTRACT, SECOND_BLOCKING_CONTRACT],
+            [BLOCKING_CONTRACT, SECOND_BLOCKING_CONTRACT, FANFIC_PILOT_CONTRACT],
         )
 
         self.assertEqual(parser.get(BLOCKING_CONTRACT, "type"), "protected")
@@ -56,6 +69,22 @@ class ArchitectureContractConfigTests(unittest.TestCase):
         self.assertIn("Do not couple new application modules directly", pilot_guidance)
         self.assertIn("completeness provider proof", pilot_guidance)
 
+        self.assertEqual(parser.get(FANFIC_PILOT_CONTRACT, "type"), "forbidden")
+        self.assertEqual(
+            parser.get(FANFIC_PILOT_CONTRACT, "source_modules").split(),
+            ["app.fic_digest"],
+        )
+        self.assertEqual(
+            parser.get(FANFIC_PILOT_CONTRACT, "forbidden_modules").split(),
+            FANFIC_FORBIDDEN,
+        )
+        self.assertFalse(parser.getboolean(FANFIC_PILOT_CONTRACT, "as_packages"))
+        self.assertFalse(parser.has_option(FANFIC_PILOT_CONTRACT, "ignore_imports"))
+        self.assertFalse(parser.has_option(FANFIC_PILOT_CONTRACT, "allow_indirect_imports"))
+        fanfic_guidance = parser.get(FANFIC_PILOT_CONTRACT, "broken_contract_guidance")
+        self.assertIn("Keep app.fic_digest independent", fanfic_guidance)
+        self.assertIn("Shared primitives", fanfic_guidance)
+
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("--contract stage-d-x-recovery-integrity-owner", workflow)
         self.assertIn("--contract stage-d-x-resumable-recovery-owner", workflow)
@@ -64,6 +93,14 @@ class ArchitectureContractConfigTests(unittest.TestCase):
         self.assertIn("Enforce resumable recovery dynamic-import boundary", workflow)
         self.assertNotIn("Resumable recovery protected contract is report-only", workflow)
         self.assertNotIn("Resumable recovery dynamic-import candidate is report-only", workflow)
+
+        self.assertIn("--contract stage-d-fanfic-daily-shadow-isolation", workflow)
+        self.assertIn("Observe Fanfic static and indirect Import Linter boundary", workflow)
+        self.assertIn("Observe Fanfic runtime and literal dynamic-import isolation", workflow)
+        self.assertIn("fanfic_import_isolation_audit.py", workflow)
+        self.assertIn("import-linter-fanfic-report.txt", workflow)
+        self.assertIn("report_only_exit_status=$status", workflow)
+        self.assertIn("Stage D Fanfic/AO3 isolation candidate: report-only", workflow)
 
 
 if __name__ == "__main__":
