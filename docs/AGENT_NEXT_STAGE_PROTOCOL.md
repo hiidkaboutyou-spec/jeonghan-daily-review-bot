@@ -187,6 +187,7 @@ GitHub Spec Kit is approved as an **optional developer-side process harness** on
 
 Reviewed baseline at adoption:
 - upstream: https://github.com/github/spec-kit
+- upstream license: MIT
 - pinned reviewed release: `v1.0.8`
 - existing-project guide: https://github.com/github/spec-kit/blob/main/docs/guides/existing-projects.md
 - Codex integration uses `.agents/skills`;
