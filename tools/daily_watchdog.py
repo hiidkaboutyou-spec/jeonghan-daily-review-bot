@@ -14,6 +14,7 @@ MAIN_BRANCH = "main"
 LIVE_MONITOR_STEP = "Run one complete automatic monitor pass"
 LIVE_EVENTS = {"schedule", "workflow_dispatch", "push"}
 AUTOMATION_ACTOR = "github-actions[bot]"
+AUTOMATION_ACTOR_ID = 41898282
 ACTIVE_STATUSES = {"queued", "in_progress", "requested", "waiting", "pending"}
 
 # Production outcome schema validation constants
@@ -445,10 +446,10 @@ def run_periodic_watchdog(
     latest = live_runs[0] if live_runs else None
     if latest is not None:
         actor = latest.get("actor")
-        actor_login = str(actor.get("login") or "") if isinstance(actor, dict) else str(actor or "")
+        actor_id = actor.get("id") if isinstance(actor, dict) else None
         if (
             str(latest.get("event") or "") == "workflow_dispatch"
-            and actor_login == AUTOMATION_ACTOR
+            and actor_id == AUTOMATION_ACTOR_ID
             and str(latest.get("conclusion") or "") != "success"
         ):
             log_decision(

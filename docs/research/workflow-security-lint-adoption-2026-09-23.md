@@ -41,3 +41,7 @@ Delete `.github/workflows/workflow-security-lint.yml`. No runtime/state migratio
 ## Promotion gate for zizmor
 
 Do not make zizmor blocking merely because the pilot runs successfully. First collect and classify findings on the repository's real workflows, resolve true high-confidence issues, document intentional exceptions, and only then consider a separate enforcement PR.
+
+## Follow-up: bot identity in privileged workflow gates
+
+After the checkout-credential fix in PR #122, the exact-head security scan still reported a high-confidence `bot-conditions` finding on the Daily watchdog's name-based `github.actor` condition. The follow-up is recorded in [bot identity boundary review](bot-identity-boundary-2026-09-23.md). Keep the scanner report-only until its remaining findings have been triaged against a real `main` workflow run; a green report-only job does not mean there were zero findings.

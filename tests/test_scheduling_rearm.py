@@ -171,8 +171,20 @@ class SchedulingRearmWorkflowTests(unittest.TestCase):
         main = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")
         self.assertIn("Re-arm Daily watchdog after automated recovery", main)
         self.assertIn("gh workflow run daily-watchdog.yml", main)
-        self.assertIn("github.actor == 'github-actions[bot]'", main)
+        self.assertIn("github.actor_id == '41898282'", main)
+        self.assertNotIn("github.actor == 'github-actions[bot]'", main)
         self.assertNotIn("gh workflow run main.yml --ref main -f mode=live", main)
+
+    def test_nightly_fanfic_coverage_uses_bot_account_id(self):
+        main = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")
+        self.assertIn('.event == "workflow_dispatch" and .actor.id == 41898282', main)
+        self.assertNotIn('.actor.login == "github-actions[bot]"', main)
+
+    def test_manual_recovery_snapshot_cadence_uses_bot_account_id(self):
+        main = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")
+        self.assertIn("ACTOR_ID: ${{ github.actor_id }}", main)
+        self.assertIn('[ "$ACTOR_ID" != "41898282" ]', main)
+        self.assertNotIn('ACTOR: ${{ github.actor }}', main)
 
     def test_watchdog_has_no_self_recursion(self):
         watchdog = (ROOT / ".github" / "workflows" / "daily-watchdog.yml").read_text(encoding="utf-8")
@@ -184,7 +196,9 @@ class SchedulingRearmWorkflowTests(unittest.TestCase):
     def test_workflow_run_ignores_automated_recovery_to_prevent_double_watchdog(self):
         watchdog = (ROOT / ".github" / "workflows" / "daily-watchdog.yml").read_text(encoding="utf-8")
         self.assertIn("!(github.event.workflow_run.event == 'workflow_dispatch'", watchdog)
-        self.assertIn("github.event.workflow_run.actor.login == 'github-actions[bot]'", watchdog)
+        self.assertIn("github.event.workflow_run.actor.id == 41898282", watchdog)
+        self.assertIn("github.actor_id == '41898282'", watchdog)
+        self.assertNotIn("github.actor == 'github-actions[bot]'", watchdog)
         self.assertIn("workflow_dispatch:", watchdog)
 
     def test_concurrency_remains_bounded(self):
