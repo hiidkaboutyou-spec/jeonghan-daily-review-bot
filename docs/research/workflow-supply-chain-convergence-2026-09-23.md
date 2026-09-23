@@ -21,23 +21,24 @@ Inspection found no authenticated Git write after those checkouts. The workflows
 
 This branch sets `persist-credentials: false` on all twelve remaining checkout steps and adds a repository-level regression test that fails if a future checkout omits it.
 
-## Dependency Review adoption
+## Dependency Review evaluation — deferred by repository prerequisite
 
-Adopt GitHub's official `actions/dependency-review-action` as a PR-only gate.
+GitHub's official `actions/dependency-review-action` was evaluated as the preferred future PR-time dependency admission gate.
 
 Reviewed version:
 
 - repository: `actions/dependency-review-action`
 - release: `v5.0.0`
 - pinned commit: `a1d282b36b6f3519aa1f3fc636f609c47dddb294`
-- trigger: pull requests targeting `main`
-- permissions: `contents: read` only
-- threshold: fail only when a newly introduced dependency has a known **high** or **critical** severity vulnerability
+- intended permissions: `contents: read` only
+- intended initial threshold: high/critical newly introduced known vulnerabilities
 - runtime/state impact: none
 
-GitHub documents Dependency Review for public repositories and describes it as a pre-merge control for vulnerabilities introduced by dependency changes. Version 5 uses Node 24 and requires Actions Runner 2.327.1 or newer; this project uses GitHub-hosted `ubuntu-latest` runners rather than a pinned self-hosted runner.
+A real PR execution was performed on this branch. GitHub rejected the action before analysis with: `Dependency review is not supported on this repository. Please ensure that Dependency graph is enabled`. The workflow was therefore removed rather than leaving a permanently failing or fake report-only gate.
 
-The existing `pip-audit` jobs remain useful and are not replaced: they audit the installed dependency environment. Dependency Review covers a different boundary — what a pull request is trying to introduce before it lands.
+GitHub documents Dependency Review for public repositories but requires Dependency graph to be enabled. The available GitHub connector in this execution does not expose a repository-security setting mutation for enabling Dependency graph. Once that repository setting is enabled through an authorized GitHub settings surface, the pinned action above can be added safely and revalidated.
+
+The existing `pip-audit` jobs remain useful: they audit the installed dependency environment. Dependency Review would cover a distinct future boundary — what a pull request is trying to introduce before it lands.
 
 ## External tools reviewed but not installed
 
@@ -61,6 +62,6 @@ Validation for this branch must include:
 2. exact-head report-only zizmor, confirming the credential-persistence findings are gone;
 3. the repository baseline unit suite, including the new checkout regression test;
 4. existing security/CodeQL/maintenance checks;
-5. the Dependency Review job itself.
+5. exact-head confirmation that no unsupported Dependency Review workflow remains.
 
-No live credentials are required by the new gate and no production state migration exists. Rollback is limited to reverting the workflow/test/document changes. If Dependency Review is unavailable because the repository dependency graph is disabled or GitHub has a platform outage, leave the PR unmerged until the repository setting or platform condition is understood; do not weaken the production runtime to accommodate CI.
+No production state migration exists. Rollback is limited to reverting the workflow/test/document changes. Dependency Review remains a documented follow-up gated on enabling GitHub Dependency graph; do not weaken the production runtime or make an unsupported CI job non-blocking merely to make it appear installed.
