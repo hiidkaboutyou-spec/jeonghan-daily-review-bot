@@ -66,6 +66,24 @@ Install `requirements-optional-media.txt` and exercise relevant FFmpeg/media pat
 7. Merge only when required checks pass and the change is safe for production; otherwise leave the pull request open with the blocker recorded.
 
 <!-- project-memory:start -->
+## Deep next-stage requests
+
+When the user asks to "do the next stage", "continue deeply", "advance the project", or gives an equivalent broad continuation request, do not interpret that as a request for the smallest possible diff.
+
+Read `docs/AGENT_NEXT_STAGE_PROTOCOL.md` and, when the active agent supports repository skills, use `.agents/skills/project-next-stage/SKILL.md`.
+
+For these requests:
+
+- recover current GitHub/repository truth before selecting work;
+- choose the **largest safe coherent slice** at the actual frontier;
+- perform deep external research when it can materially change architecture, dependency, licensing, security, privacy, platform, or quality decisions;
+- include implementation, regression protection, validation, documentation, and durable handoff in the stage;
+- use stacked PRs when needed for reviewability rather than jumping over non-canonical prerequisites;
+- run an explicit convergence pass and repair material gaps before calling the stage complete;
+- update durable project memory when available, while treating verified repository/GitHub state as authoritative implementation evidence.
+
+This special scope rule overrides "smallest coherent change" only for explicit broad next-stage requests. It does **not** permit unrelated scope creep or bypass any repository invariant, forbidden action, test gate, human-review boundary, or merge requirement.
+
 ## Project Memory
 
 Project ID: `jeonghan-daily-assistant`
