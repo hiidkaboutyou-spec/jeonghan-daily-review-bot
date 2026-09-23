@@ -25,6 +25,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # releases/v6, audited 2026-09-15
+        with:
+          persist-credentials: false
 
       - name: Install pinned actionlint
         shell: bash
@@ -52,7 +54,6 @@ jobs:
     name: zizmor workflow security report
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    continue-on-error: true
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # releases/v6, audited 2026-09-15
@@ -60,6 +61,7 @@ jobs:
           persist-credentials: false
 
       - name: Run pinned zizmor in report-only mode
+        continue-on-error: true
         uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2 -> zizmor v1.29.0
         with:
           version: "v1.29.0"
