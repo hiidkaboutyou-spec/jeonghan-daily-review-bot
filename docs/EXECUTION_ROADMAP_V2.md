@@ -709,3 +709,196 @@ For all behavior-changing phases:
 The project is not done when CI is green or a collector runs successfully.
 
 It is done when, for routine channel work, the admin can open the private Telegram assistant, see source-by-source proof of what was collected, receive media + accurate Persian + a caption that genuinely sounds and looks like their channel, approve/edit exceptions, and finish without manually reproducing the old X -> downloader -> AI -> styling workflow.
+
+## Cross-cutting developer tooling & external-project adoption track — 2026-09-25
+
+This track records external GitHub projects that may improve future deep next-stage work. These are **not blanket installation instructions**. Every item is classified as install/integrate, evaluate/prototype, inspiration-only, deferred, or no-action. Production runtime safety, repository isolation, secrets, durable state, licensing, and existing agent instructions remain authoritative.
+
+### Priority A — evaluate for developer-side adoption
+
+1. **codebase-memory-mcp — evaluate, then adopt developer-side if gates pass**
+   - Purpose: give coding agents repository-aware structural context, impact analysis, dependency/call-graph knowledge, and faster navigation during large next-stage tasks.
+   - Scope: developer tooling only; never a production bot dependency.
+   - Required isolation: build/index this repository separately from every other project. Never merge or inherit memory from the Persian Literary Translation Engine.
+   - Safety gates before adoption:
+     - review the exact pinned upstream revision, license, install behavior, background processes, telemetry, and config writes;
+     - prefer manual MCP configuration over an installer that automatically rewrites agent instructions;
+     - do not allow automatic edits to `AGENTS.md`, secrets, workflows, private SQLite/state, or production configuration;
+     - keep generated indexes/caches ignored and free of private review content/secrets;
+     - prove uninstall/rollback and verify ordinary tests/CI do not depend on the tool.
+   - Acceptance evidence: run a representative deep-maintenance task with and without it and record whether navigation/tool-call count, correctness, regression discovery, or context efficiency materially improves.
+
+2. **Graft — evaluate after the codebase-memory-mcp benchmark**
+   - Purpose: repository-context retrieval for coding agents.
+   - Do not make Graft and codebase-memory-mcp mandatory simultaneously by default; first measure whether the second context system adds material value.
+   - Block automatic rewriting of `AGENTS.md` or other authoritative project instructions unless the exact diff is reviewed.
+   - Keep it developer-side and optional; production, CI, collection, Telegram delivery, and durable state must continue without it.
+   - Adopt only if benchmark evidence shows complementary value rather than duplicated context/noise.
+
+3. **PI-Desktop — optional external workspace, not a repository/runtime dependency**
+   - Evaluate as a local-first shell for opening this project, coding agents, MCP servers, models, and workflows in one persistent developer workspace.
+   - Preserve this repository as an independent workspace with its own memory/configuration.
+   - Do not copy PI-Desktop architecture wholesale into the bot. Borrow workflow/UX ideas only when they solve a demonstrated developer-productivity problem.
+   - Failure or absence of PI-Desktop must never affect GitHub Actions or production Telegram behavior.
+
+### Priority B — selective research/inspiration, not bulk installation
+
+4. **Agency-agents — selective role inspiration only**
+   - Do not bulk-install the full agent catalog.
+   - During a future stage, review only narrowly relevant roles such as security reviewer, test/reliability reviewer, research specialist, UX/editorial specialist, or media specialist.
+   - Any adopted role must be reduced to project-specific guidance, checked for instruction conflicts, provenance/license reviewed, and kept subordinate to this repository's `AGENTS.md` and next-stage protocol.
+
+5. **Hyperresearch — research-sidecar evaluation**
+   - Consider for deep source/repository/standards research when a next-stage task requires broad evidence gathering.
+   - Keep research artifacts separate from runtime state and require source/provenance review before architectural decisions are accepted.
+   - Do not make the production bot dependent on a research agent framework.
+
+6. **Needle — deferred local structured-extraction/tool-calling experiment**
+   - Evaluate only if a concrete local/offline extraction or tool-routing use case appears.
+   - Benchmark against the existing Python/Rust path before adding another model/runtime.
+   - Disable telemetry where supported and document model/resource/licensing/privacy behavior.
+   - Never use it as justification for replacing proven collection, translation, or deterministic editorial logic without benchmark evidence.
+
+7. **FreeLLMAPI — development experiment only**
+   - May be evaluated behind an isolated provider/test adapter for cheap stress tests, fallback experiments, or non-canonical development runs.
+   - Never use free endpoints as the production reliability baseline for scheduled collection, private review, or channel-style translation.
+   - Do not send private review data, secrets, cookies, or sensitive archives to unknown/free providers.
+   - Any future provider promotion requires explicit reliability, privacy, quota, terms/license, observability, and quality review.
+
+### Priority C — product ideas for later media stages
+
+8. **AutoShorts — future optional media prototype**
+   - Revisit only after the core source-completeness and media-download pipeline is stable.
+   - Potential use: local long-form video/audio -> candidate vertical clips for private editorial review.
+   - Keep clip generation opt-in and separate from collection truth, translation, and delivery state.
+   - Require local-resource, FFmpeg, licensing, output-quality, and false-positive ranking benchmarks before adoption.
+
+9. **OpenMontage — video-studio architecture inspiration / isolated sidecar candidate**
+   - Treat primarily as inspiration for a future agentic video-production surface.
+   - Because external copyleft/licensing boundaries may affect distribution, perform an explicit license review before reusing code.
+   - Prefer a separate process/tool boundary rather than importing a video-production framework into the bot's core runtime.
+   - No automatic public publishing.
+
+### Priority D — deferred or no current fit
+
+10. **9Drive — deferred storage architecture inspiration**
+    - Do not integrate now.
+    - Revisit only if the product later has a demonstrated requirement for multi-account cloud media/file storage that current GitHub/Telegram/local-state paths cannot satisfy.
+    - Any future evaluation must include OAuth/credential isolation, quota routing, consistency, deletion, backup/recovery, privacy, and provider-lock-in analysis.
+
+11. **AdGuard Home — no roadmap integration**
+    - Network-wide ad/tracker blocking is outside this product's responsibility.
+    - Do not add it to the bot, CI, runtime, or developer bootstrap unless a future, separately justified infrastructure requirement changes scope.
+
+### Sequencing rule
+
+For future broad `next stage` requests, external-tool work should follow this order when relevant:
+
+`codebase-memory-mcp benchmark -> optional adoption -> Graft complementary benchmark -> selective research/agent tooling -> only then product-specific media/storage prototypes`.
+
+Do not skip a higher-value product frontier merely to install tooling. Tool adoption is successful only when it measurably improves safe implementation, research quality, or maintenance without coupling production to the developer tool.
+
+### Trendshift discovery & second-batch tooling review — 2026-09-25
+
+Trendshift is a **discovery signal**, not an adoption authority. Future deep next-stage work may scan Trendshift's daily/weekly/monthly GitHub momentum lists for relevant projects, but every candidate must be verified against its upstream repository, license, current maintenance, security posture, and actual project fit before any code, skill, hook, MCP server, model, or installer is adopted.
+
+12. **Browser Use — controlled research/browser sidecar; do not replace production collectors**
+    - Useful for developer-driven web research, interactive-site inspection, and future browser/UI experiments.
+    - Do not replace the existing source collectors, X recovery path, or deterministic offline fixtures with browser-agent navigation merely because it can click pages.
+    - Production collection must not depend on CAPTCHAs, residential proxies, mutable browser profiles, or opaque hosted-agent behavior.
+    - If evaluated, use a separate local/dev profile with no production cookies/secrets and record site/ToS/privacy/resource failure modes.
+
+13. **AgentMemory (`rohitg00/agentmemory`) — high-priority developer-memory benchmark**
+    - Evaluate as persistent coding-agent memory across sessions, but **not** as bot runtime memory.
+    - Benchmark against the repository's existing Project Memory workflow and the planned codebase-memory-mcp evaluation rather than enabling multiple auto-capture systems at once.
+    - Start with auto-capture/compression/hooks disabled or tightly scoped until exclusions are proven.
+    - Use a repository-specific data directory/instance; never share this project's memory namespace with the Persian Literary Translation Engine.
+    - Exclude secrets, X cookies, Telegram identifiers/tokens, private review/archive content, SQLite runtime state, encrypted backups, and generated production artifacts.
+    - Adoption requires auditable recall/forget/export behavior, rollback, and evidence that retrieved memory improves later tasks rather than introducing stale decisions.
+
+14. **Scientific Agent Skills — selective research skills only**
+    - Do not install the full scientific catalog into the project.
+    - Future research-heavy stages may selectively review general-purpose skills such as evidence retrieval, database lookup, literature/research workflow, statistics, or reproducible analysis when they directly support a concrete decision.
+    - Biomedical/chemistry-specific skills are out of scope unless a future task actually requires them.
+    - Any selected skill remains developer guidance and must not alter production bot behavior.
+
+15. **Diagram Design — approved for developer/docs evaluation**
+    - Useful for architecture maps, source/collection flows, recovery diagrams, trust boundaries, state machines, deployment views, database schemas, and user journeys.
+    - Prefer self-contained static HTML/SVG artifacts for documentation and review.
+    - Keep generated diagrams non-authoritative: contracts, tests, code, and normative Markdown remain the source of truth.
+    - If vendored/installed, pin provenance/license and keep it outside production dependencies.
+
+16. **Anthropic-Cybersecurity-Skills — defensive subset inspiration only**
+    - This is a community project, **not an official Anthropic security package**.
+    - Never bulk-install the full offensive/security catalog.
+    - Only review defensive material relevant to this repository: GitHub Actions hardening, secret handling, dependency/supply-chain review, threat modeling, logging/privacy, incident response, web/API security where applicable.
+    - Do not introduce offensive tooling, credential-extraction workflows, or unrelated pentest automation into the repository.
+
+17. **Awesome Harness Engineering — high-value reference, not a dependency**
+    - Use as a research index for context delivery, memory, safe autonomy, tool design, verification loops, observability, long-horizon task state, worktree/PR isolation, and human-in-the-loop patterns.
+    - Periodically compare useful patterns against `docs/AGENT_NEXT_STAGE_PROTOCOL.md` and the project-next-stage skill.
+    - Adopt only individual proven patterns; never copy a generic harness wholesale over project-specific safety rules.
+
+18. **OpenViking — serious unified-context benchmark, external/dev-only initially**
+    - Evaluate as a unified context layer for resources + coding memories + skills only after the lighter memory/context candidates have baseline results.
+    - Main-project AGPL licensing makes embedding/distribution a separate legal/architecture decision; initial evaluation should remain an isolated local service/tool.
+    - Use an independent instance/namespace for this repository.
+    - Do not ingest private Telegram review/archive data, credentials, encrypted state, or unrelated repositories by default.
+    - Compare retrieval quality, observability, token/context savings, stale-memory handling, deletion, resource cost, and operational complexity against AgentMemory + codebase-memory-mcp + existing Project Memory.
+    - Do not run OpenViking, AgentMemory, Graft, and other memory systems simultaneously by default merely because they are available.
+
+19. **KAT-Coder-Pro — optional developer-model benchmark only**
+    - The exact label `KAT-Coder-Pro V9.5` was not verified during the 2026-09-25 review; verify the exact model identifier before any configuration change.
+    - The publicly verified current candidate is KAT-Coder-Pro V2.5, a proprietary agentic coding model.
+    - It may be A/B tested on bounded coding/repair tasks if a compatible provider is already available, but it is not a repository dependency and must not become a production bot provider.
+    - Compare correctness, tests repaired, tool behavior, cost, latency, and regression rate against the currently used coding agent/model before retaining it.
+
+20. **abi/screenshot-to-code — defer unless a web/dashboard product surface exists**
+    - Current private Telegram UX does not justify integrating screenshot-to-code.
+    - If a future web/dashboard surface is approved, it may be used as a developer prototype accelerator for reference screenshots/mockups.
+    - Generated UI must be reviewed for originality, accessibility, RTL/mixed-script behavior, dependency/security quality, and consistency with the project's own product identity.
+    - Never treat screenshot conversion as permission to clone copyrighted third-party UI exactly.
+
+### Memory/context tool competition rule
+
+AgentMemory, OpenViking, codebase-memory-mcp, Graft, and existing Project Memory overlap. Treat them as **benchmark competitors/complements**, not a shopping list.
+
+A future stage should define one representative long-horizon task, measure baseline behavior, then test candidates one at a time. Retain the smallest combination that measurably improves correctness/context recovery while preserving isolation, auditability, privacy, rollback, and low maintenance overhead.
+
+### Authoritative execution decision matrix
+
+For future `next stage` work, use this matrix as the default action. Detailed safety notes above still apply.
+
+| Candidate | Decision | Trigger / required future action |
+|---|---|---|
+| Trendshift | **ADOPT AS DISCOVERY PROCESS** | During substantial research/tooling stages, scan relevant trending GitHub projects, then independently verify upstream/license/security before proposing adoption. |
+| codebase-memory-mcp | **BENCHMARK -> INSTALL DEVELOPER-SIDE IF IT WINS** | First context-tool benchmark. If it materially improves a representative deep repo task, configure it manually per-repository with disposable ignored indexes and no production/private state. |
+| AgentMemory | **BENCHMARK -> INSTALL ONLY IF IT BEATS/COMPLEMENTS THE WINNER** | Test persistent cross-session coding recall after the baseline/context benchmark; keep auto-capture tightly scoped and project-isolated. |
+| OpenViking | **BENCHMARK LATER -> OPTIONAL EXTERNAL SIDEcar** | Test only after lighter context/memory candidates. Retain only if unified resources/memories/skills gives clear gains worth the AGPL/ops complexity. |
+| Graft | **BENCHMARK AFTER PRIMARY CONTEXT TOOL** | Keep only if it adds complementary context rather than duplicate/noisy retrieval. |
+| PI-Desktop | **OPTIONAL EXTERNAL WORKSPACE** | May be installed locally for developer convenience; never add as bot/runtime/CI dependency. |
+| Browser Use | **OPTIONAL DEV/RESEARCH INSTALL** | Use for interactive research or UI/site inspection; never replace deterministic X/source collectors or production retrieval paths. |
+| Hyperresearch | **OPTIONAL RESEARCH SIDECAR** | Use on evidence-heavy architecture/provider/library investigations when its workflow materially improves source coverage/provenance. |
+| Scientific Agent Skills | **SELECTIVE SKILL ADOPTION** | Install/vendor only the specific general research/evidence/statistics skill needed for a concrete stage; never bulk-install the catalog. |
+| Diagram Design | **ADOPT FOR DOCS WHEN NEEDED** | Use for architecture/data-flow/threat-model/state-machine documentation; pin provenance if vendored and keep output non-authoritative. |
+| Anthropic-Cybersecurity-Skills | **INSPIRATION / SELECTIVE DEFENSIVE EXTRACTION** | Review only defensive skills relevant to CI, secrets, supply chain, web/API security, threat modeling and incident response; do not bulk-install. |
+| Awesome Harness Engineering | **INSPIRATION / PERIODIC HARNESS REVIEW** | Mine individual patterns for context delivery, verification loops, observability, safe autonomy and long-horizon agent work; adapt them into project-native protocols. |
+| Agency-agents | **INSPIRATION / SELECTIVE ROLE EXTRACTION** | Review only a narrowly useful specialist role and rewrite it into project-specific guidance after conflict/license review. |
+| KAT-Coder-Pro | **OPTIONAL MODEL A/B TEST** | Verify the exact current model ID first; use only for bounded coding tasks and retain only if it improves correctness/tests/cost/latency versus baseline. |
+| Needle | **DEFERRED PROTOTYPE** | Evaluate only if a concrete offline structured-extraction/tool-routing gap appears. |
+| FreeLLMAPI | **DEV/TEST ONLY** | May be used behind an isolated non-canonical test adapter; never production reliability baseline and never receive private state/secrets. |
+| AutoShorts | **FUTURE MEDIA PROTOTYPE** | Revisit only after source completeness/media retrieval is stable and the admin explicitly wants short-form clip generation. |
+| OpenMontage | **INSPIRATION / FUTURE ISOLATED VIDEO SIDECAR** | Revisit only for an approved video-production scope; perform license review first and keep away from core runtime. |
+| abi/screenshot-to-code | **DEFER UNTIL A WEB/DASHBOARD SURFACE EXISTS** | Use only as a prototype accelerator for project-owned/approved references, followed by accessibility/RTL/originality/security review. |
+| 9Drive | **DEFERRED STORAGE INSPIRATION** | Revisit only after a demonstrated multi-account cloud-storage requirement exists. |
+| AdGuard Home | **OUT OF SCOPE** | Do not install or integrate unless product scope changes for a separately justified infrastructure reason. |
+
+#### Default future sequence
+
+1. Do not install multiple context/memory systems together.
+2. Benchmark `codebase-memory-mcp` first against the current Project Memory baseline.
+3. Benchmark AgentMemory and then Graft/OpenViking only if the first result leaves a demonstrated gap.
+4. Retain the **smallest** context stack that wins on correctness, stale-context resistance, privacy, rollback, maintenance cost, and deep-task efficiency.
+5. Install/use research and documentation helpers only at stages that actually need them.
+6. Media/storage tools wait for their product feature trigger; they are not prerequisites for current roadmap progress.
+
