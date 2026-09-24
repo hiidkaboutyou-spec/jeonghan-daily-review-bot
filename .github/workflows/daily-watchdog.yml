@@ -47,9 +47,9 @@ jobs:
         github.event.workflow_run.event == 'push' ||
         github.event.workflow_run.event == 'workflow_dispatch') &&
        !(github.event.workflow_run.event == 'workflow_dispatch' &&
-         github.event.workflow_run.actor.login == 'github-actions[bot]')) ||
+         github.event.workflow_run.actor.id == 41898282)) ||
       (github.event_name == 'workflow_dispatch' &&
-       github.actor == 'github-actions[bot]')
+       github.actor_id == '41898282')
     runs-on: ubuntu-latest
     timeout-minutes: 18
     concurrency:

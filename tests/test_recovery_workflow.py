@@ -55,7 +55,9 @@ class RecoveryWorkflowTests(unittest.TestCase):
         self.assertIn("::add-mask::$key", derive)
         self.assertIn('>> "$GITHUB_ENV"', derive)
         self.assertIn('EVENT_NAME" = "push', cadence)
-        self.assertIn('ACTOR" != "github-actions[bot]"', cadence)
+        self.assertIn("ACTOR_ID: ${{ github.actor_id }}", cadence)
+        self.assertIn('[ "$ACTOR_ID" != "41898282" ]', cadence)
+        self.assertNotIn('ACTOR: ${{ github.actor }}', cadence)
         self.assertIn("RUN_NUMBER % 24", cadence)
         self.assertIn("retention-days: 3", upload)
 

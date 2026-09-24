@@ -330,13 +330,13 @@ jobs:
         env:
           RUN_NUMBER: ${{ github.run_number }}
           EVENT_NAME: ${{ github.event_name }}
-          ACTOR: ${{ github.actor }}
+          ACTOR_ID: ${{ github.actor_id }}
         shell: bash
         run: |
           snapshot=false
           if [ "$EVENT_NAME" = "push" ]; then
             snapshot=true
-          elif [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$ACTOR" != "github-actions[bot]" ]; then
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$ACTOR_ID" != "41898282" ]; then
             snapshot=true
           elif [ $((RUN_NUMBER % 24)) -eq 0 ]; then
             snapshot=true
@@ -443,7 +443,7 @@ jobs:
                 [.workflow_runs[] |
                   select(.head_branch == "main" and .created_at >= $today) |
                   select(.event == "schedule" or
-                    (.event == "workflow_dispatch" and .actor.login == "github-actions[bot]")) |
+                    (.event == "workflow_dispatch" and .actor.id == 41898282)) |
                   select(.status != "completed" or .conclusion == "success")
                 ] | length'
           )"
@@ -461,7 +461,7 @@ jobs:
           env.LIVE_RUN == 'true' &&
           github.ref == 'refs/heads/main' &&
           github.event_name == 'workflow_dispatch' &&
-          github.actor == 'github-actions[bot]'
+          github.actor_id == '41898282'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash

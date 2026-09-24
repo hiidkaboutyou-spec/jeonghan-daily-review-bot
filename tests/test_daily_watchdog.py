@@ -66,7 +66,7 @@ def live_run(
         "display_title": "Jeonghan Daily Review Bot",
         "status": status,
         "conclusion": conclusion if status == "completed" else None,
-        "actor": {"login": actor},
+        "actor": {"login": actor, "id": 41898282 if actor == "github-actions[bot]" else 296646522},
         "updated_at": updated_at,
     }
 
@@ -281,6 +281,21 @@ class PeriodicDailyWatchdogTests(unittest.TestCase):
         code, output = self.run_case(client)
         self.assertEqual((code, client.dispatch_calls), (0, 0))
         self.assertIn("failed_automated_recovery", output)
+
+    def test_bot_like_login_with_other_account_id_does_not_claim_automated_recovery(self):
+        failed = live_run(
+            4,
+            event="workflow_dispatch",
+            conclusion="failure",
+            actor="github-actions[bot]",
+            run_id=4004,
+            updated_at="2026-08-23T11:40:00Z",
+        )
+        failed["actor"]["id"] = 90000000
+        client = FakeClient([failed], live_run_ids={4004})
+        code, output = self.run_case(client)
+        self.assertEqual((code, client.dispatch_calls), (0, 1))
+        self.assertNotIn("failed_automated_recovery", output)
 
     def test_completed_check_dispatch_does_not_mask_stale_live_run(self):
         check = live_run(6, event="workflow_dispatch", run_id=6006)

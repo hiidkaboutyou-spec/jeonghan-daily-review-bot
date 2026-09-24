@@ -92,7 +92,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
         due = workflow.split("- name: Queue due nightly fanfic digest", 1)[1]
         self.assertIn("10#$now_hm", due)
         self.assertIn("1830", due)
-        self.assertIn('actor.login == "github-actions[bot]"', due)
+        self.assertIn('.actor.id == 41898282', due)
+        self.assertNotIn('.actor.login == "github-actions[bot]"', due)
         self.assertNotIn('.head_sha == $sha', due)
         self.assertNotIn('--arg sha "$GITHUB_SHA"', due)
         self.assertIn('.head_branch == "main" and .created_at >= $today', due)
