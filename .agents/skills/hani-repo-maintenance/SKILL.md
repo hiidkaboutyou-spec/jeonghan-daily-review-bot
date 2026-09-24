@@ -84,15 +84,17 @@ Do not treat historical-looking module names as dead code. Hani intentionally co
 - Maintenance-only; never a production runtime dependency.
 - Security Diagnostics audits the installed maintenance dependency environment separately with pip-audit/OSV; this vulnerability gate is blocking.
 - Current maintenance security floor pins `setuptools==84.0.0`; do not relax this solely to satisfy another tool.
-- Stage D currently has exactly two blocking protected contracts in `.importlinter`.
+- Stage D currently has exactly two blocking protected recovery contracts and one third report-only Fanfic/AO3 Forbidden-contract candidate in `.importlinter`.
 - `app.x_recovery_integrity_runtime`: only the exact `app` package initializer may directly import it.
 - `app.x_resumable_recovery_runtime`: exact allowed importers are `app`, `app.x_recovery_integrity_runtime`, and `app.completeness_provider_proof`.
 - `as_packages=False` is required for both so descendants are not implicitly allowed.
 - Run Import Linter with `--no-cache`, no `ignore_imports`, and explicit `--contract` selection for each boundary.
 - `tools/protected_import_bypass_audit.py` is the companion blocking gate for both protected recovery modules; parse errors also fail.
-- `tests/test_architecture_contract_config.py` locks both allow-lists and the blocking workflow mode.
-- A broken architecture gate is evidence to investigate, not permission for an automatic rewrite or allow-list expansion.
-- Do not add a third architecture candidate until a separate report-only observation cycle proves another intended boundary.
+- `tests/test_architecture_contract_config.py` locks both recovery allow-lists, their blocking workflow mode, and the exact Fanfic candidate/report-only mode.
+- The Fanfic candidate source is exact `app.fic_digest`; it forbids direct/indirect chains to the Daily-only Translation Fusion, style rewrite, user-voice calibration, forward-ready, and fused private-review delivery modules with `as_packages=False`, no `ignore_imports`, and no `allow_indirect_imports`.
+- `tools/fanfic_import_isolation_audit.py` is the report-only companion: it scans literal dynamic-loading bypasses only from `app.fic_digest` and runs a clean-process import probe to verify package initialization does not eagerly load the forbidden Daily-only stack.
+- Tool/self-test failures are blocking; a broken Fanfic candidate result is evidence to investigate, not permission for an automatic rewrite, forbidden-set reduction, or ignore rule.
+- Do not promote the Fanfic candidate in its pilot PR and do not add a fourth architecture candidate until the pilot is merged and independently proven on real main.
 
 ### Native structure inventory
 
@@ -102,7 +104,7 @@ Use `tools/repo_structure_inventory.py` to map module responsibilities, internal
 
 - **Rope:** active and capable, but its higher-level stateful rename/move engine is reference-only for now. Hani's import-time patch stack benefits from a narrower explicit LibCST plan before any transformation.
 - **Bowler:** rejected. The upstream repository is archived and recommends LibCST for modern Python codemods.
-- **Import Linter 2.15:** active Stage D enforcement; maintenance-only, exactly two blocking recovery-family protected contracts, explicit `--contract` selection, `--no-cache`, no ignore rules, with blocking literal dynamic-import audits for both.
+- **Import Linter 2.15:** active Stage D enforcement; maintenance-only, exactly two blocking recovery-family protected contracts plus one report-only Fanfic Forbidden candidate, explicit `--contract` selection, `--no-cache`, no ignore rules, with blocking literal dynamic-import audits for both recovery contracts and a separate report-only Fanfic runtime/dynamic isolation audit.
 - **Tach:** deferred alternative; do not install in parallel with the Import Linter pilot.
 - **Pydeps:** defer unless visual cycle analysis becomes materially useful; Grimp plus the native inventory already provide Stage B dependency evidence.
 
