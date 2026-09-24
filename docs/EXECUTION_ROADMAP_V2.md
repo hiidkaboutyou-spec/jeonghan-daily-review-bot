@@ -709,3 +709,92 @@ For all behavior-changing phases:
 The project is not done when CI is green or a collector runs successfully.
 
 It is done when, for routine channel work, the admin can open the private Telegram assistant, see source-by-source proof of what was collected, receive media + accurate Persian + a caption that genuinely sounds and looks like their channel, approve/edit exceptions, and finish without manually reproducing the old X -> downloader -> AI -> styling workflow.
+
+## Cross-cutting developer tooling & external-project adoption track — 2026-09-25
+
+This track records external GitHub projects that may improve future deep next-stage work. These are **not blanket installation instructions**. Every item is classified as install/integrate, evaluate/prototype, inspiration-only, deferred, or no-action. Production runtime safety, repository isolation, secrets, durable state, licensing, and existing agent instructions remain authoritative.
+
+### Priority A — evaluate for developer-side adoption
+
+1. **codebase-memory-mcp — evaluate, then adopt developer-side if gates pass**
+   - Purpose: give coding agents repository-aware structural context, impact analysis, dependency/call-graph knowledge, and faster navigation during large next-stage tasks.
+   - Scope: developer tooling only; never a production bot dependency.
+   - Required isolation: build/index this repository separately from every other project. Never merge or inherit memory from the Persian Literary Translation Engine.
+   - Safety gates before adoption:
+     - review the exact pinned upstream revision, license, install behavior, background processes, telemetry, and config writes;
+     - prefer manual MCP configuration over an installer that automatically rewrites agent instructions;
+     - do not allow automatic edits to `AGENTS.md`, secrets, workflows, private SQLite/state, or production configuration;
+     - keep generated indexes/caches ignored and free of private review content/secrets;
+     - prove uninstall/rollback and verify ordinary tests/CI do not depend on the tool.
+   - Acceptance evidence: run a representative deep-maintenance task with and without it and record whether navigation/tool-call count, correctness, regression discovery, or context efficiency materially improves.
+
+2. **Graft — evaluate after the codebase-memory-mcp benchmark**
+   - Purpose: repository-context retrieval for coding agents.
+   - Do not make Graft and codebase-memory-mcp mandatory simultaneously by default; first measure whether the second context system adds material value.
+   - Block automatic rewriting of `AGENTS.md` or other authoritative project instructions unless the exact diff is reviewed.
+   - Keep it developer-side and optional; production, CI, collection, Telegram delivery, and durable state must continue without it.
+   - Adopt only if benchmark evidence shows complementary value rather than duplicated context/noise.
+
+3. **PI-Desktop — optional external workspace, not a repository/runtime dependency**
+   - Evaluate as a local-first shell for opening this project, coding agents, MCP servers, models, and workflows in one persistent developer workspace.
+   - Preserve this repository as an independent workspace with its own memory/configuration.
+   - Do not copy PI-Desktop architecture wholesale into the bot. Borrow workflow/UX ideas only when they solve a demonstrated developer-productivity problem.
+   - Failure or absence of PI-Desktop must never affect GitHub Actions or production Telegram behavior.
+
+### Priority B — selective research/inspiration, not bulk installation
+
+4. **Agency-agents — selective role inspiration only**
+   - Do not bulk-install the full agent catalog.
+   - During a future stage, review only narrowly relevant roles such as security reviewer, test/reliability reviewer, research specialist, UX/editorial specialist, or media specialist.
+   - Any adopted role must be reduced to project-specific guidance, checked for instruction conflicts, provenance/license reviewed, and kept subordinate to this repository's `AGENTS.md` and next-stage protocol.
+
+5. **Hyperresearch — research-sidecar evaluation**
+   - Consider for deep source/repository/standards research when a next-stage task requires broad evidence gathering.
+   - Keep research artifacts separate from runtime state and require source/provenance review before architectural decisions are accepted.
+   - Do not make the production bot dependent on a research agent framework.
+
+6. **Needle — deferred local structured-extraction/tool-calling experiment**
+   - Evaluate only if a concrete local/offline extraction or tool-routing use case appears.
+   - Benchmark against the existing Python/Rust path before adding another model/runtime.
+   - Disable telemetry where supported and document model/resource/licensing/privacy behavior.
+   - Never use it as justification for replacing proven collection, translation, or deterministic editorial logic without benchmark evidence.
+
+7. **FreeLLMAPI — development experiment only**
+   - May be evaluated behind an isolated provider/test adapter for cheap stress tests, fallback experiments, or non-canonical development runs.
+   - Never use free endpoints as the production reliability baseline for scheduled collection, private review, or channel-style translation.
+   - Do not send private review data, secrets, cookies, or sensitive archives to unknown/free providers.
+   - Any future provider promotion requires explicit reliability, privacy, quota, terms/license, observability, and quality review.
+
+### Priority C — product ideas for later media stages
+
+8. **AutoShorts — future optional media prototype**
+   - Revisit only after the core source-completeness and media-download pipeline is stable.
+   - Potential use: local long-form video/audio -> candidate vertical clips for private editorial review.
+   - Keep clip generation opt-in and separate from collection truth, translation, and delivery state.
+   - Require local-resource, FFmpeg, licensing, output-quality, and false-positive ranking benchmarks before adoption.
+
+9. **OpenMontage — video-studio architecture inspiration / isolated sidecar candidate**
+   - Treat primarily as inspiration for a future agentic video-production surface.
+   - Because external copyleft/licensing boundaries may affect distribution, perform an explicit license review before reusing code.
+   - Prefer a separate process/tool boundary rather than importing a video-production framework into the bot's core runtime.
+   - No automatic public publishing.
+
+### Priority D — deferred or no current fit
+
+10. **9Drive — deferred storage architecture inspiration**
+    - Do not integrate now.
+    - Revisit only if the product later has a demonstrated requirement for multi-account cloud media/file storage that current GitHub/Telegram/local-state paths cannot satisfy.
+    - Any future evaluation must include OAuth/credential isolation, quota routing, consistency, deletion, backup/recovery, privacy, and provider-lock-in analysis.
+
+11. **AdGuard Home — no roadmap integration**
+    - Network-wide ad/tracker blocking is outside this product's responsibility.
+    - Do not add it to the bot, CI, runtime, or developer bootstrap unless a future, separately justified infrastructure requirement changes scope.
+
+### Sequencing rule
+
+For future broad `next stage` requests, external-tool work should follow this order when relevant:
+
+`codebase-memory-mcp benchmark -> optional adoption -> Graft complementary benchmark -> selective research/agent tooling -> only then product-specific media/storage prototypes`.
+
+Do not skip a higher-value product frontier merely to install tooling. Tool adoption is successful only when it measurably improves safe implementation, research quality, or maintenance without coupling production to the developer tool.
+
