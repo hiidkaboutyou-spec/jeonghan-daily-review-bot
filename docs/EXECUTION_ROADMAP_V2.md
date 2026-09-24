@@ -865,3 +865,40 @@ AgentMemory, OpenViking, codebase-memory-mcp, Graft, and existing Project Memory
 
 A future stage should define one representative long-horizon task, measure baseline behavior, then test candidates one at a time. Retain the smallest combination that measurably improves correctness/context recovery while preserving isolation, auditability, privacy, rollback, and low maintenance overhead.
 
+### Authoritative execution decision matrix
+
+For future `next stage` work, use this matrix as the default action. Detailed safety notes above still apply.
+
+| Candidate | Decision | Trigger / required future action |
+|---|---|---|
+| Trendshift | **ADOPT AS DISCOVERY PROCESS** | During substantial research/tooling stages, scan relevant trending GitHub projects, then independently verify upstream/license/security before proposing adoption. |
+| codebase-memory-mcp | **BENCHMARK -> INSTALL DEVELOPER-SIDE IF IT WINS** | First context-tool benchmark. If it materially improves a representative deep repo task, configure it manually per-repository with disposable ignored indexes and no production/private state. |
+| AgentMemory | **BENCHMARK -> INSTALL ONLY IF IT BEATS/COMPLEMENTS THE WINNER** | Test persistent cross-session coding recall after the baseline/context benchmark; keep auto-capture tightly scoped and project-isolated. |
+| OpenViking | **BENCHMARK LATER -> OPTIONAL EXTERNAL SIDEcar** | Test only after lighter context/memory candidates. Retain only if unified resources/memories/skills gives clear gains worth the AGPL/ops complexity. |
+| Graft | **BENCHMARK AFTER PRIMARY CONTEXT TOOL** | Keep only if it adds complementary context rather than duplicate/noisy retrieval. |
+| PI-Desktop | **OPTIONAL EXTERNAL WORKSPACE** | May be installed locally for developer convenience; never add as bot/runtime/CI dependency. |
+| Browser Use | **OPTIONAL DEV/RESEARCH INSTALL** | Use for interactive research or UI/site inspection; never replace deterministic X/source collectors or production retrieval paths. |
+| Hyperresearch | **OPTIONAL RESEARCH SIDECAR** | Use on evidence-heavy architecture/provider/library investigations when its workflow materially improves source coverage/provenance. |
+| Scientific Agent Skills | **SELECTIVE SKILL ADOPTION** | Install/vendor only the specific general research/evidence/statistics skill needed for a concrete stage; never bulk-install the catalog. |
+| Diagram Design | **ADOPT FOR DOCS WHEN NEEDED** | Use for architecture/data-flow/threat-model/state-machine documentation; pin provenance if vendored and keep output non-authoritative. |
+| Anthropic-Cybersecurity-Skills | **INSPIRATION / SELECTIVE DEFENSIVE EXTRACTION** | Review only defensive skills relevant to CI, secrets, supply chain, web/API security, threat modeling and incident response; do not bulk-install. |
+| Awesome Harness Engineering | **INSPIRATION / PERIODIC HARNESS REVIEW** | Mine individual patterns for context delivery, verification loops, observability, safe autonomy and long-horizon agent work; adapt them into project-native protocols. |
+| Agency-agents | **INSPIRATION / SELECTIVE ROLE EXTRACTION** | Review only a narrowly useful specialist role and rewrite it into project-specific guidance after conflict/license review. |
+| KAT-Coder-Pro | **OPTIONAL MODEL A/B TEST** | Verify the exact current model ID first; use only for bounded coding tasks and retain only if it improves correctness/tests/cost/latency versus baseline. |
+| Needle | **DEFERRED PROTOTYPE** | Evaluate only if a concrete offline structured-extraction/tool-routing gap appears. |
+| FreeLLMAPI | **DEV/TEST ONLY** | May be used behind an isolated non-canonical test adapter; never production reliability baseline and never receive private state/secrets. |
+| AutoShorts | **FUTURE MEDIA PROTOTYPE** | Revisit only after source completeness/media retrieval is stable and the admin explicitly wants short-form clip generation. |
+| OpenMontage | **INSPIRATION / FUTURE ISOLATED VIDEO SIDECAR** | Revisit only for an approved video-production scope; perform license review first and keep away from core runtime. |
+| abi/screenshot-to-code | **DEFER UNTIL A WEB/DASHBOARD SURFACE EXISTS** | Use only as a prototype accelerator for project-owned/approved references, followed by accessibility/RTL/originality/security review. |
+| 9Drive | **DEFERRED STORAGE INSPIRATION** | Revisit only after a demonstrated multi-account cloud-storage requirement exists. |
+| AdGuard Home | **OUT OF SCOPE** | Do not install or integrate unless product scope changes for a separately justified infrastructure reason. |
+
+#### Default future sequence
+
+1. Do not install multiple context/memory systems together.
+2. Benchmark `codebase-memory-mcp` first against the current Project Memory baseline.
+3. Benchmark AgentMemory and then Graft/OpenViking only if the first result leaves a demonstrated gap.
+4. Retain the **smallest** context stack that wins on correctness, stale-context resistance, privacy, rollback, maintenance cost, and deep-task efficiency.
+5. Install/use research and documentation helpers only at stages that actually need them.
+6. Media/storage tools wait for their product feature trigger; they are not prerequisites for current roadmap progress.
+
