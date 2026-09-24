@@ -798,3 +798,70 @@ For future broad `next stage` requests, external-tool work should follow this or
 
 Do not skip a higher-value product frontier merely to install tooling. Tool adoption is successful only when it measurably improves safe implementation, research quality, or maintenance without coupling production to the developer tool.
 
+### Trendshift discovery & second-batch tooling review — 2026-09-25
+
+Trendshift is a **discovery signal**, not an adoption authority. Future deep next-stage work may scan Trendshift's daily/weekly/monthly GitHub momentum lists for relevant projects, but every candidate must be verified against its upstream repository, license, current maintenance, security posture, and actual project fit before any code, skill, hook, MCP server, model, or installer is adopted.
+
+12. **Browser Use — controlled research/browser sidecar; do not replace production collectors**
+    - Useful for developer-driven web research, interactive-site inspection, and future browser/UI experiments.
+    - Do not replace the existing source collectors, X recovery path, or deterministic offline fixtures with browser-agent navigation merely because it can click pages.
+    - Production collection must not depend on CAPTCHAs, residential proxies, mutable browser profiles, or opaque hosted-agent behavior.
+    - If evaluated, use a separate local/dev profile with no production cookies/secrets and record site/ToS/privacy/resource failure modes.
+
+13. **AgentMemory (`rohitg00/agentmemory`) — high-priority developer-memory benchmark**
+    - Evaluate as persistent coding-agent memory across sessions, but **not** as bot runtime memory.
+    - Benchmark against the repository's existing Project Memory workflow and the planned codebase-memory-mcp evaluation rather than enabling multiple auto-capture systems at once.
+    - Start with auto-capture/compression/hooks disabled or tightly scoped until exclusions are proven.
+    - Use a repository-specific data directory/instance; never share this project's memory namespace with the Persian Literary Translation Engine.
+    - Exclude secrets, X cookies, Telegram identifiers/tokens, private review/archive content, SQLite runtime state, encrypted backups, and generated production artifacts.
+    - Adoption requires auditable recall/forget/export behavior, rollback, and evidence that retrieved memory improves later tasks rather than introducing stale decisions.
+
+14. **Scientific Agent Skills — selective research skills only**
+    - Do not install the full scientific catalog into the project.
+    - Future research-heavy stages may selectively review general-purpose skills such as evidence retrieval, database lookup, literature/research workflow, statistics, or reproducible analysis when they directly support a concrete decision.
+    - Biomedical/chemistry-specific skills are out of scope unless a future task actually requires them.
+    - Any selected skill remains developer guidance and must not alter production bot behavior.
+
+15. **Diagram Design — approved for developer/docs evaluation**
+    - Useful for architecture maps, source/collection flows, recovery diagrams, trust boundaries, state machines, deployment views, database schemas, and user journeys.
+    - Prefer self-contained static HTML/SVG artifacts for documentation and review.
+    - Keep generated diagrams non-authoritative: contracts, tests, code, and normative Markdown remain the source of truth.
+    - If vendored/installed, pin provenance/license and keep it outside production dependencies.
+
+16. **Anthropic-Cybersecurity-Skills — defensive subset inspiration only**
+    - This is a community project, **not an official Anthropic security package**.
+    - Never bulk-install the full offensive/security catalog.
+    - Only review defensive material relevant to this repository: GitHub Actions hardening, secret handling, dependency/supply-chain review, threat modeling, logging/privacy, incident response, web/API security where applicable.
+    - Do not introduce offensive tooling, credential-extraction workflows, or unrelated pentest automation into the repository.
+
+17. **Awesome Harness Engineering — high-value reference, not a dependency**
+    - Use as a research index for context delivery, memory, safe autonomy, tool design, verification loops, observability, long-horizon task state, worktree/PR isolation, and human-in-the-loop patterns.
+    - Periodically compare useful patterns against `docs/AGENT_NEXT_STAGE_PROTOCOL.md` and the project-next-stage skill.
+    - Adopt only individual proven patterns; never copy a generic harness wholesale over project-specific safety rules.
+
+18. **OpenViking — serious unified-context benchmark, external/dev-only initially**
+    - Evaluate as a unified context layer for resources + coding memories + skills only after the lighter memory/context candidates have baseline results.
+    - Main-project AGPL licensing makes embedding/distribution a separate legal/architecture decision; initial evaluation should remain an isolated local service/tool.
+    - Use an independent instance/namespace for this repository.
+    - Do not ingest private Telegram review/archive data, credentials, encrypted state, or unrelated repositories by default.
+    - Compare retrieval quality, observability, token/context savings, stale-memory handling, deletion, resource cost, and operational complexity against AgentMemory + codebase-memory-mcp + existing Project Memory.
+    - Do not run OpenViking, AgentMemory, Graft, and other memory systems simultaneously by default merely because they are available.
+
+19. **KAT-Coder-Pro — optional developer-model benchmark only**
+    - The exact label `KAT-Coder-Pro V9.5` was not verified during the 2026-09-25 review; verify the exact model identifier before any configuration change.
+    - The publicly verified current candidate is KAT-Coder-Pro V2.5, a proprietary agentic coding model.
+    - It may be A/B tested on bounded coding/repair tasks if a compatible provider is already available, but it is not a repository dependency and must not become a production bot provider.
+    - Compare correctness, tests repaired, tool behavior, cost, latency, and regression rate against the currently used coding agent/model before retaining it.
+
+20. **abi/screenshot-to-code — defer unless a web/dashboard product surface exists**
+    - Current private Telegram UX does not justify integrating screenshot-to-code.
+    - If a future web/dashboard surface is approved, it may be used as a developer prototype accelerator for reference screenshots/mockups.
+    - Generated UI must be reviewed for originality, accessibility, RTL/mixed-script behavior, dependency/security quality, and consistency with the project's own product identity.
+    - Never treat screenshot conversion as permission to clone copyrighted third-party UI exactly.
+
+### Memory/context tool competition rule
+
+AgentMemory, OpenViking, codebase-memory-mcp, Graft, and existing Project Memory overlap. Treat them as **benchmark competitors/complements**, not a shopping list.
+
+A future stage should define one representative long-horizon task, measure baseline behavior, then test candidates one at a time. Retain the smallest combination that measurably improves correctness/context recovery while preserving isolation, auditability, privacy, rollback, and low maintenance overhead.
+
