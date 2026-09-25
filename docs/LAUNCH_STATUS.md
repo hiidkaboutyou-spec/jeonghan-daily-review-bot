@@ -5,7 +5,7 @@
 ## وضعیت canonical فعلی
 
 - شاخهٔ production: `main`
-- HEAD تأییدشده: `0e3384bee94043d159c158bd7dbcdcdc86db4fdd` (docs-only merge PR #129؛ runtime semantics از `0d7209e` تغییری نکرده)
+- HEAD تأییدشده: `4c8b3daf19c25ec492378af2006c235f3d25c37d` (merge PR #132؛ جداسازی Fanfic در Maintenance به حالت blocking ارتقا یافت)
 - مرزهای privileged مربوط به GitHub Actions bot اکنون به account ID عددی پایدار `41898282` متکی‌اند، نه نام قابل‌تغییر `github-actions[bot]`.
 - hardening مربوط به checkout credential isolation از PR #125 حفظ شده و workflowها credential را persist نمی‌کنند.
 - push-CI مربوط به merge #123 روی main شامل Workflow Security Lint موفق بوده است.
@@ -43,13 +43,19 @@
 - recovery material و private review data نباید در log یا artifact plaintext افشا شوند.
 - validation-only work نباید Telegram live ارسال کند یا production state را mutate کند.
 
+## شواهد پس از ارتقای Stage D
+
+- PR #132 با ۹ workflow موفق روی head دقیق `fa9c5439e2b95ccb7016115578f4c6c89cb7e50f` ادغام شد؛ قرارداد جداسازی `app.fic_digest` و audit مکمل در Maintenance اکنون blocking هستند.
+- Maintenance واقعی `main` #167 (run `36134777829`): هر سه قرارداد `1 kept / 0 broken`؛ هر دو audit بازیابی و audit Fanfic بدون نقض/خطا؛ شاهد package-init بارگذاری شد. Artifact `10863490655`، digest: `sha256:9ff9d417fef529d3ebbf7ced5952b79a689c499974d18b9e081df460fba5784d`.
+- Fanfic واقعی #1040 (run `36134777806`)، Daily واقعی #4359 (run `36134777746`) و Watchdog جانشین #3502 (run `36135239744` با رویداد `workflow_run`) روی همان `main@4c8b3da` همگی موفق شدند. گیت Stage D Fanfic با شواهد پس از merge بسته شده است.
+- این شواهد به‌تنهایی کامل‌بودن گردآوری X را اثبات نمی‌کنند؛ هشدار X پایین همچنان معتبر است.
+
 ## frontier بعدی
 
-1. گیت جداسازی Fanfic از پشتهٔ Daily فقط در PR جداگانهٔ promotion از `main@0e3384b`، پس از بررسی تمام CIهای همان head، به حالت blocking برود. شواهد real-main Maintenance #164 و combined-tree Maintenance #165 در `research/stage-d-fanfic-isolation-promotion-2026-09-25.md` ثبت شده‌اند؛ PR #119 همچنان آزمایشی و غیرقابل ادغام مستقیم است.
-2. پس از merge، Maintenance و Fanfic و Daily و Watchdog واقعی را روی `main` بررسی کن و سپس بسته‌شدن این گیت Stage D را اعلام کن.
-3. benchmark ابزار codebase-memory-mcp در PR #131 همچنان draft و مستقل از production است؛ فقط پس از آزمایش ایزوله، دربارهٔ نصب توسعه‌دهنده تصمیم بگیر.
-4. PRهای قدیمی باز (#64، #49، #48، #37، #36، #21، #18، #3) را قبل از هر استفاده دوباره با main فعلی مقایسه کن؛ باز بودن آن‌ها به معنی canonical یا merge-ready بودن نیست.
-5. dependency/repository تازه فقط وقتی وارد شود که gap مشخص، license/security/maintenance/rollback و عدم افشای private data آن ثبت شده باشد.
+1. از Stage D معماریِ تکمیل‌شده به هدف محصول برگرد: برای منابع پیکربندی‌شده، سالم/ناقص/اثبات‌نشده بودن هر پنجرهٔ X و جلوگیری از پیشروی cursor در failure را با شواهد production بررسی کن. PR تشخیصی قدیمی #64 را فقط بعد از مقایسه با `main` تازه و اطمینان از عدم افشای cookie/secret بازبینی کن.
+2. benchmark ایزولهٔ `codebase-memory-mcp` در PR #131 هنوز draft است؛ فقط با نتیجهٔ برتر و rollback تأییدشده، نصب توسعه‌دهنده انجام بده. ابزارهای حافظهٔ دیگر را همزمان نصب نکن.
+3. PRهای قدیمی (#49، #48، #37، #36، #21، #18، #3) را پیش از استفاده با `main` تازه مقایسه کن؛ باز ماندن آن‌ها به معنی merge-ready بودن نیست.
+4. وابستگی تازه فقط پس از ثبت gap، license، security، maintenance، rollback و مرز private data اضافه شود.
 
 ## چک انسانی کوتاه
 
