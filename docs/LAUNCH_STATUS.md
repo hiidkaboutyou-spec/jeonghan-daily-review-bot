@@ -5,7 +5,7 @@
 ## وضعیت canonical فعلی
 
 - شاخهٔ production: `main`
-- آخرین commit با شواهد مستقل اجرای production: `4c8b3daf19c25ec492378af2006c235f3d25c37d` (merge PR #132؛ جداسازی Fanfic در Maintenance به حالت blocking ارتقا یافت). SHA فعلی `main` را پیش از هر تغییر از GitHub بررسی کن؛ mergeهای صرفاً مستنداتی بعدی نیز HEAD را جابه‌جا می‌کنند.
+- آخرین commit با شواهد مستقل اجرای production: `4c8b3daf19c25ec492378af2006c235f3d25c37d` (merge PR #132؛ جداسازی Fanfic در Maintenance به حالت blocking ارتقا یافت). آخرین SHA تأییدشدهٔ `main` هنگام این handoff: `4b70dbc3a015a300c7b980a706b3007e5f79738a` (merge PR #135؛ اصلاح outcome اسکن). اجرای واقعی production روی SHA جدید هنوز مشاهده نشده؛ پیش از هر تغییر HEAD را دوباره بررسی کن.
 - مرزهای privileged مربوط به GitHub Actions bot اکنون به account ID عددی پایدار `41898282` متکی‌اند، نه نام قابل‌تغییر `github-actions[bot]`.
 - hardening مربوط به checkout credential isolation از PR #125 حفظ شده و workflowها credential را persist نمی‌کنند.
 - push-CI مربوط به merge #123 روی main شامل Workflow Security Lint موفق بوده است.
@@ -52,10 +52,11 @@
 
 ## frontier بعدی
 
-1. در `main@d6d876e`، Dailyهای `36135819645` و `36135588995` با وجود `cursor_advanced=false`، به‌اشتباه `31/31 complete` ثبت کردند. اصلاح قابل‌بازبینی این باگ و معیارهای بعدی در [`research/production-outcome-scan-proof-2026-09-25.md`](research/production-outcome-scan-proof-2026-09-25.md) ثبت شده است. پس از CI و merge، outcome یک Daily واقعی را دوباره بررسی کن؛ سپس اثبات per-source پنجرهٔ due و مرز X را دنبال کن. PR #64 هنوز اثبات retrieval احرازشده نیست.
-2. benchmark ایزولهٔ `codebase-memory-mcp` در PR #131 هنوز draft است؛ فقط با نتیجهٔ برتر و rollback تأییدشده، نصب توسعه‌دهنده انجام بده. ابزارهای حافظهٔ دیگر را همزمان نصب نکن.
-3. PRهای قدیمی (#49، #48، #37، #36، #21، #18، #3) را پیش از استفاده با `main` تازه مقایسه کن؛ باز ماندن آن‌ها به معنی merge-ready بودن نیست.
-4. وابستگی تازه فقط پس از ثبت gap، license، security، maintenance، rollback و مرز private data اضافه شود.
+1. در `main@d6d876e`، Dailyهای `36135819645` و `36135588995` با وجود `cursor_advanced=false`، به‌اشتباه `31/31 complete` ثبت کردند. اصلاح این باگ در PR #135 با هفت workflow موفق روی head دقیق `bda8707ab64dbc6fd71f9277f71dc71feb7918aa` ادغام شد. outcome یک Daily **واقعی روی main پس از merge** هنوز باید بررسی شود: اسکن not-due باید `attempted=0` و `collection_complete=false` ثبت کند. سپس اثبات per-source پنجرهٔ due و مرز X را مطابق [`research/production-outcome-scan-proof-2026-09-25.md`](research/production-outcome-scan-proof-2026-09-25.md) دنبال کن. PR #64 هنوز اثبات retrieval احرازشده نیست.
+2. issue #136 گواهی‌نداشتن `database_checkpoint_success` در artifact پیش از checkpoint workflow را پیگیری می‌کند؛ فیلد فعلی را اثبات موفقیت یا شکست checkpoint تلقی نکن.
+3. benchmark ایزولهٔ `codebase-memory-mcp` در PR #131 هنوز draft است؛ فقط با نتیجهٔ برتر و rollback تأییدشده، نصب توسعه‌دهنده انجام بده. ابزارهای حافظهٔ دیگر را همزمان نصب نکن.
+4. PRهای قدیمی (#49، #48، #37، #36، #21، #18، #3) را پیش از استفاده با `main` تازه مقایسه کن؛ باز ماندن آن‌ها به معنی merge-ready بودن نیست.
+5. وابستگی تازه فقط پس از ثبت gap، license، security، maintenance، rollback و مرز private data اضافه شود.
 
 ## چک انسانی کوتاه
 
