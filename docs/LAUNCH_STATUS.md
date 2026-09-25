@@ -5,7 +5,7 @@
 ## وضعیت canonical فعلی
 
 - شاخهٔ production: `main`
-- HEAD تأییدشده: `4c8b3daf19c25ec492378af2006c235f3d25c37d` (merge PR #132؛ جداسازی Fanfic در Maintenance به حالت blocking ارتقا یافت)
+- آخرین commit با شواهد مستقل اجرای production: `4c8b3daf19c25ec492378af2006c235f3d25c37d` (merge PR #132؛ جداسازی Fanfic در Maintenance به حالت blocking ارتقا یافت). SHA فعلی `main` را پیش از هر تغییر از GitHub بررسی کن؛ mergeهای صرفاً مستنداتی بعدی نیز HEAD را جابه‌جا می‌کنند.
 - مرزهای privileged مربوط به GitHub Actions bot اکنون به account ID عددی پایدار `41898282` متکی‌اند، نه نام قابل‌تغییر `github-actions[bot]`.
 - hardening مربوط به checkout credential isolation از PR #125 حفظ شده و workflowها credential را persist نمی‌کنند.
 - push-CI مربوط به merge #123 روی main شامل Workflow Security Lint موفق بوده است.
