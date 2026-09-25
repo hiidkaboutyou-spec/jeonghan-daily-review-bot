@@ -151,6 +151,13 @@ def _install_outcome_classification() -> None:
 
         sc = outcome.source_collection
         state = outcome.state
+        # A cadence-limited scan never reached the collector. Configured
+        # sources are not missing coverage for a window that was not due.
+        if (
+            getattr(state, "cursor_reason", "") == "not_due_or_no_advance"
+            and sc.attempted_source_count == 0
+        ):
+            return status, reasons
         coverage_gap = (
             sc.active_source_count > 0
             and sc.attempted_source_count < sc.active_source_count

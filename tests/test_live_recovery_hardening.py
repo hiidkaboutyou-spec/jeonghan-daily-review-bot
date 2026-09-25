@@ -68,6 +68,26 @@ class XDegradedRecoveryRuntimeTests(unittest.TestCase):
         self.assertEqual(status, hardening._outcome.OutcomeStatus.RECOVERY_REQUIRED.value)
         self.assertIn("incomplete_collection_cursor_held", reasons)
 
+    def test_not_due_scan_is_not_a_coverage_gap(self) -> None:
+        def base_classify(_outcome):
+            return hardening._outcome.OutcomeStatus.HEALTHY.value, []
+
+        outcome = SimpleNamespace(
+            source_collection=SimpleNamespace(
+                active_source_count=31,
+                attempted_source_count=0,
+                partial_source_count=0,
+                failed_source_count=0,
+                collection_complete=False,
+            ),
+            state=SimpleNamespace(cursor_advanced=False, cursor_reason="not_due_or_no_advance"),
+        )
+        hardening._CLASSIFICATION_INSTALLED = False
+        with patch.object(hardening._outcome, "classify_outcome", new=base_classify):
+            hardening._install_outcome_classification()
+            status, reasons = hardening._outcome.classify_outcome(outcome)
+        self.assertEqual((status, reasons), (hardening._outcome.OutcomeStatus.HEALTHY.value, []))
+
     def test_reconcile_uses_actual_degraded_batch_instead_of_inferred_all_sources(self) -> None:
         builder = _OutcomeBuilder()
         collector = SimpleNamespace(

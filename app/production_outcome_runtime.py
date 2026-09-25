@@ -57,6 +57,7 @@ def _install_source_collection_hooks(application_cls: type[Application] = Applic
 
         # Capture cursor state before collection
         before = str(self.state.data.get("last_auto_run", "") or "")
+        before_attempt = str(self.state.data.get("last_auto_attempt", "") or "")
 
         # Record per-source outcomes from collector errors
         try:
@@ -79,6 +80,19 @@ def _install_source_collection_hooks(application_cls: type[Application] = Applic
                 if str(source.get("handle", "")).lstrip("@").strip()
             ]
 
+        after = str(self.state.data.get("last_auto_run", "") or "")
+        cursor_advanced = bool(after and after != before)
+        after_attempt = str(self.state.data.get("last_auto_attempt", "") or "")
+        attempted_window = bool(after_attempt and after_attempt != before_attempt)
+        offline = os.environ.get("X_PROVIDER_PREFLIGHT", "").strip().casefold() == "offline"
+
+        # The cadence guard returns before collection. Old collector errors may
+        # still be present, so neither an empty nor a stale error list proves a
+        # source attempt when the scan did not start.
+        if not (attempted_window or cursor_advanced or offline):
+            builder.set_cursor(advanced=False, reason="not_due_or_no_advance")
+            return result
+
         # Parse source-level outcomes from errors
         attempted_handles: set[str] = set()
         for source in enabled:
@@ -93,19 +107,16 @@ def _install_source_collection_hooks(application_cls: type[Application] = Applic
                 if error_for_source:
                     builder.record_source_attempt(handle, complete=False, error=error_for_source)
                 else:
-                    builder.record_source_attempt(handle, complete=True)
+                    builder.record_source_attempt(handle, complete=cursor_advanced)
 
         # Determine collection completeness
-        if not last_errors and attempted_handles:
+        if cursor_advanced and not last_errors and attempted_handles:
             builder.mark_collection_complete()
 
         # Record cursor state — compute from state before/after scan
-        after = str(self.state.data.get("last_auto_run", "") or "")
-        cursor_advanced = bool(after and after != before)
         cursor_reason = (
             "complete_window" if cursor_advanced
-            else "partial_window" if last_errors
-            else "not_due_or_no_advance"
+            else "partial_window"
         )
         builder.set_cursor(advanced=cursor_advanced, reason=cursor_reason)
 

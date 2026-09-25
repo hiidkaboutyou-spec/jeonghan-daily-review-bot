@@ -52,7 +52,7 @@
 
 ## frontier بعدی
 
-1. از Stage D معماریِ تکمیل‌شده به هدف محصول برگرد: برای منابع پیکربندی‌شده، سالم/ناقص/اثبات‌نشده بودن هر پنجرهٔ X و جلوگیری از پیشروی cursor در failure را با شواهد production بررسی کن. PR تشخیصی قدیمی #64 را فقط بعد از مقایسه با `main` تازه و اطمینان از عدم افشای cookie/secret بازبینی کن.
+1. در `main@d6d876e`، Dailyهای `36135819645` و `36135588995` با وجود `cursor_advanced=false`، به‌اشتباه `31/31 complete` ثبت کردند. اصلاح قابل‌بازبینی این باگ و معیارهای بعدی در [`research/production-outcome-scan-proof-2026-09-25.md`](research/production-outcome-scan-proof-2026-09-25.md) ثبت شده است. پس از CI و merge، outcome یک Daily واقعی را دوباره بررسی کن؛ سپس اثبات per-source پنجرهٔ due و مرز X را دنبال کن. PR #64 هنوز اثبات retrieval احرازشده نیست.
 2. benchmark ایزولهٔ `codebase-memory-mcp` در PR #131 هنوز draft است؛ فقط با نتیجهٔ برتر و rollback تأییدشده، نصب توسعه‌دهنده انجام بده. ابزارهای حافظهٔ دیگر را همزمان نصب نکن.
 3. PRهای قدیمی (#49، #48، #37، #36، #21، #18، #3) را پیش از استفاده با `main` تازه مقایسه کن؛ باز ماندن آن‌ها به معنی merge-ready بودن نیست.
 4. وابستگی تازه فقط پس از ثبت gap، license، security، maintenance، rollback و مرز private data اضافه شود.
