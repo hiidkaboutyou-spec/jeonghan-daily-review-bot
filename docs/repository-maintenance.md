@@ -312,3 +312,9 @@ Do not recreate the retired path. After merge, require independent real-main
 production proof and then generate a fresh Stage C inventory/evidence report before
 selecting another module family. The four retain-by-design historical modules remain
 out of the rename queue unless their underlying architecture changes.
+
+## Stage D Fanfic isolation closure — 2026-09-25
+
+PR #132 promoted the third, previously report-only Fanfic isolation boundary on a fresh main branch and merged as `4c8b3daf19c25ec492378af2006c235f3d25c37d` after all nine exact-head workflows passed. The contract retains the exact ten-module forbidden set, indirect-chain checking, and no ignore rules. The source-scoped literal-import audit and clean-process package-init probe are blocking; the two recovery-family contracts and audits remain blocking.
+
+Independent real-main Maintenance #167 on the merged head confirmed all three contracts kept and both recovery audits plus Fanfic audit clean (artifact `10863490655`, SHA-256 `9ff9d417fef529d3ebbf7ced5952b79a689c499974d18b9e081df460fba5784d`). Independent Fanfic #1040, Daily #4359, and successor Watchdog #3502 succeeded on the same head. PR #119 was the historical report-only pilot and must remain unmerged. This closes the Fanfic architecture promotion gate, not the broader source-completeness or editorial-quality product roadmap. For the next production investigation, start with configured-source X completeness and cursor hold evidence; keep new architecture candidates out until a concrete boundary is demonstrated.
