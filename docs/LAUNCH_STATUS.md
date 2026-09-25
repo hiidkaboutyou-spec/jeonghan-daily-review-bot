@@ -1,11 +1,11 @@
 # Production Launch Status
 
-آخرین به‌روزرسانی: 2026-09-24
+آخرین به‌روزرسانی: 2026-09-25
 
 ## وضعیت canonical فعلی
 
 - شاخهٔ production: `main`
-- HEAD تأییدشده: `0d7209eb7e9d593b34d690b216fadbe8a369ca92` (merge PR #123)
+- HEAD تأییدشده: `0e3384bee94043d159c158bd7dbcdcdc86db4fdd` (docs-only merge PR #129؛ runtime semantics از `0d7209e` تغییری نکرده)
 - مرزهای privileged مربوط به GitHub Actions bot اکنون به account ID عددی پایدار `41898282` متکی‌اند، نه نام قابل‌تغییر `github-actions[bot]`.
 - hardening مربوط به checkout credential isolation از PR #125 حفظ شده و workflowها credential را persist نمی‌کنند.
 - push-CI مربوط به merge #123 روی main شامل Workflow Security Lint موفق بوده است.
@@ -45,9 +45,9 @@
 
 ## frontier بعدی
 
-1. یک recovery/re-arm واقعی Daily روی canonical main را مشاهده و ثبت کن که actor آن GitHub Actions bot با ID `41898282` باشد.
-2. Watchdog جانشین همان recovery را روی canonical main تأیید کن و outcome را ثبت کن؛ اگر recovery شکست خورد، chaining باید fail-safe متوقف شود.
-3. سپس PR #119 (Fanfic/Daily-shadow isolation pilot) را با evidence تازهٔ main بازبینی کن و فقط در صورت پاس شدن exit criteria به promotion فکر کن.
+1. گیت جداسازی Fanfic از پشتهٔ Daily فقط در PR جداگانهٔ promotion از `main@0e3384b`، پس از بررسی تمام CIهای همان head، به حالت blocking برود. شواهد real-main Maintenance #164 و combined-tree Maintenance #165 در `research/stage-d-fanfic-isolation-promotion-2026-09-25.md` ثبت شده‌اند؛ PR #119 همچنان آزمایشی و غیرقابل ادغام مستقیم است.
+2. پس از merge، Maintenance و Fanfic و Daily و Watchdog واقعی را روی `main` بررسی کن و سپس بسته‌شدن این گیت Stage D را اعلام کن.
+3. benchmark ابزار codebase-memory-mcp در PR #131 همچنان draft و مستقل از production است؛ فقط پس از آزمایش ایزوله، دربارهٔ نصب توسعه‌دهنده تصمیم بگیر.
 4. PRهای قدیمی باز (#64، #49، #48، #37، #36، #21، #18، #3) را قبل از هر استفاده دوباره با main فعلی مقایسه کن؛ باز بودن آن‌ها به معنی canonical یا merge-ready بودن نیست.
 5. dependency/repository تازه فقط وقتی وارد شود که gap مشخص، license/security/maintenance/rollback و عدم افشای private data آن ثبت شده باشد.
 

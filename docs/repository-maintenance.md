@@ -123,7 +123,7 @@ License: BSD-2-Clause
 
 Import Linter remains installed only in `requirements-maintenance.txt`; it is not part of the production Docker dependency graph. Version 2.15 requires Python >=3.10 and Grimp >=3.17, matching Hani's Python 3.11 maintenance environment and existing Grimp 3.17 evidence stack.
 
-Stage D now has two blocking protected contracts.
+Stage D has two blocking protected recovery contracts and a third blocking Fanfic/AO3 Forbidden contract after its separate promotion PR.
 
 The first protects `app.x_recovery_integrity_runtime`. With `as_packages=False`, `allowed_importers = app` means the exact `app` package initializer is allowed while `app.*` descendants are not. This preserves the production-proven ownership of the import-time integrity installer.
 
@@ -134,11 +134,11 @@ Enforcement rules:
 - `--no-cache`: avoid Import Linter cache concurrency/state in CI;
 - no `ignore_imports`: violations remain visible instead of being normalized away;
 - `broken_contract_guidance` explains how to restore each intended boundary;
-- `tests/test_architecture_contract_config.py` locks exactly two contracts, their exact allow-lists, and the blocking workflow steps;
+- `tests/test_architecture_contract_config.py` locks the two blocking recovery contracts plus the exact Fanfic forbidden set and its blocking workflow mode;
 - `tools/protected_import_bypass_audit.py` is blocking for both protected modules and parse errors;
 - maintenance dependency vulnerabilities remain a separate blocking Security Diagnostics gate;
 - maintenance pins `setuptools==84.0.0`; production requirements remain untouched;
-- do not add a third architecture candidate until a new report-only observation cycle proves another stable boundary.
+- the third contract was first observed report-only in #119/#128; it is promoted only in the separate fresh-main PR after independent real-main recovery boundary evidence. Require post-merge proof before another candidate.
 
 ### Tach 0.35.0 — deferred alternative
 
@@ -275,7 +275,11 @@ Stage D started with a report-only Import Linter 2.15 pilot for the recovery-int
 
 PR #117 introduced `app.x_resumable_recovery_runtime` as a separate report-only second candidate after fresh Maintenance #151 evidence identified exactly three deliberate direct owners: `app`, `app.x_recovery_integrity_runtime`, and `app.completeness_provider_proof`. PR-head Maintenance #152 then reported 1 kept / 0 broken and zero literal dynamic bypasses. After PR #117 merged as `d4220ed1528bb7b4ae8cb410f3d9127bb9dc4567`, real-main Maintenance #153 repeated the same static/dynamic result, Security #161 and Workflow Safety #30 stayed green, Daily #4239 passed runtime smoke, live-provider checks, one complete automatic monitor pass, DB checkpoint, outcome upload and both state/database saves, and Watchdog #3344 passed independently.
 
-That completed the report-only observation gate. The current promotion makes the same resumable-recovery contract and its literal dynamic-bypass audit blocking without changing runtime code, state/schema, providers, delivery, schedules, secrets, or production dependencies. Detailed pilot rationale remains in `docs/research/stage-d-resumable-recovery-boundary-pilot-2026-09-19.md`; promotion evidence is recorded separately. Do not add a third candidate in this promotion cycle. Tach remains deferred unless Import Linter proves insufficient.
+That completed the report-only observation gate. PR #118 then promoted the same resumable-recovery contract and its literal dynamic-bypass audit to blocking without changing runtime code, state/schema, providers, delivery, schedules, secrets, or production dependencies. PR #118 merged as `21a3502c6455c5b2c2829c305397b1b83fe33b45`. Independent real-main proof passed Maintenance #155 (both recovery contracts 1 kept / 0 broken), Security #164, Workflow Safety #32, Nightly Fanfic #1006, Daily #4247, and Watchdog #3356. Daily #4247 completed the automatic monitor pass and persisted production/state recovery evidence while degraded authenticated-X recovery covered 31/31 selected sources.
+
+The third contract protects **Fanfic/AO3 isolation from the Daily-only Translation/Style/Calibration/Forward-ready/Fused-delivery shadow stack**. Its exact source module is `app.fic_digest`; the Forbidden contract uses exact-module semantics, checks indirect chains, and uses no ignore rules. The companion blocking audit scans source-scoped literal dynamic imports and probes package initialization in a clean process. Package initialization matters because the static graph from `app.fic_digest` does not represent eager imports from `app/__init__.py`. Historical report-only rationale: `docs/research/stage-d-fanfic-isolation-pilot-2026-09-19.md`; promotion evidence: `docs/research/stage-d-fanfic-isolation-promotion-2026-09-25.md`.
+
+PR #119 remains the historical report-only pilot and must not be merged as the promotion vehicle. Do not add a fourth architecture candidate until exact-head CI and independent real-main production proof after the separate promotion merge. Tach remains deferred unless Import Linter proves insufficient.
 
 ## Non-negotiable cleanup rules
 
@@ -308,4 +312,3 @@ Do not recreate the retired path. After merge, require independent real-main
 production proof and then generate a fresh Stage C inventory/evidence report before
 selecting another module family. The four retain-by-design historical modules remain
 out of the rename queue unless their underlying architecture changes.
-
