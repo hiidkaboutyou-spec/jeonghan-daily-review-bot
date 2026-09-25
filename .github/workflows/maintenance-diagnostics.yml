@@ -152,6 +152,12 @@ jobs:
           set -euo pipefail
           .maintenance-env/bin/python -m unittest tests.test_protected_import_bypass_audit -v
 
+      - name: Validate Fanfic import isolation audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          .maintenance-env/bin/python -m unittest tests.test_fanfic_import_isolation_audit -v
+
       - name: Audit protected runtime dynamic-import bypasses
         shell: bash
         run: |
@@ -214,6 +220,51 @@ jobs:
             exit "$status"
           fi
 
+      - name: Enforce Fanfic static and indirect Import Linter boundary
+        shell: bash
+        run: |
+          set -u
+          set +e
+          .maintenance-env/bin/lint-imports \
+            --config .importlinter \
+            --contract stage-d-fanfic-daily-shadow-isolation \
+            --no-cache \
+            --no-logo \
+            > import-linter-fanfic-report.txt 2>&1
+          status=$?
+          set -e
+          cat import-linter-fanfic-report.txt
+          {
+            echo
+            echo "blocking_exit_status=$status"
+          } >> import-linter-fanfic-report.txt
+          if [ "$status" -ne 0 ]; then
+            exit "$status"
+          fi
+
+      - name: Enforce Fanfic runtime and literal dynamic-import isolation
+        shell: bash
+        run: |
+          set -u
+          set +e
+          .maintenance-env/bin/python tools/fanfic_import_isolation_audit.py \
+            --json fanfic-import-isolation-audit.json \
+            --markdown fanfic-import-isolation-audit.md \
+            > fanfic-import-isolation-audit.txt 2>&1
+          status=$?
+          set -e
+          cat fanfic-import-isolation-audit.txt
+          if [ -f fanfic-import-isolation-audit.md ]; then
+            cat fanfic-import-isolation-audit.md
+          fi
+          {
+            echo
+            echo "blocking_exit_status=$status"
+          } >> fanfic-import-isolation-audit.txt
+          if [ "$status" -ne 0 ]; then
+            exit "$status"
+          fi
+
       - name: Collect non-blocking cleanup reports
         shell: bash
         run: |
@@ -255,9 +306,11 @@ jobs:
             echo "- LibCST refactor planner: blocking self-tests and available only for explicitly approved future migrations; no automatic apply."
             echo "- Stage C closure guard: every registered migration is retired; any active compatibility shim is now a blocking error."
             echo "- Stage C is closed after the X recovery integrity retirement; no recurring plan is generated for retired module paths."
-            echo "- Stage D Import Linter 2.15: blocking for the single production-proven recovery-integrity ownership contract; no cache and no ignore_imports."
+            echo "- Stage D Import Linter 2.15: two production-proven recovery-family contracts are blocking; no cache and no ignore_imports."
             echo "- Literal dynamic-import bypass audit for app.x_recovery_integrity_runtime: blocking, AST-based, parse-error-failing."
             echo "- Stage D app.x_resumable_recovery_runtime boundary: blocking static protected contract plus blocking literal dynamic-import audit."
+            echo "- Stage D Fanfic/AO3 isolation: blocking Forbidden contract for app.fic_digest against the Daily-only translation/style/presentation shadow stack."
+            echo "- Fanfic isolation companion audit: blocking source-scoped literal dynamic-import scan plus clean-process package-initialization probe."
             echo "- Import ordering and formatting: report-only during cleanup rollout."
             echo "- Vulture dead-code candidates: report-only; never auto-delete."
             echo "- Complexipy cognitive-complexity hotspots: report-only; used to prioritize human-reviewed refactors."
@@ -287,5 +340,9 @@ jobs:
             resumable-recovery-bypass-audit.json
             resumable-recovery-bypass-audit.md
             import-linter-resumable-report.txt
+            import-linter-fanfic-report.txt
+            fanfic-import-isolation-audit.json
+            fanfic-import-isolation-audit.md
+            fanfic-import-isolation-audit.txt
           if-no-files-found: warn
           retention-days: 14
