@@ -1,0 +1,45 @@
+name: X Authenticated Runner Matrix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/x-authenticated-runner-matrix.yml"
+      - "tools/x_authenticated_runner_probe.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: x-authenticated-runner-matrix
+  cancel-in-progress: false
+
+jobs:
+  read-only-probe:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # releases/v6, audited 2026-09-15
+        with:
+          persist-credentials: false
+      - name: Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # releases/v6, audited 2026-09-15
+        with:
+          python-version: "3.11"
+      - name: Install pinned upstream diagnostic dependency
+        shell: bash
+        run: python -m pip install 'twscrape @ git+https://github.com/vladkens/twscrape.git@5271cbdc5da1095b765a2a7ec750b4ac686d581f'
+      - name: Probe one authenticated public profile without delivery
+        continue-on-error: true # Diagnostic evidence must not block production runs.
+        shell: bash
+        env:
+          X_COOKIE: ${{ secrets.X_COOKIE }}
+        run: python -m tools.x_authenticated_runner_probe

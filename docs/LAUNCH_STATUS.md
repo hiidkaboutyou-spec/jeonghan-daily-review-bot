@@ -52,7 +52,7 @@
 
 ## frontier بعدی
 
-1. در `main@d6d876e`، Dailyهای `36135819645` و `36135588995` با وجود `cursor_advanced=false`، به‌اشتباه `31/31 complete` ثبت کردند. اصلاح این باگ در PR #135 با هفت workflow موفق روی head دقیق `bda8707ab64dbc6fd71f9277f71dc71feb7918aa` ادغام شد. outcome یک Daily **واقعی روی main پس از merge** هنوز باید بررسی شود: اسکن not-due باید `attempted=0` و `collection_complete=false` ثبت کند. سپس اثبات per-source پنجرهٔ due و مرز X را مطابق [`research/production-outcome-scan-proof-2026-09-25.md`](research/production-outcome-scan-proof-2026-09-25.md) دنبال کن. PR #64 هنوز اثبات retrieval احرازشده نیست.
+1. اصلاح PR #135 در production تأیید شد: Daily `36138271621` روی `main@88578314` هنگام not-due بودن `attempted=0` و `collection_complete=false` ثبت کرد. Daily واقعیِ due `36152747092` با ۳۱ منبع partial و cursor نگه‌داشته‌شده، از fallback عمومی ۳۰ آپدیت یافت؛ preflight احرازشده روی Ubuntu با HTTP 403 شکست خورد. گیت تشخیص ایزولهٔ runner در [`research/x-authenticated-runner-matrix-2026-09-25.md`](research/x-authenticated-runner-matrix-2026-09-25.md) ثبت شده است. نتیجهٔ آن را پیش از هر جابه‌جایی production یا ارتقای dependency بررسی کن؛ PR #64 فقط آزمایش anonymous قدیمی است.
 2. issue #136 گواهی‌نداشتن `database_checkpoint_success` در artifact پیش از checkpoint workflow را پیگیری می‌کند؛ فیلد فعلی را اثبات موفقیت یا شکست checkpoint تلقی نکن.
 3. benchmark ایزولهٔ `codebase-memory-mcp` در PR #131 هنوز draft است؛ فقط با نتیجهٔ برتر و rollback تأییدشده، نصب توسعه‌دهنده انجام بده. ابزارهای حافظهٔ دیگر را همزمان نصب نکن.
 4. PRهای قدیمی (#49، #48، #37، #36، #21، #18، #3) را پیش از استفاده با `main` تازه مقایسه کن؛ باز ماندن آن‌ها به معنی merge-ready بودن نیست.
