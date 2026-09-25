@@ -21,3 +21,18 @@ An earlier post-merge Daily [run 36138271621](https://github.com/hiidkaboutyou-s
 This workflow is triggered only on canonical `main` when its diagnostic files change, or by explicit workflow dispatch. It does not run with secrets on PRs. It installs a pinned MIT upstream release in disposable hosted runners; `X_COOKIE` remains a GitHub Actions secret and is parsed only in process. One public profile lookup per OS is read-only, serialized, timed out, and isolated in a temporary SQLite directory. No Telegram token, private review state, X response body, cookie value, or raw error text is printed or persisted. The status output is limited to `verified`, `http_403`, `http_401`, `rate_limited`, `transaction_id_unavailable`, `timeout`, `missing_credentials`, or `other_failure`. Diagnostic failures do not block existing production jobs.
 
 **Promotion gate:** a successful authenticated profile lookup on another runner is necessary but insufficient. Before changing the Daily runner, validate full source/keyword retrieval on that OS with private delivery disabled, ensure FFmpeg/state/cache compatibility, pass exact-head CI, and then prove a due real-main window with 31/31 complete and cursor advanced. If all OSes fail, stop the matrix and keep the current partial syndication fallback; use an owner-approved official API budget or trusted host strategy, not an unverified bypass or a forced cursor advance. Rollback: remove this workflow and script; no migration or persistent production state change.
+
+
+## Real-main matrix outcome
+
+PR #138 merged to `main@e5f114ad21f37465b14a60a51730683a3d36d2b8`. The automatic push-triggered [matrix run 36185700271](https://github.com/hiidkaboutyou-spec/jeonghan-daily-review-bot/actions/runs/36185700271) tested the existing X cookie and upstream twscrape v0.20.1 at pinned commit `5271cbdc5da1095b765a2a7ec750b4ac686d581f` on all three hosted operating systems, serially:
+
+| Runner | Job ID | Redacted probe result |
+| --- | ---: | --- |
+| Ubuntu | 108238393921 | `http_403` |
+| macOS | 108238393963 | `http_403` |
+| Windows | 108238393815 | `http_403` |
+
+The jobs show green because the diagnostic step deliberately uses `continue-on-error`; each probe exited 2 and emitted `http_403`. The workflow conclusion is therefore not a retrieval success signal. This one-profile check does not prove complete source windows even had it passed. No production dependency/runner, secret location, Telegram delivery, or cursor was changed by this experiment.
+
+**Decision:** do not move Daily between GitHub-hosted OSes or upgrade production twscrape on this evidence. Keep public syndication marked partial and the full-success cursor held. The next X restoration design needs a separately reviewed, authorized route that can demonstrate authenticated due-window retrieval for every configured source with delivery disabled first; official X API needs scoped credentials and a spending decision. Also complete issue #136's workflow checkpoint attestation independently. The diagnostic workflow may be removed after its evidence is retained; no state migration is needed.
