@@ -80,7 +80,12 @@ class ThemeEngine:
         part_line = ""
         if total > 1:
             part_line = ensure_rtl_line(f"بخش {part} از {total}")
-        source = f"⌕ @{update.author} · {update.url}"
+        if str(update.raw_query).startswith("manual_text:"):
+            source = ensure_rtl_line("⌕ ورودی دستی")
+        elif update.url:
+            source = f"⌕ @{update.author} · {update.url}"
+        else:
+            source = f"⌕ @{update.author}"
         chunks = [header, "\n".join(body_lines).strip()]
         if part_line:
             chunks.append(part_line)

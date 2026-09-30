@@ -524,12 +524,12 @@ def main_keyboard() -> dict[str, Any]:
             [{"text": "🕑 ۲ ساعت اخیر"}, {"text": "🗂 ۲۴ ساعت منبع"}],
             [{"text": "🔎 سرچ آرشیو"}, {"text": "📚 فن‌فیک"}],
             [{"text": "📋 وضعیت"}, {"text": "📊 گزارش"}],
-            [{"text": "❔ راهنما"}],
+            [{"text": "✍️ ورودی سریع"}, {"text": "❔ راهنما"}],
         ],
         "resize_keyboard": True,
         "is_persistent": True,
         "one_time_keyboard": False,
-        "input_field_placeholder": "یک قابلیت را انتخاب کن…",
+        "input_field_placeholder": "لینک X را بفرست یا یک قابلیت را انتخاب کن…",
     }
 
 
