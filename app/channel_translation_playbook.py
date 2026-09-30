@@ -29,6 +29,10 @@ _PAIRS: dict[str, list[dict[str, str]]] = {
             "source": "it’s giving Jeonghan China bar 😭",
             "target": "خیلی وایب چاینا بار جونگهان رو می‌ده 😭",
         },
+        {
+            "source": "he used to think you were really cute, but I don't think he does anymore",
+            "target": "قبلاً فکر می‌کرد خیلی بامزه‌ای، ولی فکر نکنم دیگه این‌طوری فکر کنه",
+        },
     ],
     "dialogue": [
         {
@@ -49,11 +53,15 @@ _PAIRS: dict[str, list[dict[str, str]]] = {
             "source": "Instagram update — 7 photos, including two with Joshua.",
             "target": "آپدیت اینستاگرام — ۷ تا عکس که توی دوتاشون جاشوآ هم هست.",
         },
+        {
+            "source": "JEONGHAN Instagram update: “summer was here”",
+            "target": "آپدیت اینستاگرام جونگهان: «تابستون اینجا بود»",
+        },
     ],
     "explanation": [
         {
-            "source": "First he said he had practiced. Later he read comments and promised to return.",
-            "target": "اول گفت قبلش تمرین کرده؛ بعدتر هم کامنت‌ها رو خوند و قول داد دوباره برگرده.",
+            "source": "First he said he had practiced. Then he explained he was busy. Later he read comments and promised to return.",
+            "target": "اول گفت قبلش تمرین کرده؛ بعد گفت این مدت سرش شلوغ بوده و بعدش هم کامنت‌ها رو خوند و قول داد دوباره برگرده.",
         },
         {
             "source": "‘괜찮지~’ sounds softer and more playful than a firm ‘괜찮아’.",
@@ -90,9 +98,11 @@ def translation_demonstrations(content_type: str, source_language: str) -> list[
     pairs = list(_PAIRS[_family(content_type)])
     if source_language == "ja":
         pairs = list(_PAIRS["soft_ja"]) + pairs[:1]
-    # Reaction slang has more distinct pragmatic forms than factual copy. Four
-    # tiny pairs are still cheaper and more reliable than a second model call.
-    return pairs[:4]
+    # Reaction/member-interaction slang has more distinct pragmatic forms than
+    # factual copy. Keep one extra relationship pair for MEMBER_INTERACTION so the
+    # model sees a Persian-native predicate structure instead of literal "X دانستت".
+    limit = 5 if content_type == "MEMBER_INTERACTION" else 4
+    return pairs[:limit]
 
 
 def compact_style_examples(examples: list[Any], *, limit: int = 3) -> list[dict[str, Any]]:

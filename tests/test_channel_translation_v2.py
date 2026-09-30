@@ -219,7 +219,7 @@ class HardenedLegacyTests(unittest.TestCase):
         self.assertEqual(out.bodies["1"], "جونگهان اومد")
 
     def test_pipeline_version_is_explicit(self):
-        self.assertEqual(DIRECT_PIPELINE_VERSION, "channel-direct-v4-emotional-fidelity")
+        self.assertEqual(DIRECT_PIPELINE_VERSION, "channel-direct-v5-natural-persian")
 
 
 if __name__ == "__main__":

@@ -46,7 +46,7 @@ from .gemini_structured import last_generation_block_reason
 
 logger = logging.getLogger(__name__)
 
-DIRECT_PIPELINE_VERSION = "channel-direct-v4-emotional-fidelity"
+DIRECT_PIPELINE_VERSION = "channel-direct-v5-natural-persian"
 
 EMOTIONAL_FIDELITY_RULES = (
     "اول تشخیص بده نویسنده دقیقاً چه حسی دارد: هیجان، ناباوری، شوخی، طعنه، حرص، "
@@ -56,6 +56,18 @@ EMOTIONAL_FIDELITY_RULES = (
     "«این دیگه چه کراس‌اوریه؟»، و `no because` در reaction معمولاً «نه آخه...» است. "
     "CAPS، تکرار، مکث، کشیدگی، سؤال بلاغی و جملهٔ نصفه بخشی از حس‌اند؛ در فارسی "
     "طبیعی معادلشان را نگه دار، اما چیزی را که در SOURCE نیست نساز."
+)
+
+NATURAL_PERSIAN_RULES = (
+    "فارسی را از نو به‌عنوان فارسی بساز، نه اینکه ترتیب کلمات زبان مبدأ را با واژه‌های فارسی "
+    "پر کنی. بعد از ترجمه، جمله را در ذهنت مثل حرف یک فارسی‌زبان بخوان: اگر بدون دیدن SOURCE "
+    "بوی ترجمه می‌دهد، ساختار جمله را عوض کن ولی هیچ گزاره یا نسبت معنایی را تغییر نده. "
+    "در reaction/dialogue/social از فعل و ضمیر گفتاریِ طبیعی استفاده کن؛ «موهاشو/می‌دونه/می‌گه/"
+    "اومد/خوند/توی» طبیعی‌اند وقتی register منبع خودمانی است. «ابتدا/سپس/متعاقباً/او گفت/"
+    "به‌روزرسانی/از جمله» را مکانیکی وارد متن خودمانی نکن؛ بسته به بافت «اول/بعد/بعدش/"
+    "آپدیت/که توی ...» طبیعی‌تر است. در اطلاعیهٔ رسمی برعکس، دقت و وضوح مهم‌تر از عامیانه‌کردن است. "
+    "محاوره‌ای بودن یعنی طبیعی بودن، نه شل کردن معنی: اسم، فاعل، مفعول، مالکیت، علت، نفی، شدت، "
+    "عدد، زمان و speaker باید دقیق بمانند."
 )
 
 # This is an editorial spelling rule requested by the channel owner, not a fact
@@ -281,6 +293,8 @@ class ChannelStyleCaptionWriter(_BaseWriter):
             "در ذهنت استخراج کن، بعد آن را به فارسی طبیعی کانال تبدیل کن و در پایان با SOURCE "
             "تطبیق بده؛ پیش‌نویس یا مراحل بررسی را در خروجی ننویس. "
             + EMOTIONAL_FIDELITY_RULES
+            + " "
+            + NATURAL_PERSIAN_RULES
         )
         prompt = f"""
 SOURCE ITEMS:
@@ -309,6 +323,7 @@ HISTORICAL CHANNEL EXCERPTS (monolingual Persian style evidence only; never copy
 
 TRANSLATION REQUIREMENTS:
 - {mode_rule}
+- {NATURAL_PERSIAN_RULES}
 - لحن کانال فقط روش بیان فارسی است؛ احساس و موضع باید متعلق به نویسندهٔ SOURCE بماند.
 - متن را خلاصه نکن. همهٔ نسبت‌ها، علت‌ها، کنایه‌ها، شوخی‌ها و شدت احساس را منتقل کن.
 - خودمانی‌کردن هرگز اجازهٔ کلی‌تر یا مبهم‌تر کردن معنا نیست؛ food/meal باید «غذا» بماند، نه «چیزمیز». واژهٔ دقیق منبع بر اصطلاح بامزه اولویت دارد.
@@ -399,23 +414,31 @@ TRANSLATION REQUIREMENTS:
             if item.id in failed_ids
         ]
         system_instruction = (
-            "تو فقط خطاهای fidelity ترجمه فارسی را تعمیر می‌کنی. SOURCE مرجع حقیقت است. "
-            "معنی و لحن درست موجود را بی‌دلیل بازنویسی نکن. اسم Jeonghan/정한/ジョンハン در متن فارسی "
-            "اگر در SOURCE آمده باید دقیقاً «جونگهان» باشد. URL/hashtag/emoji/laughter/عدد/speaker را حفظ کن."
-            " label هر speaker/emoji و labelهای انگلیسی fan trans:/source: را عیناً و در همان خط حفظ کن. "
+            "تو ویراستار نهایی fidelity + Persian naturalness هستی. SOURCE مرجع حقیقت است. "
+            "اگر candidate از نظر معنی درست است ولی بوی ترجمه می‌دهد، اجازه داری ساختار جمله را کاملاً "
+            "فارسی‌وار کنی؛ اما هیچ گزاره، فاعل/مفعول، نفی، علت، مالکیت، نسبت with/by/for، شدت احساس یا "
+            "ترتیب زمانی را عوض نکن. اسم Jeonghan/정한/ジョンハン در متن فارسی اگر در SOURCE آمده باید "
+            "دقیقاً «جونگهان» باشد. URL/hashtag/emoji/laughter/عدد/speaker را حفظ کن. label هر "
+            "speaker/emoji و labelهای انگلیسی fan trans:/source: را عیناً و در همان خط نگه دار. "
             "تاریخ را بین تقویم‌ها تبدیل نکن؛ 8월 20일 یعنی ۲۰ آگوست، نه ۳۰ مرداد. "
-            "اگر quality_failures لحن کتابی یا ماشینی را نشان می‌دهد، جمله را به فارسی طبیعی و عامیانهٔ "
-            "فن‌پیج تبدیل کن؛ ساختار انگلیسی را با کلمات فارسی تکرار نکن. خودمانی‌کردن نباید food/meal "
-            "را به «چیزمیز» یا مفهوم دقیق دیگری را به مفهوم کلی تبدیل کند. نسبت‌های with/by/for و مالکیت "
-            "را دقیق نگه دار و تزئین‌های Unicode منبع مثل ♡︎ ゙﹗! را عیناً حفظ کن."
+            "اگر quality_failures به translationese یا لحن کتابی اشاره می‌کند، جمله را طوری بازنویسی کن "
+            "که یک فارسی‌زبان بدون دیدن SOURCE فکر کند اصل متن فارسی بوده. در متن خودمانی معمولاً "
+            "«اول/بعد/بعدش» طبیعی‌تر از «ابتدا/سپس/بعداً»، «آپدیت» طبیعی‌تر از «به‌روزرسانی»، و "
+            "«۷ تا عکس که توی دوتاشون X هم هست» طبیعی‌تر از «۷ عکس، از جمله دو عکس با X» است. "
+            "برای he used to think you were cute ساختار طبیعی مثل «قبلاً فکر می‌کرد خیلی بامزه‌ای» را "
+            "ترجیح بده، نه «بامزه می‌دونستت». در reaction/dialogue از «موهاشو/می‌دونه/چیکار می‌کنه» "
+            "استفاده کن اگر با register منبع جور است. در اطلاعیهٔ رسمی لحن روشن و طبیعی بماند و slang نساز. "
+            "خودمانی‌کردن نباید food/meal را به «چیزمیز» یا مفهوم دقیق دیگری را به مفهوم کلی تبدیل کند. "
+            "تزئین‌های Unicode منبع مثل ♡︎ ゙﹗! را عیناً حفظ کن. "
+            + NATURAL_PERSIAN_RULES
         )
         prompt = "FAILED ITEMS:\n" + json.dumps(payload, ensure_ascii=False)
         parsed = self._generate_json_v2(
             client,
             prompt,
             v1._group_schema(),
-            temperature=0.02,
-            purpose="direct fidelity repair",
+            temperature=0.08,
+            purpose="direct fidelity and Persian naturalness repair",
             system_instruction=system_instruction,
         )
         repaired_only = v1._parse_bodies(parsed, failed_ids) if parsed else None
