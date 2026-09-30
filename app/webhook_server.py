@@ -113,9 +113,9 @@ class WebhookRuntime:
     def process_update_sync(self, item: dict[str, Any]) -> bool:
         """Process and durably save one Telegram update before acknowledging it.
 
-        Return False for exhausted transient failures. The HTTP layer then sends a
-        non-2xx response so Telegram retries the same update. Duplicate retries are
-        harmless because telegram_offset is persisted and checked here.
+        Platform failures retain the update for retry. Application/provider faults
+        use the same persisted poison budget as polling, across HTTP deliveries and
+        restarts, so a broken command cannot replay forever or block the queue.
         """
         with self.lock:
             app = self._require_app()
@@ -140,11 +140,8 @@ class WebhookRuntime:
                         break
                     continue
                 except XCollectionError as exc:
-                    if attempt >= 3:
-                        logger.warning("Webhook update %s exhausted X retries (%s)", update_id, type(exc).__name__)
-                        handled = False
-                        break
-                    continue
+                    handled = app._handle_telegram_update_failure(update_id, exc)
+                    break
                 except ConfigError as exc:
                     # Configuration faults are deterministic for this running
                     # instance. A Telegram retry would loop forever, so consume the
@@ -154,9 +151,8 @@ class WebhookRuntime:
                     break
                 except Exception as exc:
                     logger.exception("Webhook update %s failed (%s)", update_id, type(exc).__name__)
-                    if attempt >= 3:
-                        handled = False
-                        break
+                    handled = app._handle_telegram_update_failure(update_id, exc)
+                    break
                 else:
                     app.state.clear_telegram_failure(update_id)
                     app.state.telegram_offset = max(app.state.telegram_offset, update_id + 1)

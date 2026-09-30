@@ -456,7 +456,15 @@ class PrivateReviewApplication(Application):
         updates = list(combined.values())
         if not updates:
             if external_error is not None:
-                raise external_error
+                # X availability is a search outcome, not a failed Telegram
+                # delivery. Replaying the incoming command only repeats the
+                # progress message and cannot repair provider access.
+                self.telegram.send_message(
+                    "⚠️ در آرشیو نتیجه‌ای پیدا نشد و الان دسترسی به X ممکن نیست؛ "
+                    "کامل‌بودن نتیجه تأیید نشد. کمی بعد دوباره جست‌وجو کن.",
+                    reply_markup=main_keyboard(),
+                )
+                return
             self.telegram.send_message("هیچ نتیجهٔ قابل‌استفاده‌ای پیدا نشد.", reply_markup=main_keyboard())
             return
         candidate_limit = max(1, min(8, int(self.settings.runtime.get("max_search_candidates", 8))))
