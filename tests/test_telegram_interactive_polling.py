@@ -58,7 +58,7 @@ class TelegramInteractivePollingTests(unittest.TestCase):
         app.process_telegram_updates = AsyncMock(return_value=0)
 
         with patch.dict(os.environ, {"ASSISTANT_RUNTIME_MODE": "github_actions_polling"}, clear=False):
-            with patch("app.main.time.monotonic", side_effect=[100.0, 100.0, 100.0, 104.0]):
+            with patch("app.main._monotonic", side_effect=[100.0, 100.0, 100.0, 104.0]):
                 asyncio.run(app._run_interactive_polling_window(100.0))
 
         app.process_telegram_updates.assert_awaited_once_with(long_poll_seconds=3)
@@ -88,7 +88,7 @@ class TelegramInteractivePollingTests(unittest.TestCase):
         app.process_telegram_updates = AsyncMock(return_value=0)
 
         with patch.dict(os.environ, {"ASSISTANT_RUNTIME_MODE": "github_actions_polling"}, clear=False):
-            with patch("app.main.time.monotonic", side_effect=[100.0, 100.0]):
+            with patch("app.main._monotonic", side_effect=[100.0, 100.0]):
                 asyncio.run(app._run_interactive_polling_window(0.0))
 
         app.process_telegram_updates.assert_not_awaited()
