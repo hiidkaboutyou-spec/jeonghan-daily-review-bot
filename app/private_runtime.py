@@ -279,19 +279,15 @@ class PrivateReviewApplication(Application):
         guide = build_editorial_guide(groups, getattr(self.settings, "timezone", timezone.utc))
         groups = list(guide.groups)
         total_updates = sum(len(group.updates) for group in groups)
-        batch_seed = ":".join(update.id for group in groups for update in group.updates)
-        overview_delivery_key = None if force else f"editorial-overview:{short_id(batch_seed)}"
         if total_updates > 1:
             self.telegram.send_message(
                 ensure_rtl_line(guide.overview),
                 reply_markup=main_keyboard(),
-                delivery_key=overview_delivery_key,
             )
         else:
             self.telegram.send_message(
                 ensure_rtl_line("۱ آپدیت پیدا شد؛ مستقیم پیش‌نویسش را می‌فرستم."),
                 reply_markup=main_keyboard(),
-                delivery_key=overview_delivery_key,
             )
         deferred = 0
         for group_index, group in enumerate(groups):
@@ -368,18 +364,6 @@ class PrivateReviewApplication(Application):
             # but a workflow can be terminated at its execution deadline. Flush the
             # whole immutable group plan before its first Telegram network call.
             self.state.save()
-
-            if prepared and total_updates > 1:
-                group_header_key = (
-                    None
-                    if force
-                    else f"editorial-group:{short_id(batch_seed)}:{group_index + 1}"
-                )
-                self.telegram.send_message(
-                    ensure_rtl_line(guide.header_for(group_index)),
-                    reply_markup=main_keyboard(),
-                    delivery_key=group_header_key,
-                )
 
             for update, draft, delivery_key in prepared:
                 if update.media:
