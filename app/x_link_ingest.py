@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 import requests
 
 from .models import MediaItem, Update, ensure_utc
+from .media_quality import quality_rank, x_variant_dimensions
 
 SYNDICATION_STATUS_URL = "https://cdn.syndication.twimg.com/tweet-result"
 _URL_RE = re.compile(r"https?://[^\s<>]+", re.I)
@@ -172,7 +173,13 @@ def _media_items(raw: dict[str, Any]) -> list[MediaItem]:
                 if content_type and not content_type.startswith("video/"):
                     continue
                 choices.append(variant)
-            choices.sort(key=lambda item: _safe_nonnegative_int(item.get("bitrate")), reverse=True)
+            choices.sort(
+                key=lambda item: quality_rank(
+                    *x_variant_dimensions(str(item.get("url") or "")),
+                    _safe_nonnegative_int(item.get("bitrate")),
+                ),
+                reverse=True,
+            )
             if choices:
                 url = str(choices[0].get("url") or preview)
                 bitrate = _safe_nonnegative_int(choices[0].get("bitrate"))
