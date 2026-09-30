@@ -18,6 +18,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import requests
 
 from .models import MediaItem, Update
+from .media_quality import ytdlp_quality_sort
 
 logger = logging.getLogger(__name__)
 SAFE_VIDEO_BYTES = 44 * 1024 * 1024
@@ -208,8 +209,8 @@ class MediaManager:
             [
                 "-i", str(source),
                 "-map", "0:v:0", "-map", "0:a?",
-                "-vf", r"scale=min(1280\,iw):-2,format=yuv420p",
-                "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
+                "-vf", r"scale='min(1920,iw)':'min(1920,ih)':force_original_aspect_ratio=decrease,format=yuv420p",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
                 "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
                 "-movflags", "+faststart",
                 "-avoid_negative_ts", "make_zero",
@@ -283,14 +284,17 @@ class MediaManager:
             "noplaylist": True,
             "outtmpl": output,
             "merge_output_format": "mp4",
-            # Prefer H.264/AAC MP4 streams that Telegram/iOS can play directly,
-            # then widen progressively instead of failing on one unavailable format.
+            # Keep a broad selector so a source without MP4/H.264 is still
+            # recoverable, then use yt-dlp's documented orientation-independent
+            # resolution sorting: 1080p first, then the best <=1080 (normally
+            # 720p), with best-source fallback when those tiers do not exist.
             "format": (
                 "bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[acodec^=mp4a]/"
                 "bestvideo[vcodec^=h264][ext=mp4]+bestaudio[ext=m4a]/"
                 "bestvideo[ext=mp4]+bestaudio[ext=m4a]/"
                 "best[ext=mp4]/bestvideo+bestaudio/best"
             ),
+            "format_sort": ytdlp_quality_sort(),
             "socket_timeout": 45,
             "retries": 3,
             "fragment_retries": 3,
@@ -426,8 +430,11 @@ class MediaManager:
     @staticmethod
     def _compress_video(source: Path, target: Path) -> Path | None:
         attempts = [
-            ["-i", str(source), "-map", "0:v:0", "-map", "0:a?", "-vf", r"scale=min(1280\,iw):-2,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "28", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", "-avoid_negative_ts", "make_zero", str(target)],
-            ["-i", str(source), "-map", "0:v:0", "-map", "0:a?", "-vf", r"scale=min(960\,iw):-2,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "32", "-c:a", "aac", "-b:a", "80k", "-movflags", "+faststart", "-avoid_negative_ts", "make_zero", str(target)],
+            # Preserve a real 1080p source first. Only step down when the encoded
+            # result still cannot fit the Bot API safety budget.
+            ["-i", str(source), "-map", "0:v:0", "-map", "0:a?", "-vf", r"scale='min(1920,iw)':'min(1920,ih)':force_original_aspect_ratio=decrease,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "27", "-c:a", "aac", "-b:a", "112k", "-movflags", "+faststart", "-avoid_negative_ts", "make_zero", str(target)],
+            ["-i", str(source), "-map", "0:v:0", "-map", "0:a?", "-vf", r"scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "29", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", "-avoid_negative_ts", "make_zero", str(target)],
+            ["-i", str(source), "-map", "0:v:0", "-map", "0:a?", "-vf", r"scale='min(960,iw)':'min(960,ih)':force_original_aspect_ratio=decrease,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "32", "-c:a", "aac", "-b:a", "80k", "-movflags", "+faststart", "-avoid_negative_ts", "make_zero", str(target)],
         ]
         for command in attempts:
             target.unlink(missing_ok=True)
