@@ -24,6 +24,7 @@ from .x_link_ingest import collect_shared_statuses, extract_status_links
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
+_monotonic = time.monotonic
 
 TELEGRAM_INTERACTIVE_WINDOW_DEFAULT_SECONDS = 240
 TELEGRAM_INTERACTIVE_POLL_SLICE_SECONDS = 20
@@ -42,7 +43,7 @@ class Application:
         self.media = MediaManager(settings.x_cookies)
 
     async def run(self) -> None:
-        started_at = time.monotonic()
+        started_at = _monotonic()
         try:
             self._ensure_polling_mode_periodically()
             await self.process_telegram_updates()
@@ -90,9 +91,9 @@ class Application:
             configured_cap = TELEGRAM_ACTIONS_RUNTIME_CAP_SECONDS
         runtime_cap = max(60, min(14 * 60, configured_cap))
         hard_deadline = started_at + runtime_cap
-        soft_deadline = time.monotonic() + window_seconds
+        soft_deadline = _monotonic() + window_seconds
         deadline = min(hard_deadline, soft_deadline)
-        available = max(0.0, deadline - time.monotonic())
+        available = max(0.0, deadline - _monotonic())
         if available < 1:
             return
         logger.info(
@@ -101,7 +102,7 @@ class Application:
         )
 
         while True:
-            remaining = deadline - time.monotonic()
+            remaining = deadline - _monotonic()
             if remaining < 1:
                 break
             long_poll = max(
