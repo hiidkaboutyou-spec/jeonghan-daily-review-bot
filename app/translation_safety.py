@@ -86,6 +86,7 @@ _NARRATIVE_TRANSLATIONESE_RE = re.compile(
     r"(?:\bابتدا\b|\bسپس\b|\bمتعاقباً\b|\bبعداً\b|\bاو گفت\b|\bاو توضیح داد\b)",
     re.I,
 )
+_NARRATIVE_STRONG_TRANSLATIONESE_RE = re.compile(r"\b(?:ابتدا|سپس|متعاقباً)\b", re.I)
 _SOCIAL_TRANSLATIONESE_RE = re.compile(
     r"(?:به[‌ ]?روز[‌ ]?رسانی|\bاز جمله\b|"
     r"در حال (?:مرتب|درست|اصلاح) کردن (?:موهای )?(?:خود|خودش)|"
@@ -154,8 +155,13 @@ def natural_persian_failures(update: Update, output: str) -> list[str]:
         "KOREAN_LANGUAGE_NUANCE",
         "JAPANESE_LANGUAGE_NUANCE",
         "FAN_ACCOUNT_OR_OP_STORY",
-    } and _NARRATIVE_TRANSLATIONESE_RE.search(text):
-        failures.append("translationese sequencing or explicit-pronoun narration")
+    }:
+        narrative_markers = _NARRATIVE_TRANSLATIONESE_RE.findall(text)
+        # One ordinary «بعداً» or «او گفت» can be perfectly natural Persian. Flag
+        # the narration only when a clearly formal connector is present or several
+        # translation-shaped markers accumulate in the same social explanation.
+        if _NARRATIVE_STRONG_TRANSLATIONESE_RE.search(text) or len(narrative_markers) >= 2:
+            failures.append("translationese sequencing or explicit-pronoun narration")
 
     if content_type in {
         "INSTAGRAM_UPDATE",
