@@ -106,6 +106,27 @@ class FxTwitterShadowProbeTests(unittest.TestCase):
         self.assertTrue(result.cursor_exhausted)
         self.assertEqual(result.reason, "cursor_exhausted")
 
+    def test_404_after_successful_page_is_pagination_end(self):
+        result = evaluate_pages(
+            "source",
+            [
+                (
+                    200,
+                    {
+                        "code": 200,
+                        "results": [_row("3", 300), _row("2", 200)],
+                        "cursor": {"bottom": "next"},
+                    },
+                ),
+                (404, {"code": 404, "results": [], "cursor": {"bottom": None}}),
+            ],
+            start_epoch=100,
+            max_pages=10,
+        )
+        self.assertTrue(result.complete)
+        self.assertTrue(result.cursor_exhausted)
+        self.assertEqual(result.reason, "pagination_ended_404")
+
     def test_schema_error_prevents_complete_even_when_cursor_exhausts(self):
         result = evaluate_pages(
             "source",
