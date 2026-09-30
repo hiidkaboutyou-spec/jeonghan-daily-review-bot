@@ -52,3 +52,22 @@ A second fast lane lets the owner paste Korean/Japanese/English/raw source text 
 ## Next automatic-monitoring gate
 
 Do not call automatic monitoring restored until a no-delivery shadow run proves complete, paginated due-window retrieval over all configured sources and then survives an exact-head/real-main promotion gate. FxTwitter v2 is worth benchmarking for that role; it is not silently promoted by this PR.
+
+
+## Research sources
+
+Primary implementation references checked on 2026-09-30:
+
+- yt-dlp current X extractor, including its public syndication fallback and token generation:
+  https://github.com/yt-dlp/yt-dlp/blob/master/yt_dlp/extractor/twitter.py
+- FxEmbed API v2 overview (profiles, statuses, search, pagination and public rate limit):
+  https://github.com/FxEmbed/FxEmbed/blob/main/docs/src/content/docs/api/introduction.mdx
+- FxEmbed repository / self-hosting / MIT license:
+  https://github.com/FxEmbed/FxEmbed
+- FxTwitter profile-status edge-case report kept as a reason for shadow validation before promotion:
+  https://github.com/FxEmbed/FxEmbed/issues/2011
+- RSSHub 2026 X auth-token failure/stale guest-mode evidence:
+  https://github.com/DIYgod/RSSHub/issues/23164
+  https://github.com/DIYgod/RSSHub/issues/23255
+- Nitter current README/legal-status notice:
+  https://github.com/zedeus/nitter/blob/master/README.md
