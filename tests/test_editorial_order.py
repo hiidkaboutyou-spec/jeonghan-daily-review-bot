@@ -146,3 +146,28 @@ def test_editorial_guide_replaces_generic_title_with_event_type_and_shows_previe
     assert guide.items[0].title == "کنسرت/اجرای جونگهان"
     assert "منبع: @news_source" in guide.overview
     assert "موضوع: JEONGHAN concert at Belluna Dome opening stage with Joshua" in guide.overview
+
+
+def test_editorial_overview_is_bounded_for_large_batches():
+    groups = [
+        EventGroup(
+            key=f"g-{index}",
+            category="general",
+            title="آپدیت جونگهان",
+            updates=[
+                _update(
+                    str(600 + index),
+                    index % 60,
+                    ("long topic context " * 12) + str(index),
+                    author=f"source_{index}",
+                )
+            ],
+        )
+        for index in range(30)
+    ]
+
+    guide = build_editorial_guide(groups, ZoneInfo("Asia/Tehran"))
+
+    assert len(guide.overview) <= 3900
+    assert "گروه دیگر" in guide.overview
+    assert "پیش‌نویس‌ها" in guide.overview
