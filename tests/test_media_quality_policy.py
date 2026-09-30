@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from app.media import MediaManager, _probe_media
 from app.media_quality import (
@@ -13,6 +14,7 @@ from app.media_quality import (
     x_variant_dimensions,
 )
 from app.models import MediaItem
+from app.x_client import XCollector
 
 
 class MediaQualityPolicyTests(unittest.TestCase):
@@ -61,6 +63,36 @@ class MediaQualityPolicyTests(unittest.TestCase):
             reverse=True,
         )
         self.assertEqual(ordered[0].url, "u1440")
+
+    def test_production_x_converter_picks_1080_over_higher_bitrate_720(self):
+        media = SimpleNamespace(
+            photos=[],
+            animated=[],
+            videos=[
+                SimpleNamespace(
+                    thumbnailUrl="https://pbs.twimg.com/ext_tw_video_thumb/example.jpg",
+                    duration=5000,
+                    variants=[
+                        SimpleNamespace(
+                            url="https://video.twimg.com/ext_tw_video/1/pu/vid/avc1/1280x720/low.mp4",
+                            contentType="video/mp4",
+                            bitrate=7_000_000,
+                        ),
+                        SimpleNamespace(
+                            url="https://video.twimg.com/ext_tw_video/1/pu/vid/avc1/1920x1080/high.mp4",
+                            contentType="video/mp4",
+                            bitrate=5_000_000,
+                        ),
+                    ],
+                )
+            ],
+        )
+
+        converted = XCollector._convert_media(media)
+
+        self.assertEqual(len(converted), 1)
+        self.assertIn("1920x1080", converted[0].url)
+        self.assertEqual((converted[0].width, converted[0].height), (1920, 1080))
 
 
 @unittest.skipUnless(
