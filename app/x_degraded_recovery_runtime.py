@@ -42,6 +42,36 @@ def _install_public_provider_fallback() -> None:
         include_replies: bool = True,
         timeout=(3.0, 7.0),
     ):
+        """Prefer the provider that proved useful across all configured sources.
+
+        FxTwitter v2 reached all 31 configured accounts in the live shadow probe and
+        accepts a lower time boundary, while profile-syndication HTML can return a
+        structurally valid but stale/empty sample. Use FxTwitter first in degraded
+        mode, then retain syndication as a second provider when FxTwitter fails or
+        returns no timeline rows at all. Agent Reach remains the outer fallback when
+        this wrapper raises SyndicationError.
+        """
+        fx_error: Exception | None = None
+        try:
+            # Three pages cover up to 300 recent statuses. FxTwitter receives the
+            # requested lower boundary through its since parameter, so short owner
+            # windows usually finish on the first page.
+            recovered = collect_fxtwitter_timeline(
+                handle,
+                start,
+                end,
+                include_replies=include_replies,
+                timeout=(3.0, 8.0),
+                max_pages=3,
+            )
+            if recovered.raw_seen > 0 or recovered.updates:
+                return _syndication.SyndicationResult(
+                    updates=recovered.updates,
+                    raw_seen=recovered.raw_seen,
+                )
+        except FxTwitterError as exc:
+            fx_error = exc
+
         try:
             return original_syndication(
                 handle,
@@ -50,28 +80,10 @@ def _install_public_provider_fallback() -> None:
                 include_replies=include_replies,
                 timeout=timeout,
             )
-        except _syndication.SyndicationError:
-            try:
-                # Bound the public fallback so a full 31-source degraded scan can
-                # finish inside the GitHub Actions production window. Three pages
-                # still cover up to 300 recent statuses per configured profile.
-                recovered = collect_fxtwitter_timeline(
-                    handle,
-                    start,
-                    end,
-                    include_replies=include_replies,
-                    timeout=(3.0, 8.0),
-                    max_pages=3,
-                )
-            except FxTwitterError as fx_exc:
-                raise _syndication.SyndicationError(
-                    "public X recovery providers failed"
-                ) from fx_exc
-            result = _syndication.SyndicationResult(
-                updates=recovered.updates,
-                raw_seen=recovered.raw_seen,
-            )
-            return result
+        except _syndication.SyndicationError as syndication_exc:
+            raise _syndication.SyndicationError(
+                "public X recovery providers failed"
+            ) from (fx_error or syndication_exc)
 
     resilient_public_timeline._hani_resilient_public_provider = True
     _provider_recovery.collect_syndication_timeline = resilient_public_timeline
