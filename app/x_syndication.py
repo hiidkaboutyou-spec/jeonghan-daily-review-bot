@@ -17,6 +17,7 @@ from typing import Any
 import requests
 
 from .models import MediaItem, Update, ensure_utc
+from .media_quality import quality_rank, x_variant_dimensions
 
 SYNDICATION_URL = "https://syndication.twitter.com/srv/timeline-profile/screen-name/{handle}"
 _NEXT_DATA_RE = re.compile(
@@ -27,6 +28,13 @@ _HANDLE_RE = re.compile(r"^[A-Za-z0-9_]{1,15}$")
 
 class SyndicationError(RuntimeError):
     pass
+
+
+def _safe_nonnegative_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError, OverflowError):
+        return 0
 
 
 @dataclass(slots=True)
@@ -70,12 +78,21 @@ def _media_items(tweet: dict[str, Any]) -> list[MediaItem]:
                 item for item in variants
                 if isinstance(item, dict) and str(item.get("url") or "").startswith("http")
             ]
-            choices.sort(key=lambda item: int(item.get("bitrate", 0) or 0), reverse=True)
-            url = str((choices[0] if choices else {}).get("url") or "")
-            bitrate = int((choices[0] if choices else {}).get("bitrate", 0) or 0)
+            choices.sort(
+                key=lambda item: quality_rank(
+                    *x_variant_dimensions(str(item.get("url") or "")),
+                    _safe_nonnegative_int(item.get("bitrate")),
+                ),
+                reverse=True,
+            )
+            selected = choices[0] if choices else {}
+            url = str(selected.get("url") or "")
+            bitrate = _safe_nonnegative_int(selected.get("bitrate"))
+            selected_width, selected_height = x_variant_dimensions(url)
         else:
             url = str(raw.get("media_url_https") or raw.get("media_url") or "")
             bitrate = 0
+            selected_width = selected_height = 0
         if not url:
             continue
         info = raw.get("original_info") if isinstance(raw.get("original_info"), dict) else {}
@@ -85,8 +102,8 @@ def _media_items(tweet: dict[str, Any]) -> list[MediaItem]:
                 url=url,
                 preview_url=str(raw.get("media_url_https") or ""),
                 bitrate=bitrate,
-                width=int(info.get("width", 0) or 0),
-                height=int(info.get("height", 0) or 0),
+                width=selected_width or _safe_nonnegative_int(info.get("width")),
+                height=selected_height or _safe_nonnegative_int(info.get("height")),
             )
         )
     return result
