@@ -42,6 +42,13 @@ _INFORMAL_TYPES = {
     "PHOTO_REACTION", "VIDEO_REACTION", "MEMBER_QUOTE", "MEMBER_INTERACTION",
     "SHORT_REACTION", "FAN_ACCOUNT_OR_OP_STORY",
 }
+_NATURALNESS_TYPES = _INFORMAL_TYPES | {
+    "THREAD_OR_LONG_EXPLANATION",
+    "KOREAN_LANGUAGE_NUANCE",
+    "JAPANESE_LANGUAGE_NUANCE",
+    "INSTAGRAM_UPDATE",
+    "X_FANBASE_UPDATE",
+}
 _BOOKISH_RE = re.compile(
     r"(?:\bاو\b|\bایشان\b|می کند|می دهد|می شود|نمی کند|نمی کنم|"
     r"می[‌ ]?(?:توانم|تواند|شوم|شود|خواهم)|اطرافیانم را|"
@@ -69,6 +76,26 @@ _GENERIC_PRAISE_RE = re.compile(
     r"(?:^\s*خیلی خوبه\s*$|^\s*عالیه\s*$|^\s*فوق\u200c?العاده\u200c?ست\s*$|^\s*خیلی قشنگه\s*$"
     r"|^\s*بهترینه\s*$|^\s*عالیه خیلی خوبه\s*$"
     r"|عالیه\s+عالیه(?:\s+عالیه)*|خیلی خوبه\s+خیلی خوبه)",
+    re.I,
+)
+
+# High-confidence translationese that appeared in rejected human benchmark items.
+# These are intentionally scoped by content type in natural_persian_failures so
+# formal notices are not forced into slang.
+_NARRATIVE_TRANSLATIONESE_RE = re.compile(
+    r"(?:\bابتدا\b|\bسپس\b|\bمتعاقباً\b|\bبعداً\b|\bاو گفت\b|\bاو توضیح داد\b)",
+    re.I,
+)
+_SOCIAL_TRANSLATIONESE_RE = re.compile(
+    r"(?:به[‌ ]?روز[‌ ]?رسانی|\bاز جمله\b|"
+    r"در حال (?:مرتب|درست|اصلاح) کردن (?:موهای )?(?:خود|خودش)|"
+    r"بلافاصله (?:پس از آن|بعد از آن))",
+    re.I,
+)
+_UNNATURAL_COLLOCATION_RE = re.compile(
+    r"(?:\b(?:بانمک|بامزه) می[‌ ]?دونستت\b|"
+    r"\b(?:بانمک|بامزه) می[‌ ]?دانستت\b|"
+    r"\bتابستان از راه رسیده بود\b)",
     re.I,
 )
 
@@ -102,23 +129,52 @@ def safe_metadata_body(update: Update) -> str:
 
 
 def natural_persian_failures(update: Update, output: str) -> list[str]:
-    """High-confidence register failures, not a claim of full voice evaluation."""
+    """High-confidence Persian naturalness failures.
+
+    This is deliberately not a generic formality detector. Official/factual copy may
+    legitimately be formal. The checks target content families where the human
+    benchmark showed clear translationese or unnatural colloquial phrasing.
+    """
     content_type = classify_content_type(update.translation_source())
-    if content_type not in _INFORMAL_TYPES:
+    if content_type not in _NATURALNESS_TYPES:
         return []
     failures: list[str] = []
     text = str(output or "")
-    if _BOOKISH_RE.search(text):
-        failures.append("bookish or machine-like register for informal source")
-    # Voice-aware checks: detect patterns that break the channel's natural voice.
-    # Only flag formal verbs that weren't already caught by _BOOKISH_RE above.
-    if not _BOOKISH_RE.search(text) and _FORMAL_VERB_RE.search(text):
-        failures.append("formal verb conjugation in informal context")
+
+    if content_type in _INFORMAL_TYPES:
+        if _BOOKISH_RE.search(text):
+            failures.append("bookish or machine-like register for informal source")
+        # Voice-aware checks: detect patterns that break the channel's natural voice.
+        # Only flag formal verbs that weren't already caught by _BOOKISH_RE above.
+        if not _BOOKISH_RE.search(text) and _FORMAL_VERB_RE.search(text):
+            failures.append("formal verb conjugation in informal context")
+
+    if content_type in {
+        "THREAD_OR_LONG_EXPLANATION",
+        "KOREAN_LANGUAGE_NUANCE",
+        "JAPANESE_LANGUAGE_NUANCE",
+        "FAN_ACCOUNT_OR_OP_STORY",
+    } and _NARRATIVE_TRANSLATIONESE_RE.search(text):
+        failures.append("translationese sequencing or explicit-pronoun narration")
+
+    if content_type in {
+        "INSTAGRAM_UPDATE",
+        "X_FANBASE_UPDATE",
+        "PHOTO_REACTION",
+        "VIDEO_REACTION",
+        "SHORT_REACTION",
+        "MEMBER_INTERACTION",
+    } and _SOCIAL_TRANSLATIONESE_RE.search(text):
+        failures.append("formal social-media translationese")
+
+    if _UNNATURAL_COLLOCATION_RE.search(text):
+        failures.append("unnatural Persian collocation")
+
     if _EXCESSIVE_EMOJI_RE.search(text):
         failures.append("excessive emoji usage")
     if _GENERIC_PRAISE_RE.search(text):
         failures.append("generic praise without specific observation")
-    return failures
+    return list(dict.fromkeys(failures))
 
 
 def semantic_quality_failures(update: Update, output: str) -> list[str]:
@@ -179,6 +235,9 @@ def manual_review_body(body: str, reasons: list[str]) -> str:
         "formal verb conjugation in informal context": " فعل رسمی در متن عامیانه",
         "excessive emoji usage": "ایموجی بیش از حد",
         "generic praise without specific observation": "تعریف کلی بدون جزئیات",
+        "translationese sequencing or explicit-pronoun narration": "روایت ترجمه‌ای و غیرطبیعی",
+        "formal social-media translationese": "لحن ترجمه‌ای رسمی برای شبکهٔ اجتماعی",
+        "unnatural Persian collocation": "ترکیب غیرطبیعی فارسی",
     }
     reason = "، ".join(labels.get(item, item) for item in reasons)
     return f"⚠️ نیاز به بازبینی دستی ({reason})\n\n{body.strip()}".strip()
