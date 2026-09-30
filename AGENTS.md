@@ -65,6 +65,23 @@ Install `requirements-optional-media.txt` and exercise relevant FFmpeg/media pat
 6. Open a concise pull request describing behavior and validation.
 7. Merge only when required checks pass and the change is safe for production; otherwise leave the pull request open with the blocker recorded.
 
+## Mandatory evidence-first task contract
+
+For every substantive bugfix, feature, refactor, dependency/tool decision, performance/reliability change, or task that could end with a claim such as "fixed", "works", "complete", "safe", or "production-ready":
+
+1. Read and follow `.agents/skills/evidence-first-engineering/SKILL.md`.
+2. If the change affects owner-visible/runtime behavior, also read and follow `.agents/skills/hani-production-acceptance/SKILL.md`.
+3. For bugs, establish root cause and reproduce the failure (or gather equivalent concrete evidence) **before** the real fix.
+4. Add a regression that exercises the same concrete runtime boundary that failed. A base-class/helper test is insufficient when production uses an override, wrapper, subclass, workflow adapter, or different entrypoint.
+5. Research official/upstream sources before implementation when external platform/API/framework behavior is material to the design.
+6. Verify in a ladder: focused regression -> related integration tests -> repository baseline -> exact-head CI -> post-merge production path when applicable.
+7. Perform an explicit convergence review before merge: compare the current diff to the original user-visible outcome and acceptance evidence, not merely to the implementation plan.
+8. Never equate green PR CI with a production fix when scheduling, environment, durable state, credentials, provider/network behavior, or runtime composition can differ on `main`.
+9. Completion claims must name the strongest actually-proven level: implemented, PR-head verified, merged, post-merge main verified, owner-visible confirmed.
+10. If owner-visible/live evidence is still required, say so explicitly instead of claiming the issue is fixed.
+
+For broad next-stage requests, this contract applies **in addition to** `project-next-stage`; it does not reduce the required stage scope.
+
 <!-- project-memory:start -->
 ## Deep next-stage requests
 
