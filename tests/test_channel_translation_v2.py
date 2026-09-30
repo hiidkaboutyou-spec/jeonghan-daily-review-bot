@@ -193,6 +193,81 @@ class HardenedLegacyTests(unittest.TestCase):
             "PROHIBITED_CONTENT",
         )
 
+    def test_repair_prompt_includes_concrete_invented_number_failure(self):
+        class Memory(_Memory):
+            profile = {}
+
+            def retrieve_examples(self, *args, **kwargs):
+                return []
+
+            def relevant_glossary(self, *args, **kwargs):
+                return []
+
+        class Probe(ChannelStyleCaptionWriter):
+            def __init__(self):
+                super().__init__("key", "model", Memory())
+                self.prompts = []
+                self.last_diagnostics = {}
+
+            def _generate_json_v2(self, client, prompt, schema, **kwargs):
+                self.prompts.append(prompt)
+                return {
+                    "title": "لایو جونگهان",
+                    "category": "live",
+                    "items": [
+                        {
+                            "id": "1",
+                            "body": (
+                                "جونگهان: چرا انقدر حرف می‌زنی؟!\n"
+                                "جونگهان: اه واقعاً رو اعصابمه….\n"
+                                "جونگهان: ساکت می‌شم ㅋㅋㅋ"
+                            ),
+                        }
+                    ],
+                }
+
+        source = (
+            "정한: 말 왜 이렇게 많은 거야?!\n"
+            "정한: 하 진짜 짜증나….\n"
+            "정한: 조용히 할게요 ㅋㅋㅋ"
+        )
+        update = Update(
+            id="1",
+            url="https://x.com/source/status/1",
+            author="source",
+            author_name="Source",
+            text=source,
+            created_at=datetime(2026, 9, 30, tzinfo=timezone.utc),
+            lang="ko",
+        )
+        group = EventGroup(key="x", category="live", title="title", updates=[update])
+        direct = GroupCopy(
+            title="title",
+            category="live",
+            bodies={
+                "1": (
+                    "جونگهان: 0 چرا انقدر حرف می‌زنی؟!\n"
+                    "جونگهان: اه واقعاً رو اعصابمه….\n"
+                    "جونگهان: ساکت می‌شم ㅋㅋㅋ"
+                )
+            },
+        )
+        writer = Probe()
+
+        result = writer._repair_failed_items(
+            group,
+            direct,
+            ["1"],
+            analyze_source(source),
+            object(),
+        )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(len(writer.prompts), 1)
+        self.assertIn('"fidelity_failures"', writer.prompts[0])
+        self.assertIn("invented numbers: 0", writer.prompts[0])
+        self.assertNotIn("0 چرا", result.bodies["1"])
+
     def test_legacy_instance_is_canonicalized_before_delivery(self):
         class Probe(CaptionWriter):
             def _client_or_none(self):
