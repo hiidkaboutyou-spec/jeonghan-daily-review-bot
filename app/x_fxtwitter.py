@@ -17,6 +17,7 @@ from urllib.parse import quote
 import requests
 
 from .models import MediaItem, Update, ensure_utc
+from .media_quality import quality_rank, x_variant_dimensions
 
 FXTWITTER_STATUS_URL = "https://api.fxtwitter.com/2/profile/{handle}/statuses"
 _HANDLE_RE = re.compile(r"^[A-Za-z0-9_]{1,15}$")
@@ -24,6 +25,13 @@ _HANDLE_RE = re.compile(r"^[A-Za-z0-9_]{1,15}$")
 
 class FxTwitterError(RuntimeError):
     pass
+
+
+def _safe_nonnegative_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError, OverflowError):
+        return 0
 
 
 @dataclass(slots=True)
@@ -67,15 +75,26 @@ def _media_items(status: dict[str, Any]) -> list[MediaItem]:
                 if isinstance(item, dict) and str(item.get("url") or "").startswith("http")
             ]
             choices.sort(
-                key=lambda item: (
-                    int(item.get("bitrate", 0) or 0),
-                    int(item.get("height", 0) or 0),
+                key=lambda item: quality_rank(
+                    _safe_nonnegative_int(item.get("width"))
+                    or x_variant_dimensions(str(item.get("url") or ""))[0],
+                    _safe_nonnegative_int(item.get("height"))
+                    or x_variant_dimensions(str(item.get("url") or ""))[1],
+                    _safe_nonnegative_int(item.get("bitrate")),
                 ),
                 reverse=True,
             )
             if choices:
-                url = str(choices[0].get("url") or url)
-                bitrate = int(choices[0].get("bitrate", 0) or 0)
+                selected = choices[0]
+                url = str(selected.get("url") or url)
+                bitrate = _safe_nonnegative_int(selected.get("bitrate"))
+                selected_url_width, selected_url_height = x_variant_dimensions(url)
+                selected_width = _safe_nonnegative_int(selected.get("width")) or selected_url_width
+                selected_height = _safe_nonnegative_int(selected.get("height")) or selected_url_height
+            else:
+                selected_width = selected_height = 0
+        else:
+            selected_width = selected_height = 0
         if not url:
             continue
         result.append(
@@ -84,8 +103,8 @@ def _media_items(status: dict[str, Any]) -> list[MediaItem]:
                 url=url,
                 preview_url=preview,
                 bitrate=bitrate,
-                width=int(raw.get("width", 0) or 0),
-                height=int(raw.get("height", 0) or 0),
+                width=selected_width or _safe_nonnegative_int(raw.get("width")),
+                height=selected_height or _safe_nonnegative_int(raw.get("height")),
             )
         )
     return result
