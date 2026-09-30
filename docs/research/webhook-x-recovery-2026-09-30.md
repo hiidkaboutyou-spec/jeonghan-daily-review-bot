@@ -176,6 +176,28 @@ After merge:
 5. keep the completeness warning if public recovery cannot prove the full source window;
 6. do not label automatic X completeness restored merely because useful partial updates are delivered.
 
+## CI-discovered translation fidelity blocker
+
+While validating the final webhook-scoped X recovery design, the live production
+translation smoke failed twice on unchanged Korean case B03 with an invented numeric
+fact (`0`). The same case had passed on PR #155 earlier the same day, and #157 did
+not modify translation behavior, so this was treated as a real model-output robustness
+gap rather than waived as unrelated CI noise.
+
+Investigation found that the production writer correctly detected hard-fact/entity
+violations before repair, but `_repair_failed_items` only sent semantic-quality
+failures to the repair model. A candidate rejected solely for an invented/missing
+number, URL, hashtag, speaker/name or other deterministic fact therefore reached the
+repair call without the exact reason it had failed.
+
+Issue #158 records the repair. The branch now includes the deterministic hard-fact and
+entity failures in the repair payload and explicitly tells the repair model to correct
+those failures against SOURCE. The existing final verifier remains unchanged and
+mandatory; no acceptance threshold or fact check was weakened.
+
+A focused offline regression creates the B03 class of failure with an invented `0`
+and proves the repair prompt contains `invented numbers: 0`.
+
 ## Rollback
 
 Revert the focused PR and remove the explicit Railway recovery variables if necessary. No database/state migration is involved.
