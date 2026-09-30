@@ -98,9 +98,11 @@ def translation_demonstrations(content_type: str, source_language: str) -> list[
     pairs = list(_PAIRS[_family(content_type)])
     if source_language == "ja":
         pairs = list(_PAIRS["soft_ja"]) + pairs[:1]
-    # Reaction slang has more distinct pragmatic forms than factual copy. Four
-    # tiny pairs are still cheaper and more reliable than a second model call.
-    return pairs[:4]
+    # Reaction/member-interaction slang has more distinct pragmatic forms than
+    # factual copy. Keep one extra relationship pair for MEMBER_INTERACTION so the
+    # model sees a Persian-native predicate structure instead of literal "X دانستت".
+    limit = 5 if content_type == "MEMBER_INTERACTION" else 4
+    return pairs[:limit]
 
 
 def compact_style_examples(examples: list[Any], *, limit: int = 3) -> list[dict[str, Any]]:
