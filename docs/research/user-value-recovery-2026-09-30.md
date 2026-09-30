@@ -89,7 +89,7 @@ The runtime already had deterministic oldest-to-newest grouping plus shadow Even
 - Keep source-first review as an explicit coverage/audit view.
 - Make the normal pending inbox editorial-first and chronological.
 - Add a private **نقشهٔ انتشار** before multi-update deliveries.
-- Add a private divider before each event/group with original local time, part count, and conservative relation to an earlier group.
+- Replace the old generic batch-status message with one private **نقشهٔ انتشار** showing original local time, event/topic label, source preview, part count, and conservative relation to an earlier group.
 - Use Event Fusion only as advisory metadata for “same event / probably related”; do not merge canonical delivery groups or alter retrieval/state authority.
 - Never add navigation metadata to the saved channel caption; copy/rewrite output remains clean.
 
