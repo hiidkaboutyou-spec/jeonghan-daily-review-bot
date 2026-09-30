@@ -51,6 +51,15 @@ class PrivateReviewApplication(Application):
         data = str(callback.get("data", ""))
         callback_id = str(callback.get("id", ""))
         message_id = int(callback.get("message", {}).get("message_id", 0) or 0)
+        if data == "editorial:home":
+            self._answer_callback_safely(callback_id)
+            self.show_editorial_inbox(message_id=message_id)
+            return
+        if data.startswith("editorial:open:"):
+            draft_id = data.split(":", 2)[2]
+            self._answer_callback_safely(callback_id)
+            self.open_editorial_draft(draft_id, message_id=message_id)
+            return
         if data.startswith("inbox:page:"):
             parts = data.split(":")
             status = parts[2] if len(parts) > 2 else "pending"
@@ -123,6 +132,99 @@ class PrivateReviewApplication(Application):
             self.telegram.edit_message_text(message_id, text, reply_markup=markup)
         else:
             self.telegram.send_message(text, reply_markup=markup)
+
+    def show_editorial_inbox(self, *, message_id: int | None = None) -> None:
+        total = self.inbox.count("pending")
+        if total <= 0:
+            text = "📥 صف انتشار\n\nفعلاً پیش‌نویسِ در انتظار نداری."
+            markup = inline_keyboard([[("📡 پوشش منبع‌به‌منبع", "sq:home")]])
+            if message_id:
+                self.telegram.edit_message_text(message_id, text, reply_markup=markup)
+            else:
+                self.telegram.send_message(text, reply_markup=markup)
+            return
+
+        # Pull the oldest pending slice, because this view answers “what do I post next?”
+        # rather than “what arrived most recently?”. ReviewInboxStore pages newest-first.
+        page_size = 10
+        page_count = max(1, (total + page_size - 1) // page_size)
+        needed_pages = min(page_count, 4)
+        review_items = []
+        for page_number in range(page_count - needed_pages, page_count):
+            items, _, _ = self.inbox.list_items(
+                status="pending",
+                page=page_number,
+                page_size=page_size,
+            )
+            review_items.extend(items)
+
+        draft_by_update = {item.update_id: item.draft_id for item in review_items}
+        updates = []
+        for item in review_items:
+            update = self.state.get_update(item.update_id)
+            if update is not None:
+                updates.append(update)
+        updates.sort(key=lambda item: (item.created_at, item.id))
+        updates = updates[:25]
+
+        if not updates:
+            text = (
+                f"📥 صف انتشار — {total} مورد\n\n"
+                "جزئیات زمانی این پیش‌نویس‌های قدیمی در state پیدا نشد؛ "
+                "از نمای منبع‌به‌منبع برای بررسی‌شان استفاده کن."
+            )
+            markup = inline_keyboard([[("📡 پوشش منبع‌به‌منبع", "sq:home")]])
+        else:
+            guide = build_editorial_guide(organize_updates(updates), self.settings.timezone)
+            text = guide.overview.replace("🧭 نقشهٔ انتشار", "📥 صف انتشار — از اینجا شروع کن", 1)
+            if len(updates) < total:
+                text += f"\n\nنمایش {len(updates)} مورد اول از {total} پیش‌نویس منتظر."
+            rows = []
+            for group_index, group in enumerate(guide.groups, start=1):
+                for part_index, update in enumerate(group.updates, start=1):
+                    draft_id = draft_by_update.get(update.id)
+                    if not draft_id:
+                        continue
+                    local_time = update.created_at.astimezone(self.settings.timezone).strftime("%H:%M")
+                    source = update.author.lstrip("@") or "unknown"
+                    if str(update.raw_query or "").startswith("manual_text:"):
+                        source = "ورودی دستی"
+                    label = f"{group_index}.{part_index} · {local_time} · {source}"
+                    rows.append([(label[:50], f"editorial:open:{draft_id}")])
+            rows.append([("📡 پوشش منبع‌به‌منبع", "sq:home")])
+            rows.append([("🕘 نمای قدیمی", "sq:legacy:pending:0")])
+            markup = inline_keyboard(rows)
+
+        if message_id:
+            self.telegram.edit_message_text(message_id, ensure_rtl_line(text), reply_markup=markup)
+        else:
+            self.telegram.send_message(ensure_rtl_line(text), reply_markup=markup)
+
+    def open_editorial_draft(self, draft_id: str, *, message_id: int) -> None:
+        draft = self.state.get_draft(draft_id)
+        item = self.inbox.get(draft_id)
+        if draft is None or item is None:
+            self.telegram.edit_message_text(
+                message_id,
+                "این پیش‌نویس دیگر در صف نیست.",
+                reply_markup=inline_keyboard([[("◀️ برگشت به ترتیب انتشار", "editorial:home")]]),
+            )
+            return
+        update = self.state.get_update(draft.update_id)
+        details = [f"وضعیت: {item.status}", f"منبع: @{item.source or 'unknown'}", f"دسته: {item.category}"]
+        if update is not None:
+            local_time = update.created_at.astimezone(self.settings.timezone).strftime("%Y-%m-%d %H:%M")
+            details.append(f"زمان اصلی: {local_time}")
+        text = draft.caption + "\n\n" + " · ".join(details)
+        markup = inline_keyboard([
+            [("😂 بامزه‌تر", f"draft:fun:{draft_id}"), ("🪽 نرم‌تر", f"draft:soft:{draft_id}")],
+            [("📰 دقیق‌تر", f"draft:precise:{draft_id}"), ("📋 متن تمیز", f"draft:copy:{draft_id}")],
+            [("⏰ ۱ ساعت", f"remind:1h:{draft_id}"), ("🌙 امشب", f"remind:tonight:{draft_id}")],
+            [("🌅 فردا صبح", f"remind:tomorrow:{draft_id}"), ("📌 نگه دار", f"remind:pin:{draft_id}")],
+            [("🗑 رد", f"draft:reject:{draft_id}")],
+            [("◀️ برگشت به ترتیب انتشار", "editorial:home")],
+        ])
+        self.telegram.edit_message_text(message_id, text, reply_markup=markup)
 
     def open_inbox_draft(self, draft_id: str, *, status: str, page: int, message_id: int) -> None:
         draft = self.state.get_draft(draft_id)
