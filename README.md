@@ -4,7 +4,7 @@
 
 ## وضعیت لانچ
 
-نسخهٔ production روی شاخهٔ `main` و فقط با GitHub Actions اجرا می‌شود؛ Render یا کارت بانکی لازم نیست. اجرای live با cron تقریباً هر پنج دقیقه انجام می‌شود و Nightly Fanfic Digest هر روز ساعت ۲۲:۰۰ تهران (`18:30 UTC`) اجرا می‌شود. loop خودکارِ بدون فاصله عمداً وجود ندارد تا سهمیهٔ Actions/X/Gemini مصرف نشود. آخرین وضعیت و لینک‌های اثبات production در [`docs/LAUNCH_STATUS.md`](docs/LAUNCH_STATUS.md) ثبت شده‌اند.
+نسخهٔ production روی شاخهٔ `main` و فقط با GitHub Actions اجرا می‌شود؛ Render یا کارت بانکی لازم نیست. اجرای live با cron تقریباً هر پنج دقیقه انجام می‌شود و Nightly Fanfic Digest هر روز ساعت ۲۲:۰۰ تهران (`18:30 UTC`) اجرا می‌شود. اسکن X/Gemini همچنان فقط یک‌بار در هر pass انجام می‌شود؛ بعد از پایان کار اصلی، runtime در GitHub Actions یک بازهٔ محدود Telegram-only long polling نگه می‌دارد تا دکمه‌ها و پیام‌های ادمین بین دو cron سریع‌تر دیده شوند، بدون تکرار اسکن محتوا. آخرین وضعیت و لینک‌های اثبات production در [`docs/LAUNCH_STATUS.md`](docs/LAUNCH_STATUS.md) ثبت شده‌اند.
 
 ## قابلیت‌های اصلی
 
@@ -17,6 +17,7 @@
 - callbackهای تلگرام با limit واقعی UTF-8 bytes؛ payloadهای بلند با token opaque و mapping خصوصی SQLite
 - پیام‌های بلند بدون truncation؛ بخش‌بندی پویا با برچسب `بخش X از Y`، plan پایدار، receipt هر بخش، keyboard فقط روی بخش آخر و pacing کوتاه و rate-aware برای ادامهٔ امن بعد از failure
 - handling محدود و typed برای Telegram 429/5xx/network/permanent errors
+- bounded Telegram long polling در انتهای اجرای GitHub Actions برای کاهش latency دکمه‌ها، با checkpoint offset بعد از هر batch و runtime cap مستقل از اسکن X/Gemini
 - inbox، reminder، source health و private archive SQLite
 - `📚 فن‌فیک` و Nightly AO3/X digest با pagination محدود، pacing، fic-state و multipart receipts
 - هیچ autopublish عمومی؛ همهٔ خروجی‌ها در review chat خصوصی می‌مانند
