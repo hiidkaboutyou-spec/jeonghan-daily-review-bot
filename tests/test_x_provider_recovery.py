@@ -146,7 +146,6 @@ class XProviderRecoveryTests(unittest.TestCase):
         original.assert_not_awaited()
         self.assertEqual([item.id for item in updates], ["1"])
 
-
     @patch("app.x_provider_recovery.collect_syndication_timeline")
     def test_manual_source_works_during_degraded_provider(self, syndication):
         syndication.return_value = SimpleNamespace(
