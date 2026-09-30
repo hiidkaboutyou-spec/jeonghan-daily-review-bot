@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from .archive_store import ArchiveStore
 from .config import ConfigError, Settings
+from .editorial_order import build_editorial_guide
 from .main import Application, check_project, parse_date_query, rank_groups, short_id
 from .media_file_cache import MediaFileCache
 from .models import Draft, Update
@@ -173,8 +174,23 @@ class PrivateReviewApplication(Application):
         for update in updates:
             self.archive_db.index_update(update)
         groups = organize_updates(updates)
+        guide = build_editorial_guide(groups, self.settings.timezone)
+        groups = list(guide.groups)
         total_updates = sum(len(group.updates) for group in groups)
-        self.telegram.send_message(ensure_rtl_line(f"{total_updates} آپدیت در {len(groups)} گروه پیدا شد؛ ارسال از قدیمی به جدید شروع شد."), reply_markup=main_keyboard())
+        batch_seed = ":".join(update.id for group in groups for update in group.updates)
+        overview_delivery_key = None if force else f"editorial-overview:{short_id(batch_seed)}"
+        if total_updates > 1:
+            self.telegram.send_message(
+                ensure_rtl_line(guide.overview),
+                reply_markup=main_keyboard(),
+                delivery_key=overview_delivery_key,
+            )
+        else:
+            self.telegram.send_message(
+                ensure_rtl_line("۱ آپدیت پیدا شد؛ مستقیم پیش‌نویسش را می‌فرستم."),
+                reply_markup=main_keyboard(),
+                delivery_key=overview_delivery_key,
+            )
         deferred = 0
         for group_index, group in enumerate(groups):
             # A large translation queue can keep one Actions pass busy for several
@@ -250,6 +266,18 @@ class PrivateReviewApplication(Application):
             # but a workflow can be terminated at its execution deadline. Flush the
             # whole immutable group plan before its first Telegram network call.
             self.state.save()
+
+            if prepared and total_updates > 1:
+                group_header_key = (
+                    None
+                    if force
+                    else f"editorial-group:{short_id(batch_seed)}:{group_index + 1}"
+                )
+                self.telegram.send_message(
+                    ensure_rtl_line(guide.header_for(group_index)),
+                    reply_markup=main_keyboard(),
+                    delivery_key=group_header_key,
+                )
 
             for update, draft, delivery_key in prepared:
                 if update.media:
