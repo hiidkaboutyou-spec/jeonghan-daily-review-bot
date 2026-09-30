@@ -175,7 +175,7 @@ class PrivateReviewApplication(Application):
             )
             markup = inline_keyboard([[("📡 پوشش منبع‌به‌منبع", "sq:home")]])
         else:
-            guide = build_editorial_guide(organize_updates(updates), self.settings.timezone)
+            guide = build_editorial_guide(organize_updates(updates), getattr(self.settings, "timezone", timezone.utc))
             text = guide.overview.replace("🧭 نقشهٔ انتشار", "📥 صف انتشار — از اینجا شروع کن", 1)
             if len(updates) < total:
                 text += f"\n\nنمایش {len(updates)} مورد اول از {total} پیش‌نویس منتظر."
@@ -185,7 +185,7 @@ class PrivateReviewApplication(Application):
                     draft_id = draft_by_update.get(update.id)
                     if not draft_id:
                         continue
-                    local_time = update.created_at.astimezone(self.settings.timezone).strftime("%H:%M")
+                    local_time = update.created_at.astimezone(getattr(self.settings, "timezone", timezone.utc)).strftime("%H:%M")
                     source = update.author.lstrip("@") or "unknown"
                     if str(update.raw_query or "").startswith("manual_text:"):
                         source = "ورودی دستی"
@@ -213,7 +213,7 @@ class PrivateReviewApplication(Application):
         update = self.state.get_update(draft.update_id)
         details = [f"وضعیت: {item.status}", f"منبع: @{item.source or 'unknown'}", f"دسته: {item.category}"]
         if update is not None:
-            local_time = update.created_at.astimezone(self.settings.timezone).strftime("%Y-%m-%d %H:%M")
+            local_time = update.created_at.astimezone(getattr(self.settings, "timezone", timezone.utc)).strftime("%Y-%m-%d %H:%M")
             details.append(f"زمان اصلی: {local_time}")
         text = draft.caption + "\n\n" + " · ".join(details)
         markup = inline_keyboard([
@@ -276,7 +276,7 @@ class PrivateReviewApplication(Application):
         for update in updates:
             self.archive_db.index_update(update)
         groups = organize_updates(updates)
-        guide = build_editorial_guide(groups, self.settings.timezone)
+        guide = build_editorial_guide(groups, getattr(self.settings, "timezone", timezone.utc))
         groups = list(guide.groups)
         total_updates = sum(len(group.updates) for group in groups)
         batch_seed = ":".join(update.id for group in groups for update in group.updates)
