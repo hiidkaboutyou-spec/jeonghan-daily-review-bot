@@ -460,7 +460,7 @@ def _photo_quality_candidates(url: str) -> tuple[list[tuple[str, str]], list[tup
         query["name"] = name
         return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
-    high = [("x-direct", url), ("x-orig", variant("orig")), ("x-4096", variant("4096x4096"))]
+    high = [("x-orig", variant("orig")), ("x-4096", variant("4096x4096")), ("x-direct", url)]
     lower = [("x-large", variant("large")), ("x-medium", variant("medium")), ("x-small", variant("small"))]
     seen: set[str] = set()
     clean_high: list[tuple[str, str]] = []
