@@ -400,21 +400,34 @@ TRANSLATION REQUIREMENTS:
         return GroupCopy(str((parsed or {}).get("title") or group.title).strip(), group.category, bodies)
 
     def _repair_failed_items(self, group, direct, failed_ids, analysis, client) -> GroupCopy | None:
-        payload = [
-            {
-                "id": item.id,
-                "source": item.translation_source(),
-                "candidate": direct.bodies.get(item.id, ""),
-                "quality_failures": semantic_quality_failures(
-                    item, direct.bodies.get(item.id, "")
-                ),
-                "canonical_jeonghan": "جونگهان" if source_names_jeonghan(item.text) else None,
-            }
-            for item in group.updates
-            if item.id in failed_ids
-        ]
+        payload = []
+        for item in group.updates:
+            if item.id not in failed_ids:
+                continue
+            source = item.translation_source()
+            candidate = direct.bodies.get(item.id, "")
+            fidelity_failures = verify_hard_facts(
+                source,
+                candidate,
+                analyze_source(source),
+            )
+            fidelity_failures.extend(entity_failures(source, candidate))
+            payload.append(
+                {
+                    "id": item.id,
+                    "source": source,
+                    "candidate": candidate,
+                    "fidelity_failures": list(dict.fromkeys(fidelity_failures)),
+                    "quality_failures": semantic_quality_failures(item, candidate),
+                    "canonical_jeonghan": "جونگهان" if source_names_jeonghan(item.text) else None,
+                }
+            )
         system_instruction = (
             "تو ویراستار نهایی fidelity + Persian naturalness هستی. SOURCE مرجع حقیقت است. "
+            "fidelity_failures دلیل‌های قطعی رد شدن candidate توسط verifier هستند؛ هرکدام را دقیق رفع کن "
+            "بدون اینکه fact دیگری را حذف، جابه‌جا یا اختراع کنی. اگر نوشته invented numbers/URL/hashtag/name، "
+            "فقط همان اختراع را با تطبیق مستقیم SOURCE اصلاح کن؛ اگر missing نوشته، فقط fact موجود در SOURCE "
+            "را برگردان. verifier نهایی دوباره همهٔ این قیود را بررسی می‌کند. "
             "اگر candidate از نظر معنی درست است ولی بوی ترجمه می‌دهد، اجازه داری ساختار جمله را کاملاً "
             "فارسی‌وار کنی؛ اما هیچ گزاره، فاعل/مفعول، نفی، علت، مالکیت، نسبت with/by/for، شدت احساس یا "
             "ترتیب زمانی را عوض نکن. اسم Jeonghan/정한/ジョンハン در متن فارسی اگر در SOURCE آمده باید "
