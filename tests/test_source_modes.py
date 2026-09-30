@@ -89,7 +89,7 @@ class SourceModeTests(unittest.TestCase):
 
     def test_project_configuration_loads_priority_sources_with_explicit_modes(self):
         settings = Settings.load(require_secrets=False)
-        self.assertEqual(len(settings.sources), 32)
+        self.assertEqual(len(settings.sources), 33)
         by_handle = {item["handle"]: item for item in settings.sources}
         self.assertEqual(by_handle["hani_berry_1004"]["mode"], "full_feed")
         self.assertEqual(by_handle["pledis_17"]["mode"], "keyword_filter")
@@ -99,6 +99,24 @@ class SourceModeTests(unittest.TestCase):
             ["jeonghan", "Hannie", "Hanie", "Hani", "정한", "Yoon Jeonghan"],
         )
         self.assertEqual(settings.validate_files(), [])
+
+
+    def test_haniwadda_full_feed_survives_production_collector_gate(self):
+        settings = Settings.load(require_secrets=False)
+        matches = [source for source in settings.sources if source["handle"] == "haniwadda"]
+        self.assertEqual(len(matches), 1)
+        source = matches[0]
+        self.assertTrue(source["enabled"])
+        self.assertTrue(source["include_replies"])
+        self.assertEqual(source["priority"], 10)
+        self.assertEqual(source["mode"], "full_feed")
+        collector = XCollector({}, settings.sources, settings.keyword_groups)
+        posts = [
+            _update("haniwadda", "new clip"),
+            _update("haniwadda", ""),
+            _update("external", "new clip"),
+        ]
+        self.assertCountEqual(collector._filter_relevant(posts), posts[:2])
 
 
 class HealthKeyboardRegressionTests(unittest.TestCase):
