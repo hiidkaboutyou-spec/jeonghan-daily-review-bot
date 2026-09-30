@@ -26,4 +26,6 @@ RUN python -m pip install --no-cache-dir --upgrade "pip>=26.1.2" \
 COPY . .
 RUN python -m compileall -q app tools
 
+EXPOSE 8000
+
 CMD ["sh", "-c", "python -m app.render_preflight && exec uvicorn app.webhook_server:api --host 0.0.0.0 --port ${PORT:-8000} --workers 1"]
