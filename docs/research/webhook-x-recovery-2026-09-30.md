@@ -196,7 +196,7 @@ those failures against SOURCE. The existing final verifier remains unchanged and
 mandatory; no acceptance threshold or fact check was weakened.
 
 A focused offline regression creates the B03 class of failure with an invented `0`
-and proves the repair prompt contains `invented numbers: 0`.
+and proves the repair prompt contains the canonical verifier reason `invented semantic numbers: num:0`.
 
 ## Rollback
 
