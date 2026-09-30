@@ -48,6 +48,9 @@ class EditorialGuide:
         return "\n".join(lines)
 
 
+MAX_OVERVIEW_GROUPS = 16
+
+
 _RELATION_RANK = {
     "confident_same_event": 2,
     "probable_same_event": 1,
@@ -101,7 +104,7 @@ def _display_title(group: EventGroup, fingerprints: dict[str, Any]) -> str:
     return title or "آپدیت جونگهان"
 
 
-def _preview(group: EventGroup, limit: int = 110) -> str:
+def _preview(group: EventGroup, limit: int = 72) -> str:
     for update in group.updates:
         value = re.sub(r"https?://\S+", " ", str(update.text or ""))
         value = re.sub(r"\s+", " ", value).strip()
@@ -184,7 +187,8 @@ def build_editorial_guide(
         "از بالا به پایین برو؛ ترتیب بر اساس زمان اصلی پست‌هاست و موارد مرتبط کنار هم توضیح داده شده‌اند.",
         "",
     ]
-    for item in items:
+    visible_items = items[:MAX_OVERVIEW_GROUPS]
+    for item in visible_items:
         relation = ""
         if item.related_to:
             if item.relation_decision == "confident_same_event":
@@ -205,8 +209,24 @@ def build_editorial_guide(
             f"{source_text}{preview_text}"
         )
 
+    hidden = len(items) - len(visible_items)
+    if hidden > 0:
+        lines.extend(
+            [
+                "",
+                f"… {hidden} گروه دیگر بعد از این‌ها در همان ترتیب ارسال می‌شوند.",
+                "برای دیدن ترتیب موارد باقی‌مانده، «📥 پیش‌نویس‌ها» را باز کن.",
+            ]
+        )
+
+    overview = "\n".join(lines).strip()
+    # Telegram text messages are limited to 4096 characters. Keep headroom for
+    # platform/runtime formatting without ever turning navigation into a delivery blocker.
+    if len(overview) > 3900:
+        overview = overview[:3820].rstrip() + "\n\n… ادامه در «📥 پیش‌نویس‌ها»"
+
     return EditorialGuide(
         groups=tuple(ordered),
         items=tuple(items),
-        overview="\n".join(lines).strip(),
+        overview=overview,
     )
