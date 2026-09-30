@@ -165,16 +165,24 @@ class TelegramBot:
         """Remove an old webhook without dropping queued updates before getUpdates polling."""
         self.api("deleteWebhook", data={"drop_pending_updates": "false"}, timeout=30)
 
-    def get_updates(self, offset: int) -> list[dict[str, Any]]:
+    def get_updates(self, offset: int, *, timeout_seconds: int = 0) -> list[dict[str, Any]]:
+        """Fetch Telegram updates, optionally using bounded long polling.
+
+        ``timeout_seconds=0`` preserves the existing one-shot polling behavior.
+        A positive value lets Telegram hold the request briefly until an update
+        arrives, which removes the need for rapid client-side polling loops.
+        """
+
+        long_poll = max(0, min(50, int(timeout_seconds or 0)))
         result = self.api(
             "getUpdates",
             data={
                 "offset": offset,
-                "timeout": 0,
+                "timeout": long_poll,
                 "limit": 100,
                 "allowed_updates": json.dumps(["message", "callback_query"]),
             },
-            timeout=30,
+            timeout=max(30, long_poll + 10),
         )
         if not isinstance(result, list):
             logger.warning("Ignoring malformed Telegram getUpdates result; expected a list")
