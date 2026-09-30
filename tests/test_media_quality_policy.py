@@ -16,6 +16,8 @@ from app.media_quality import (
 from app.models import MediaItem
 from app.x_client import XCollector
 from app.x_link_ingest import _media_items
+from app.x_syndication import _media_items as _syndication_media_items
+from app.x_fxtwitter import _media_items as _fxtwitter_media_items
 
 
 class MediaQualityPolicyTests(unittest.TestCase):
@@ -124,6 +126,71 @@ class MediaQualityPolicyTests(unittest.TestCase):
 
         self.assertEqual(len(converted), 1)
         self.assertIn("1920x1080", converted[0].url)
+
+    def test_syndication_recovery_picks_1080_over_higher_bitrate_720(self):
+        tweet = {
+            "extended_entities": {
+                "media": [
+                    {
+                        "type": "video",
+                        "media_url_https": "https://pbs.twimg.com/ext_tw_video_thumb/example.jpg",
+                        "original_info": {"width": 1920, "height": 1080},
+                        "video_info": {
+                            "variants": [
+                                {
+                                    "url": "https://video.twimg.com/ext_tw_video/1/pu/vid/avc1/1280x720/low.mp4",
+                                    "bitrate": 7_000_000,
+                                },
+                                {
+                                    "url": "https://video.twimg.com/ext_tw_video/1/pu/vid/avc1/1920x1080/high.mp4",
+                                    "bitrate": 5_000_000,
+                                },
+                            ]
+                        },
+                    }
+                ]
+            }
+        }
+
+        converted = _syndication_media_items(tweet)
+
+        self.assertEqual(len(converted), 1)
+        self.assertIn("1920x1080", converted[0].url)
+        self.assertEqual((converted[0].width, converted[0].height), (1920, 1080))
+
+    def test_fxtwitter_recovery_picks_1080_over_higher_bitrate_720(self):
+        status = {
+            "media": {
+                "all": [
+                    {
+                        "type": "video",
+                        "url": "https://video.twimg.com/fallback.mp4",
+                        "width": 1920,
+                        "height": 1080,
+                        "formats": [
+                            {
+                                "url": "https://video.twimg.com/ext_tw_video/1/pu/vid/avc1/1280x720/low.mp4",
+                                "width": 1280,
+                                "height": 720,
+                                "bitrate": 7_000_000,
+                            },
+                            {
+                                "url": "https://video.twimg.com/ext_tw_video/1/pu/vid/avc1/1920x1080/high.mp4",
+                                "width": 1920,
+                                "height": 1080,
+                                "bitrate": 5_000_000,
+                            },
+                        ],
+                    }
+                ]
+            }
+        }
+
+        converted = _fxtwitter_media_items(status)
+
+        self.assertEqual(len(converted), 1)
+        self.assertIn("1920x1080", converted[0].url)
+        self.assertEqual((converted[0].width, converted[0].height), (1920, 1080))
 
 
 @unittest.skipUnless(
