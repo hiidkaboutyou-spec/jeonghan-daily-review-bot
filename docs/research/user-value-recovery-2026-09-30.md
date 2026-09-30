@@ -71,3 +71,26 @@ Primary implementation references checked on 2026-09-30:
   https://github.com/DIYgod/RSSHub/issues/23255
 - Nitter current README/legal-status notice:
   https://github.com/zedeus/nitter/blob/master/README.md
+
+
+## Follow-up: editorial-order UX gap
+
+Owner feedback after Hani Inbox was explicit: updates still felt disordered. The missing product behavior was not raw chronological sorting alone. The private assistant also needed to make four things visible at review time:
+
+1. which item should be posted first;
+2. which items belong to the same event;
+3. when each item/event originally appeared;
+4. where a new source is probably covering an earlier event rather than introducing a separate topic.
+
+The runtime already had deterministic oldest-to-newest grouping plus shadow Event Fusion evidence, but the Telegram surface hid most of that information. The pending inbox also defaulted to Phase 5 source-first navigation, which is useful for coverage auditing but conflicts with the owner's primary editorial question: **what do I post next?**
+
+### Product decision
+
+- Keep source-first review as an explicit coverage/audit view.
+- Make the normal pending inbox editorial-first and chronological.
+- Add a private **نقشهٔ انتشار** before multi-update deliveries.
+- Add a private divider before each event/group with original local time, part count, and conservative relation to an earlier group.
+- Use Event Fusion only as advisory metadata for “same event / probably related”; do not merge canonical delivery groups or alter retrieval/state authority.
+- Never add navigation metadata to the saved channel caption; copy/rewrite output remains clean.
+
+This change is intentionally UX-only. It does not modify collection completeness, cursor authority, translation, media identity, seen-state, or public publishing.
