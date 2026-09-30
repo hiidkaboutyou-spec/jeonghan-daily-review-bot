@@ -115,6 +115,13 @@ def _syndication_token(status_id: str) -> str:
         return "0"
 
 
+def _safe_nonnegative_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
 def _expanded_text(raw: dict[str, Any]) -> str:
     note = raw.get("note_tweet")
     note_text = ""
@@ -165,10 +172,10 @@ def _media_items(raw: dict[str, Any]) -> list[MediaItem]:
                 if content_type and not content_type.startswith("video/"):
                     continue
                 choices.append(variant)
-            choices.sort(key=lambda item: int(item.get("bitrate", 0) or 0), reverse=True)
+            choices.sort(key=lambda item: _safe_nonnegative_int(item.get("bitrate")), reverse=True)
             if choices:
                 url = str(choices[0].get("url") or preview)
-                bitrate = int(choices[0].get("bitrate", 0) or 0)
+                bitrate = _safe_nonnegative_int(choices[0].get("bitrate"))
         if not url.startswith(("https://", "http://")):
             continue
         original = media.get("original_info") if isinstance(media.get("original_info"), dict) else {}
@@ -177,9 +184,9 @@ def _media_items(raw: dict[str, Any]) -> list[MediaItem]:
                 kind=kind,
                 url=url,
                 preview_url=preview,
-                bitrate=max(0, bitrate),
-                width=max(0, int(original.get("width", 0) or media.get("width", 0) or 0)),
-                height=max(0, int(original.get("height", 0) or media.get("height", 0) or 0)),
+                bitrate=_safe_nonnegative_int(bitrate),
+                width=_safe_nonnegative_int(original.get("width") or media.get("width")),
+                height=_safe_nonnegative_int(original.get("height") or media.get("height")),
             )
         )
 
@@ -195,8 +202,8 @@ def _media_items(raw: dict[str, Any]) -> list[MediaItem]:
                         kind="photo",
                         url=url,
                         preview_url=url,
-                        width=max(0, int(photo.get("width", 0) or 0)),
-                        height=max(0, int(photo.get("height", 0) or 0)),
+                        width=_safe_nonnegative_int(photo.get("width")),
+                        height=_safe_nonnegative_int(photo.get("height")),
                     )
                 )
     return items
@@ -268,7 +275,12 @@ def fetch_shared_status(ref: SharedStatusRef) -> Update:
 
     if not isinstance(payload, dict) or not payload:
         raise XLinkIngestError("X syndication returned an empty post.")
-    return _update_from_payload(payload, ref)
+    try:
+        return _update_from_payload(payload, ref)
+    except XLinkIngestError:
+        raise
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise XLinkIngestError("X syndication returned malformed post metadata.") from exc
 
 
 def collect_shared_statuses(text: str, *, limit: int = MAX_SHARED_LINKS) -> LinkIngestResult:
