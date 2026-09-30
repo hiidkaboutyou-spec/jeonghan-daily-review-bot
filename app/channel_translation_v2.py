@@ -25,6 +25,7 @@ from .ai import (
     gemini_should_try_next_model,
 )
 from .channel_quality import commentary_policy, language_guidance, rerank_for_mode
+from .channel_entities import entity_failures as canonical_entity_failures
 from .config import ROOT
 from . import channel_translation as v1
 from .channel_style_runtime import (
@@ -411,7 +412,7 @@ TRANSLATION REQUIREMENTS:
                 candidate,
                 analyze_source(source),
             )
-            fidelity_failures.extend(entity_failures(source, candidate))
+            fidelity_failures.extend(canonical_entity_failures(source, candidate))
             payload.append(
                 {
                     "id": item.id,
