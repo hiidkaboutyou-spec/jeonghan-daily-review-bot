@@ -9,7 +9,7 @@ The private Hani assistant should deliver the best practical X media quality wit
 - video priority: real 1080p → real 720p → highest remaining source quality;
 - portrait and landscape are treated consistently by their shorter edge;
 - no upscaling of a lower-resolution source;
-- photo retrieval keeps the existing X CDN order: orig → 4096x4096 → large → medium → small;
+- photo retrieval explicitly requests the X CDN order: orig → 4096x4096 → supplied URL → large → medium → small;
 - Telegram delivery remains bounded by the official Bot API upload constraints.
 
 ## Baseline/root cause
@@ -19,7 +19,7 @@ Before this change the media layer already had strong fallbacks, but its quality
 - X/twscrape video variants were sorted only by bitrate;
 - yt-dlp preferred compatible codecs/containers but did not express a 1080p/720p target;
 - the FFmpeg compatibility transcode capped width at 1280, so a landscape 1920x1080 source could be reduced to 1280x720 whenever a transcode was needed;
-- Telegram video file_ids were cached under the previous normalization policy, so a code-only improvement could continue replaying old lower-quality cached uploads.
+- X photo fallback could accept a supplied lower-size CDN URL before attempting `orig` when that URL was not already original;\n- Telegram video file_ids were cached under the previous normalization policy, so a code-only improvement could continue replaying old lower-quality cached uploads.
 
 That combination explains why a valid source could still arrive below the user's preferred quality even though "best" media retrieval existed.
 
@@ -52,7 +52,7 @@ Source:
 The upstream gallery-dl Twitter/X configuration uses:
 `["orig", "4096x4096", "large", "medium", "small"]`.
 
-Decision: retain the repository's matching photo fallback order because it already targets the highest source image before stepping down.
+Decision: make the order explicit and source-independent: request `orig` first even when an incoming X URL names `small`/`medium`/`large`, then 4096x4096, then the supplied URL and lower fallbacks.
 
 Source:
 - https://github.com/mikf/gallery-dl/blob/master/docs/gallery-dl.conf
