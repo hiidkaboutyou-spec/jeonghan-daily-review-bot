@@ -265,7 +265,7 @@ class HardenedLegacyTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(len(writer.prompts), 1)
         self.assertIn('"fidelity_failures"', writer.prompts[0])
-        self.assertIn("invented numbers: 0", writer.prompts[0])
+        self.assertIn("invented semantic numbers: num:0", writer.prompts[0])
         self.assertNotIn("0 چرا", result.bodies["1"])
 
     def test_legacy_instance_is_canonicalized_before_delivery(self):
