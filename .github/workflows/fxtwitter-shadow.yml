@@ -47,7 +47,7 @@ jobs:
           python -m tools.fxtwitter_shadow_probe \
             --lookback-hours "$LOOKBACK_HOURS" \
             --page-size 100 \
-            --max-pages 6 \
+            --max-pages 10 \
             --timeout 10 \
             --workers 6 \
             --output fxtwitter-shadow.json \
