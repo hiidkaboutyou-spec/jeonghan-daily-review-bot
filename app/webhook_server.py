@@ -87,7 +87,7 @@ class WebhookRuntime:
         self.secret = derive_runtime_secret(settings.telegram_token)
         self.public_base_url = self._public_url_from_environment()
         if not self.public_base_url:
-            raise ConfigError("PUBLIC_BASE_URL or Render public URL environment is required for webhook mode")
+            raise ConfigError("A public webhook URL is required (PUBLIC_BASE_URL, Render URL, or Northflank NF_HOSTS)")
 
         webhook_url = self.public_base_url + "/telegram/webhook"
         self.application.telegram.api(
