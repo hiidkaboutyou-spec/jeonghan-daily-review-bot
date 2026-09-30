@@ -29,6 +29,10 @@ _PAIRS: dict[str, list[dict[str, str]]] = {
             "source": "it’s giving Jeonghan China bar 😭",
             "target": "خیلی وایب چاینا بار جونگهان رو می‌ده 😭",
         },
+        {
+            "source": "he used to think you were really cute, but I don't think he does anymore",
+            "target": "قبلاً فکر می‌کرد خیلی بامزه‌ای، ولی فکر نکنم دیگه این‌طوری فکر کنه",
+        },
     ],
     "dialogue": [
         {
@@ -49,11 +53,15 @@ _PAIRS: dict[str, list[dict[str, str]]] = {
             "source": "Instagram update — 7 photos, including two with Joshua.",
             "target": "آپدیت اینستاگرام — ۷ تا عکس که توی دوتاشون جاشوآ هم هست.",
         },
+        {
+            "source": "JEONGHAN Instagram update: “summer was here”",
+            "target": "آپدیت اینستاگرام جونگهان: «تابستون اینجا بود»",
+        },
     ],
     "explanation": [
         {
-            "source": "First he said he had practiced. Later he read comments and promised to return.",
-            "target": "اول گفت قبلش تمرین کرده؛ بعدتر هم کامنت‌ها رو خوند و قول داد دوباره برگرده.",
+            "source": "First he said he had practiced. Then he explained he was busy. Later he read comments and promised to return.",
+            "target": "اول گفت قبلش تمرین کرده؛ بعد گفت این مدت سرش شلوغ بوده و بعدش هم کامنت‌ها رو خوند و قول داد دوباره برگرده.",
         },
         {
             "source": "‘괜찮지~’ sounds softer and more playful than a firm ‘괜찮아’.",
