@@ -282,7 +282,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: gemini-3.5-flash-lite
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
-          ASSISTANT_RUNTIME_MODE: github_actions_polling
+          ASSISTANT_RUNTIME_MODE: github_actions_auto
         shell: bash
         run: |
           set +e
@@ -290,13 +290,19 @@ jobs:
           code=$?
           set -e
           if [ "$code" -eq 0 ]; then
-            echo "Automatic monitor pass completed."
+            echo "Automatic monitor pass completed in polling fallback mode."
             exit 0
           fi
-          if [ "$code" -eq 2 ]; then
+          if [ "$code" -eq 3 ]; then
+            echo "Webhook runtime owns Telegram; Actions delegated maintenance without starting a competing poller."
+            exit 0
+          fi
+          if [ "$code" -eq 4 ]; then
+            echo "::error::Webhook ownership was retained, but its maintenance path was unavailable. Refusing to delete the webhook or start a competing poller."
+          elif [ "$code" -eq 2 ]; then
             echo "::error::Fatal configuration error; automatic monitoring cannot run until configuration is fixed."
           else
-            echo "::error::Automatic monitor pass failed with exit code $code; the next five-minute schedule will retry from durable state."
+            echo "::error::Automatic monitor pass failed with exit code $code; durable state will be retried on a later run."
           fi
           exit "$code"
 
