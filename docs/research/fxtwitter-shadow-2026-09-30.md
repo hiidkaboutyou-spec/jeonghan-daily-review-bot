@@ -47,3 +47,15 @@ A green shadow run is necessary but not sufficient for production adoption. Befo
 - FxTwitter route: `src/realms/api/routes.ts` — `GET /2/profile/{handle}/statuses`
 - FxTwitter profile pagination implementation: `packages/atmosphere/src/providers/twitter/userStatuses.ts`
 - FxEmbed repository: MIT license, active main branch as checked 2026-09-30.
+
+## First live shadow result and correction
+
+The first exact-head live probe reached all 31 enabled sources. It proved 7 immediately,
+reported 19 partial at a six-page diagnostic budget, and saw 5 HTTP 404 outcomes. Four
+of those 404s occurred only after successful timeline pages had already been returned.
+
+Reviewing FxEmbed's own current `paginateAndMerge` implementation showed that upstream
+treats a 404 **after prior successful pages** as a normal pagination end, while a first-page
+404 remains ambiguous/not-found. Upstream also uses a ten-page maximum for its own
+profile-status pagination helper. The gate was therefore corrected to mirror those two
+upstream semantics; first-page 404 remains a hard failure and malformed data still fails closed.
