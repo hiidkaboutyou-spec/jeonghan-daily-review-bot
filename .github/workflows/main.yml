@@ -41,6 +41,14 @@ on:
           - check
           - live
           - x-source-diagnostic
+      telegram_transport:
+        description: "مالک دریافت تلگرام؛ polling فقط برای بازیابی اضطراری"
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - polling
   schedule:
     # Offset from the top of the hour because GitHub documents heavier schedule
     # congestion around minute 0. Five minutes is GitHub's minimum cron interval.
@@ -282,7 +290,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: gemini-3.5-flash-lite
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
-          ASSISTANT_RUNTIME_MODE: github_actions_auto
+          ASSISTANT_RUNTIME_MODE: ${{ (github.event_name == 'workflow_dispatch' && inputs.telegram_transport == 'polling') && 'github_actions_polling' || 'github_actions_auto' }}
         shell: bash
         run: |
           set +e
