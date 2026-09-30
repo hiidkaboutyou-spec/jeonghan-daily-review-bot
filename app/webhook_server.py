@@ -21,13 +21,41 @@ from .webhook_runtime_utils import derive_runtime_secret
 from .x_client import XCollectionError
 
 logger = logging.getLogger(__name__)
-
-# The webhook host bypasses app.sentry_runtime, so install the same public-X
-# recovery hardening explicitly. This keeps FxTwitter/syndication fallback behavior
-# identical between GitHub Actions and the always-on Telegram owner.
-_x_degraded_recovery_runtime.install(WebhookAwarePersonalAssistant)
-
 _T = TypeVar("_T")
+
+
+def _configure_webhook_x_recovery(settings: Settings) -> str:
+    """Select public X recovery only for this no-cookie webhook process.
+
+    The generic XCollector keeps its existing env-driven semantics because tests,
+    diagnostics, and authenticated runtimes may construct collectors without live
+    credentials on purpose. The webhook host, however, owns a concrete Settings
+    instance: if auth_token/ct0 are absent and no operator state was supplied, the
+    authenticated provider is impossible and degraded recovery is the safe path.
+    """
+    existing = os.environ.get("X_PROVIDER_PREFLIGHT", "").strip().lower()
+    if existing:
+        return existing
+
+    cookies = getattr(settings, "x_cookies", {}) or {}
+    missing = [
+        name
+        for name in ("auth_token", "ct0")
+        if not str(cookies.get(name) or "").strip()
+    ]
+    if missing:
+        os.environ["X_PROVIDER_PREFLIGHT"] = "degraded"
+        logger.warning(
+            "Webhook X authentication is unavailable (%s); enabling public recovery.",
+            ", ".join(missing),
+        )
+        return "degraded"
+    return ""
+
+
+def _install_webhook_x_recovery() -> None:
+    """Match the Daily runtime's public-provider hardening on the webhook owner."""
+    _x_degraded_recovery_runtime.install(WebhookAwarePersonalAssistant)
 
 
 class WebhookRuntime:
@@ -79,6 +107,8 @@ class WebhookRuntime:
         if errors:
             raise ConfigError("; ".join(errors))
         self.settings = settings
+        _configure_webhook_x_recovery(settings)
+        _install_webhook_x_recovery()
         bootstrap_telegram = TelegramBot(
             settings.telegram_token,
             settings.admin_user_id,
