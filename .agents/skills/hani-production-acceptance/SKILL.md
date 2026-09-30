@@ -5,7 +5,7 @@ description: Project-specific acceptance gates for Jeonghan Daily Assistant chan
 
 # Hani Production Acceptance
 
-Use together with `evidence-first-engineering` whenever a change can affect real bot behavior.
+Use together with `research-first-engineering` whenever a change can affect real bot behavior.
 
 ## General rule
 
