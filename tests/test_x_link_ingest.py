@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import unittest
 from datetime import timezone
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.models import EventGroup, Update
@@ -113,6 +112,19 @@ class XLinkIngestTests(unittest.TestCase):
         self.assertEqual(len(update.media), 2)
         self.assertEqual(update.media[1].url, "https://video.twimg.com/high.mp4")
         self.assertEqual(update.raw_query, "manual_link:x_syndication")
+
+    def test_malformed_media_dimensions_do_not_abort_post(self):
+        payload = _payload()
+        payload["mediaDetails"][0]["original_info"] = {"width": "unknown", "height": None}
+        payload["mediaDetails"][1]["video_info"]["variants"][1]["bitrate"] = "bad"
+        ref = SharedStatusRef(
+            status_id="2100000000000000001",
+            expected_handle="source_one",
+            original_url="https://x.com/source_one/status/2100000000000000001",
+        )
+        update = _update_from_payload(payload, ref)
+        self.assertEqual(update.media[0].width, 0)
+        self.assertEqual(len(update.media), 2)
 
     def test_payload_rejects_author_mismatch(self):
         ref = SharedStatusRef(
