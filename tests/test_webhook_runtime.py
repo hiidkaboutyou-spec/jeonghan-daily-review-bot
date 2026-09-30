@@ -248,6 +248,22 @@ class WebhookRuntimeTests(unittest.TestCase):
                 "https://assistant.onrender.com",
             )
 
+    def test_northflank_hosts_supply_public_webhook_origin(self):
+        with patch.dict(
+            os.environ,
+            {
+                "PUBLIC_BASE_URL": "",
+                "RENDER_EXTERNAL_URL": "",
+                "RENDER_EXTERNAL_HOSTNAME": "",
+                "NF_HOSTS": "web--hani--abc.code.run,custom.example",
+            },
+            clear=False,
+        ):
+            self.assertEqual(
+                WebhookRuntime._public_url_from_environment(),
+                "https://web--hani--abc.code.run",
+            )
+
     def test_successful_update_is_persisted_before_ack(self):
         runtime = WebhookRuntime()
         fake = _FakeApp()

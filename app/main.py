@@ -61,7 +61,8 @@ class Application:
         A hard runtime cap keeps the existing 15-minute workflow step safe.
         """
 
-        if os.environ.get("ASSISTANT_RUNTIME_MODE", "").strip() != "github_actions_polling":
+        runtime_mode = os.environ.get("ASSISTANT_RUNTIME_MODE", "").strip().lower()
+        if runtime_mode not in {"github_actions_polling", "github_actions_auto"}:
             return
         runtime = getattr(self.settings, "runtime", {}) or {}
         try:

@@ -54,6 +54,16 @@ class WebhookRuntime:
         render_host = os.getenv("RENDER_EXTERNAL_HOSTNAME", "").strip().strip("/")
         if render_host:
             return f"https://{render_host}"
+        northflank_hosts = os.getenv("NF_HOSTS", "").strip()
+        if northflank_hosts:
+            first_host = next(
+                (item.strip().strip("/") for item in northflank_hosts.split(",") if item.strip()),
+                "",
+            )
+            if first_host:
+                if first_host.startswith(("http://", "https://")):
+                    return first_host.rstrip("/")
+                return f"https://{first_host}"
         return ""
 
     def startup_sync(self) -> None:
@@ -77,7 +87,7 @@ class WebhookRuntime:
         self.secret = derive_runtime_secret(settings.telegram_token)
         self.public_base_url = self._public_url_from_environment()
         if not self.public_base_url:
-            raise ConfigError("PUBLIC_BASE_URL or Render public URL environment is required for webhook mode")
+            raise ConfigError("A public webhook URL is required (PUBLIC_BASE_URL, Render URL, or Northflank NF_HOSTS)")
 
         webhook_url = self.public_base_url + "/telegram/webhook"
         self.application.telegram.api(

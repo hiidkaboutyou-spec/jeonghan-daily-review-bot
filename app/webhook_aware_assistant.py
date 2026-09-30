@@ -10,11 +10,17 @@ from .x_client import XCollectionError, normalize_handle
 
 logger = logging.getLogger(__name__)
 WEBHOOK_DELEGATED_EXIT_CODE = 3
+WEBHOOK_MAINTENANCE_FAILED_EXIT_CODE = 4
 
 
 def github_actions_polling_only() -> bool:
     """Return true when production intentionally runs without an external host."""
     return os.getenv("ASSISTANT_RUNTIME_MODE", "").strip().lower() == "github_actions_polling"
+
+
+def github_actions_auto_mode() -> bool:
+    """Return true when Actions must defer to an existing webhook owner."""
+    return os.getenv("ASSISTANT_RUNTIME_MODE", "").strip().lower() == "github_actions_auto"
 
 
 class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
@@ -37,9 +43,16 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
             await super().run()
             return 0
 
+        safe_auto = github_actions_auto_mode()
         try:
             info = self.telegram.api("getWebhookInfo", timeout=30, attempts=2) or {}
         except Exception as exc:
+            if safe_auto:
+                logger.error(
+                    "Could not inspect Telegram webhook ownership (%s); refusing to race a possible webhook owner.",
+                    type(exc).__name__,
+                )
+                return WEBHOOK_MAINTENANCE_FAILED_EXIT_CODE
             logger.warning(
                 "Could not inspect Telegram webhook ownership; using polling fallback (%s)",
                 type(exc).__name__,
@@ -56,9 +69,6 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
         if maintenance_url:
             secret = derive_runtime_secret(self.settings.telegram_token)
             try:
-                # Render Free can need roughly a minute to wake from idle. Give the
-                # webhook enough time to cold-start before reclaiming polling, or a
-                # healthy sleeping service would be treated as dead every cycle.
                 response = self.telegram.session.post(
                     maintenance_url,
                     headers={"X-Assistant-Secret": secret},
@@ -70,21 +80,37 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
                         response.status_code,
                     )
                     return WEBHOOK_DELEGATED_EXIT_CODE
+                if safe_auto:
+                    logger.error(
+                        "Webhook maintenance returned HTTP %s; retaining webhook ownership instead of starting a competing poller.",
+                        response.status_code,
+                    )
+                    return WEBHOOK_MAINTENANCE_FAILED_EXIT_CODE
                 logger.warning(
                     "Webhook maintenance returned HTTP %s; reclaiming polling for this monitor pass",
                     response.status_code,
                 )
             except Exception as exc:
+                if safe_auto:
+                    logger.error(
+                        "Webhook maintenance failed (%s); retaining webhook ownership instead of starting a competing poller.",
+                        type(exc).__name__,
+                    )
+                    return WEBHOOK_MAINTENANCE_FAILED_EXIT_CODE
                 logger.warning(
                     "Webhook maintenance failed (%s); reclaiming polling for this monitor pass",
                     type(exc).__name__,
                 )
         else:
+            if safe_auto:
+                logger.error(
+                    "Telegram webhook URL is unusable; retaining ownership and refusing a competing poller."
+                )
+                return WEBHOOK_MAINTENANCE_FAILED_EXIT_CODE
             logger.warning("Telegram webhook URL is unusable; reclaiming polling for this monitor pass")
 
-        # deleteWebhook(drop_pending_updates=false) keeps Telegram's queued updates.
-        # If Telegram itself is temporarily unavailable, let the run fail so the next
-        # scheduled run retries instead of pretending monitoring succeeded.
+        # Legacy non-auto fallback only. Auto mode above fails closed so an Actions
+        # runner can never delete or race an existing webhook consumer.
         self.telegram.ensure_polling_mode()
         self.state.data["polling_mode_checked"] = datetime.now(timezone.utc).isoformat()
         await super().run()

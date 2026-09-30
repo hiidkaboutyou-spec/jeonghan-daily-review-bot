@@ -15,10 +15,13 @@ class ReleaseWorkflowTests(unittest.TestCase):
         )[0]
         self.assertIn("python -m app", live)
         self.assertIn("timeout-minutes: 15", live)
-        self.assertIn("ASSISTANT_RUNTIME_MODE: github_actions_polling", live)
+        self.assertIn("telegram_transport == 'polling'", live)
+        self.assertIn("'github_actions_polling' || 'github_actions_auto'", live)
         self.assertIn('if [ "$code" -eq 0 ]; then', live)
-        self.assertIn("Automatic monitor pass completed.", live)
-        self.assertNotIn("Healthy webhook runtime accepted the maintenance pass.", live)
+        self.assertIn('if [ "$code" -eq 3 ]; then', live)
+        self.assertIn('if [ "$code" -eq 4 ]; then', live)
+        self.assertIn("Automatic monitor pass completed in polling fallback mode.", live)
+        self.assertIn("Webhook runtime owns Telegram", live)
         self.assertNotIn("successful_passes=0", live)
         self.assertNotIn('while [ "$SECONDS"', live)
 
