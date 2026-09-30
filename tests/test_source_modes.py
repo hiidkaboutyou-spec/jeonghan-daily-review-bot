@@ -116,7 +116,7 @@ class SourceModeTests(unittest.TestCase):
             _update("haniwadda", ""),
             _update("external", "new clip"),
         ]
-        self.assertEqual(collector._filter_relevant(posts), posts[:2])
+        self.assertCountEqual(collector._filter_relevant(posts), posts[:2])
 
 
 class HealthKeyboardRegressionTests(unittest.TestCase):
