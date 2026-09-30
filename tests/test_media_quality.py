@@ -47,12 +47,12 @@ class HighQualityMediaTests(unittest.TestCase):
 
     def test_photo_quality_order_preserves_unique_direct_and_size_fallbacks(self):
         high, low = _photo_quality_candidates(self.photo().url)
-        self.assertEqual([name for name, _ in high], ["x-direct", "x-orig", "x-4096"])
+        self.assertEqual([name for name, _ in high], ["x-orig", "x-4096", "x-direct"])
         self.assertEqual([name for name, _ in low], ["x-large", "x-small"])
         urls = [url for _, url in high + low]
         self.assertEqual(len(urls), len(set(urls)))
 
-    def test_original_direct_photo_success_skips_extractors(self):
+    def test_lower_supplied_photo_is_upgraded_to_orig_before_extractors(self):
         manager = MediaManager({})
         with tempfile.TemporaryDirectory() as temp:
             def download(url, path, limit, attempts=2):
@@ -62,7 +62,8 @@ class HighQualityMediaTests(unittest.TestCase):
             with patch("app.media._probe_media", return_value={}):
                 result = manager._download_photo(self.photo(), "https://x.com/a/status/1", Path(temp), 0)
             self.assertIsNotNone(result)
-            self.assertEqual(result.metadata["retrieval_method"], "x-direct")
+            self.assertEqual(result.metadata["retrieval_method"], "x-orig")
+            self.assertIn("name=orig", manager._stream_download.call_args.args[0])
             manager._download_with_gallery_dl.assert_not_called()
 
     def test_orig_failure_falls_to_4096_before_lower_sizes(self):
