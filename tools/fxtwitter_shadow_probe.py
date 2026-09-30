@@ -34,7 +34,7 @@ HANDLE_RE = re.compile(r"^[A-Za-z0-9_]{1,15}$")
 USER_AGENT = "jeonghan-daily-review-bot/fxtwitter-shadow-probe"
 DEFAULT_TIMEOUT = 10.0
 DEFAULT_PAGE_SIZE = 100
-DEFAULT_MAX_PAGES = 6
+DEFAULT_MAX_PAGES = 10
 DEFAULT_WORKERS = 6
 
 
@@ -149,6 +149,15 @@ def evaluate_pages(
     for status, payload in pages[:max_pages]:
         result.pages += 1
         result.http_status = status
+        if status == 404 and result.rows > 0:
+            # Mirror FxEmbed's own paginateAndMerge contract: a 404 after one
+            # or more successful pages is treated as end-of-pagination, not as
+            # evidence that the configured account vanished mid-run.
+            result.cursor_exhausted = True
+            result.complete = result.schema_errors == 0
+            result.status = "complete" if result.complete else "error"
+            result.reason = "pagination_ended_404" if result.complete else "schema_errors"
+            return result
         if status != 200 or not isinstance(payload, dict):
             result.status = "error"
             result.reason = f"http_{status}"
