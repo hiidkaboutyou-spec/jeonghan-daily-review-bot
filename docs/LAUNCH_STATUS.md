@@ -1,6 +1,16 @@
 # Production Launch Status
 
-آخرین به‌روزرسانی: 2026-09-25
+آخرین به‌روزرسانی handoff: 2026-09-30
+
+## handoff مهندسی 2026-09-30
+
+- `main` فعلی هنگام این handoff: `71628cbeccd5281917286b74c30298dbc0ba5e00` (PR #148، evidence-first engineering harness).
+- branch فعال برای refresh امن #136: `fix/checkpoint-attestation-refresh-136`، ساخته‌شده دقیقاً از همین main.
+- worklog کامل چرخهٔ 2026-09-25 تا 2026-09-30 در [`research/hani-engineering-worklog-2026-09-25-to-2026-09-30.md`](research/hani-engineering-worklog-2026-09-25-to-2026-09-30.md) ثبت شده است.
+- Draft PR #141 شواهد مفید checkpoint را نگه می‌دارد، اما base آن قدیمی است؛ آن را as-is merge یا force-refresh نکن.
+- #136: contract/helper/tests قدیمی باید روی branch refresh در برابر main جدید بازاعمال شوند، تست‌ها باید pure `unittest` باشند و سپس workflow wiring + exact-head CI + real-main proof انجام شود.
+- #140: authenticated X 403 روی hosted Ubuntu/macOS/Windows بازتولید شده؛ partial fallback ممکن است محتوای زیادی بازیابی کند اما بدون lower-bound/terminal proof نباید COMPLETE یا cursor-advancing تلقی شود.
+- هیچ scraper/proxy/browser-bypass/paid API/credential تازه‌ای صرفاً برای دورزدن 403 وارد production نشده است.
 
 ## وضعیت canonical فعلی
 
