@@ -21,7 +21,7 @@ class MediaFallbackTests(unittest.TestCase):
         variants = _photo_variants("https://pbs.twimg.com/media/ABC?format=jpg&name=small")
         self.assertIn("name=orig", variants[0])
         self.assertIn("name=4096x4096", variants[1])
-        self.assertIn("name=small", variants)
+        self.assertTrue(any("name=small" in item for item in variants))
 
 
 if __name__ == "__main__":
