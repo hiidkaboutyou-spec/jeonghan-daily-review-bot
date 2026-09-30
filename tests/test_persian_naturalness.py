@@ -31,6 +31,15 @@ def test_long_explanation_flags_translationese_sequence_markers():
     assert "translationese sequencing or explicit-pronoun narration" in failures
 
 
+def test_single_ordinary_later_marker_does_not_trigger_repair():
+    update = _update(
+        "thread: Jeonghan said he was busy and would explain more later after rehearsal."
+    )
+    output = "جونگهان گفت سرش شلوغه و بعداً بعد از تمرین بیشتر توضیح می‌ده."
+
+    assert natural_persian_failures(update, output) == []
+
+
 def test_instagram_update_flags_formal_social_translationese():
     update = _update(
         'JEONGHAN Instagram update 🪽\n"summer was here"\n📸 7 photos, including two with Joshua.'
