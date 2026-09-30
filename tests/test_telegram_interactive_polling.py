@@ -2,15 +2,54 @@ from __future__ import annotations
 
 import asyncio
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 from app.main import Application
 from app.telegram import TelegramBot
+from app.telegram import TelegramTransientError
+from app.state import StateStore
+from app.webhook_aware_assistant import WebhookAwarePersonalAssistant
 
 
 class TelegramInteractivePollingTests(unittest.TestCase):
+    def test_production_window_dispatches_and_checkpoints_safe_update_handler(self):
+        self._exercise_production_window(transient_failure=False)
+
+    def test_production_window_preserves_failed_update_for_retry(self):
+        self._exercise_production_window(transient_failure=True)
+
+    def _exercise_production_window(self, *, transient_failure):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "state.json"
+            app = WebhookAwarePersonalAssistant.__new__(WebhookAwarePersonalAssistant)
+            app.settings = SimpleNamespace(runtime={"telegram_interactive_window_seconds": 3})
+            app.state = StateStore(path)
+            app.telegram = Mock()
+            update = {"update_id": 41, "message": {"text": "source24"}}
+            app.telegram.get_updates.return_value = [update]
+            offsets_during_handler = []
+
+            async def handle_message(message):
+                offsets_during_handler.append(app.state.telegram_offset)
+                if transient_failure:
+                    raise TelegramTransientError("simulated temporary transport failure")
+
+            app.handle_message = AsyncMock(side_effect=handle_message)
+            with patch.dict(os.environ, {"ASSISTANT_RUNTIME_MODE": "github_actions_polling"}):
+                with patch("app.main._monotonic", side_effect=[100.0, 100.0, 100.0, 104.0]):
+                    asyncio.run(app._run_interactive_polling_window(100.0))
+
+            app.telegram.get_updates.assert_called_once_with(0, timeout_seconds=3)
+            app.handle_message.assert_awaited_once_with(update["message"])
+            self.assertEqual(offsets_during_handler, [0])
+            restored = StateStore(path)
+            self.assertEqual(restored.telegram_offset, 0 if transient_failure else 42)
+            self.assertEqual(restored.telegram_failure_count(41), 0)
+
     def test_transport_uses_requested_long_poll_timeout(self):
         bot = TelegramBot("token", 1, 2)
         bot.api = Mock(return_value=[])

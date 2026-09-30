@@ -22,8 +22,17 @@ class TelegramSafeReviewApplication(MediaDedupReviewApplication):
     retried in a later run and bounded so one poisoned update cannot block forever.
     """
 
-    async def process_telegram_updates(self) -> None:
-        updates = self.telegram.get_updates(self.state.telegram_offset)
+    async def process_telegram_updates(self, *, long_poll_seconds: int = 0) -> int:
+        # Production overrides the base poller to preserve retry-safe offsets.
+        # Accept the interactive window's timeout here without bypassing that
+        # safety layer; keep the legacy transport call for one-shot callers.
+        if long_poll_seconds > 0:
+            updates = self.telegram.get_updates(
+                self.state.telegram_offset,
+                timeout_seconds=long_poll_seconds,
+            )
+        else:
+            updates = self.telegram.get_updates(self.state.telegram_offset)
         for item in updates:
             try:
                 update_id = int(item.get("update_id", 0) or 0)
@@ -67,6 +76,8 @@ class TelegramSafeReviewApplication(MediaDedupReviewApplication):
             else:
                 self.state.clear_telegram_failure(update_id)
                 self.state.telegram_offset = max(self.state.telegram_offset, update_id + 1)
+
+        return len(updates)
 
     async def _process_one_telegram_update(self, item: dict[str, Any]) -> None:
         if "message" in item:
