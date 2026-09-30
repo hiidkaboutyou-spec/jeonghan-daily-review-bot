@@ -4,7 +4,9 @@ import argparse
 import asyncio
 import hashlib
 import logging
+import os
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -23,6 +25,10 @@ from .x_link_ingest import collect_shared_statuses, extract_status_links
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
+TELEGRAM_INTERACTIVE_WINDOW_DEFAULT_SECONDS = 240
+TELEGRAM_INTERACTIVE_POLL_SLICE_SECONDS = 20
+TELEGRAM_ACTIONS_RUNTIME_CAP_SECONDS = 13 * 60
+
 
 class Application:
     def __init__(self, settings: Settings):
@@ -36,12 +42,75 @@ class Application:
         self.media = MediaManager(settings.x_cookies)
 
     async def run(self) -> None:
+        started_at = time.monotonic()
         try:
             self._ensure_polling_mode_periodically()
             await self.process_telegram_updates()
             await self.run_scheduled_scan()
             await self.deliver_pending()
+            await self._run_interactive_polling_window(started_at)
         finally:
+            self.state.save()
+
+    async def _run_interactive_polling_window(self, started_at: float) -> None:
+        """Keep the GitHub Actions runner responsive to Telegram between cron ticks.
+
+        The scheduled X/Gemini work still runs only once. During this bounded tail
+        window we only long-poll Telegram and execute explicit admin interactions.
+        A hard runtime cap keeps the existing 15-minute workflow step safe.
+        """
+
+        if os.environ.get("ASSISTANT_RUNTIME_MODE", "").strip() != "github_actions_polling":
+            return
+        runtime = getattr(self.settings, "runtime", {}) or {}
+        try:
+            configured_window = int(
+                runtime.get(
+                    "telegram_interactive_window_seconds",
+                    TELEGRAM_INTERACTIVE_WINDOW_DEFAULT_SECONDS,
+                )
+            )
+        except (TypeError, ValueError):
+            configured_window = TELEGRAM_INTERACTIVE_WINDOW_DEFAULT_SECONDS
+        window_seconds = max(
+            0,
+            min(TELEGRAM_INTERACTIVE_WINDOW_DEFAULT_SECONDS, configured_window),
+        )
+        if window_seconds <= 0:
+            return
+
+        try:
+            configured_cap = int(
+                runtime.get(
+                    "telegram_actions_runtime_cap_seconds",
+                    TELEGRAM_ACTIONS_RUNTIME_CAP_SECONDS,
+                )
+            )
+        except (TypeError, ValueError):
+            configured_cap = TELEGRAM_ACTIONS_RUNTIME_CAP_SECONDS
+        runtime_cap = max(60, min(14 * 60, configured_cap))
+        hard_deadline = started_at + runtime_cap
+        soft_deadline = time.monotonic() + window_seconds
+        deadline = min(hard_deadline, soft_deadline)
+        available = max(0.0, deadline - time.monotonic())
+        if available < 1:
+            return
+        logger.info(
+            "Telegram interactive long-poll window active for up to %.0f seconds.",
+            available,
+        )
+
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining < 1:
+                break
+            long_poll = max(
+                1,
+                min(TELEGRAM_INTERACTIVE_POLL_SLICE_SECONDS, int(remaining)),
+            )
+            await self.process_telegram_updates(long_poll_seconds=long_poll)
+            # Checkpoint the offset/awaiting state after every interactive batch so
+            # a later workflow timeout cannot replay already-confirmed button taps.
             self.state.save()
 
     def _ensure_polling_mode_periodically(self) -> None:
@@ -53,8 +122,14 @@ class Application:
         self.telegram.ensure_polling_mode()
         self.state.data["polling_mode_checked"] = now.isoformat()
 
-    async def process_telegram_updates(self) -> None:
-        updates = self.telegram.get_updates(self.state.telegram_offset)
+    async def process_telegram_updates(self, *, long_poll_seconds: int = 0) -> int:
+        if long_poll_seconds > 0:
+            updates = self.telegram.get_updates(
+                self.state.telegram_offset,
+                timeout_seconds=long_poll_seconds,
+            )
+        else:
+            updates = self.telegram.get_updates(self.state.telegram_offset)
         for item in updates:
             update_id = int(item.get("update_id", 0))
             self.state.telegram_offset = max(self.state.telegram_offset, update_id + 1)
@@ -69,6 +144,7 @@ class Application:
             except Exception as exc:
                 logger.exception("Unexpected command error")
                 self._safe_send(f"❌ خطای پیش‌بینی‌نشده: {type(exc).__name__}")
+        return len(updates)
 
     async def handle_message(self, message: dict[str, Any]) -> None:
         if not self.telegram.is_admin_message(message):
