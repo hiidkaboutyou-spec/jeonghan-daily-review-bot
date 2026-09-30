@@ -16,10 +16,17 @@ from .config import ConfigError, Settings
 from .telegram import TelegramBot, TelegramPermanentError, TelegramTransientError
 from .telegram_cloud_state import backup_fingerprint, backup_to_telegram, restore_from_telegram
 from .webhook_aware_assistant import WebhookAwarePersonalAssistant
+from . import x_degraded_recovery_runtime as _x_degraded_recovery_runtime
 from .webhook_runtime_utils import derive_runtime_secret
 from .x_client import XCollectionError
 
 logger = logging.getLogger(__name__)
+
+# The webhook host bypasses app.sentry_runtime, so install the same public-X
+# recovery hardening explicitly. This keeps FxTwitter/syndication fallback behavior
+# identical between GitHub Actions and the always-on Telegram owner.
+_x_degraded_recovery_runtime.install(WebhookAwarePersonalAssistant)
+
 _T = TypeVar("_T")
 
 
