@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .models import MediaItem, Update, ensure_utc
+from .media_quality import quality_rank, x_variant_dimensions
 from .source_modes import SourceMode, SourceModeGate
 
 logger = logging.getLogger(__name__)
@@ -477,18 +478,28 @@ class XCollector:
                 content_type = str(getattr(variant, "contentType", "") or "")
                 if not url or ("mp4" not in content_type.lower() and ".mp4" not in url.lower()):
                     continue
+                width, height = x_variant_dimensions(url)
                 variants.append(
                     MediaItem(
                         kind="video",
                         url=url,
                         preview_url=str(getattr(video, "thumbnailUrl", "") or ""),
                         bitrate=int(getattr(variant, "bitrate", 0) or 0),
+                        width=width,
+                        height=height,
                         duration_ms=int(getattr(video, "duration", 0) or 0),
                         content_type=content_type or "video/mp4",
                     )
                 )
             if variants:
-                variants.sort(key=lambda item: item.bitrate, reverse=True)
+                variants.sort(
+                    key=lambda item: quality_rank(
+                        item.width,
+                        item.height,
+                        item.bitrate,
+                    ),
+                    reverse=True,
+                )
                 result.append(variants[0])
         for animated in list(getattr(media, "animated", None) or []):
             url = str(getattr(animated, "videoUrl", "") or "")

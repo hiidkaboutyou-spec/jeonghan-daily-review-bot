@@ -17,6 +17,12 @@ class MediaFallbackTests(unittest.TestCase):
         self.assertEqual(len(variants), len(set(variants)))
         self.assertTrue(all("format=jpg" in item for item in variants))
 
+    def test_photo_variants_upgrade_a_small_supplied_url_before_fallback(self):
+        variants = _photo_variants("https://pbs.twimg.com/media/ABC?format=jpg&name=small")
+        self.assertIn("name=orig", variants[0])
+        self.assertIn("name=4096x4096", variants[1])
+        self.assertTrue(any("name=small" in item for item in variants))
+
 
 if __name__ == "__main__":
     unittest.main()
