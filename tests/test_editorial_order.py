@@ -43,8 +43,8 @@ def test_editorial_guide_is_chronological_even_when_groups_arrive_unsorted():
     guide = build_editorial_guide([late, early], ZoneInfo("Asia/Tehran"))
 
     assert [group.key for group in guide.groups] == ["early", "late"]
-    assert "1) 09/30 11:35 · آپدیت اول" in guide.overview
-    assert "2) 09/30 12:10 · آپدیت دوم" in guide.overview
+    assert "1) 260930 · 11:35 · آپدیت اول" in guide.overview
+    assert "2) 260930 · 12:10 · آپدیت دوم" in guide.overview
 
 
 def test_editorial_guide_marks_probable_cross_source_same_event_without_merging_delivery_groups():
@@ -124,3 +124,25 @@ def test_editorial_group_header_explains_multi_post_order_and_manual_source():
     assert guide.items[0].sources == ("@source_a", "ورودی دستی")
     assert "2 پست مرتبط" in guide.header_for(0)
     assert "بخش 1 تا 2" in guide.header_for(0)
+
+
+def test_editorial_guide_replaces_generic_title_with_event_type_and_shows_preview():
+    group = EventGroup(
+        key="concert",
+        category="general",
+        title="آپدیت جونگهان",
+        updates=[
+            _update(
+                "501",
+                30,
+                "JEONGHAN concert at Belluna Dome opening stage with Joshua",
+                author="news_source",
+            )
+        ],
+    )
+
+    guide = build_editorial_guide([group], ZoneInfo("Asia/Tehran"))
+
+    assert guide.items[0].title == "کنسرت/اجرای جونگهان"
+    assert "منبع: @news_source" in guide.overview
+    assert "موضوع: JEONGHAN concert at Belluna Dome opening stage with Joshua" in guide.overview
