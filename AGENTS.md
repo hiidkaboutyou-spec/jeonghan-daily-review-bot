@@ -55,21 +55,6 @@ Install `requirements-optional-media.txt` and exercise relevant FFmpeg/media pat
 - Do not force-push shared branches or merge while required checks are failing.
 - Do not mix this repository with any other product's files or decisions.
 
-## Evidence-first bug and feature protocol
-
-For every bug, regression, integration, performance issue, production-behavior change, or request equivalent to "make this work properly":
-
-1. read and follow `.agents/skills/research-first-engineering/SKILL.md`;
-2. for owner-visible Telegram/X/translation/media/state/runtime behavior, also read and follow `.agents/skills/hani-production-acceptance/SKILL.md`;
-3. reproduce the actual symptom and identify root cause before proposing a fix;
-4. create a regression that fails for the observed reason before changing production code;
-5. test the concrete production class/path, including overrides and workflow wiring, not only helpers/base classes;
-6. require fresh exact-head verification before merge;
-7. for owner-visible runtime changes, inspect a real post-merge `main` run before claiming production verification;
-8. never collapse "implemented", "CI green", "merged", "production-path verified", and "owner-visible confirmed" into one success claim.
-
-When external behavior or an existing implementation pattern can materially affect the solution, research primary upstream sources and GitHub code/issues/PRs/releases before implementation. Record adopt/adapt/reject decisions for non-trivial dependencies or services.
-
 ## Development workflow
 
 1. Inspect the relevant modules, tests, configuration, workflows, and current GitHub state.
