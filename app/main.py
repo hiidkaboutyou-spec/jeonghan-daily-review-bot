@@ -18,6 +18,7 @@ from .style import StyleMemory, ThemeEngine, ensure_rtl_line
 from .telegram import TelegramBot, TelegramError, draft_keyboard, inline_keyboard, main_keyboard
 from .translation_safety import translation_unavailable
 from .x_client import XCollectionError, XCollector, normalize_handle
+from .x_link_ingest import collect_shared_statuses, extract_status_links
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -92,6 +93,7 @@ class Application:
             "🔎 سرچ آرشیو": "/search",
             "📋 وضعیت": "/status",
             "📊 گزارش": "/report",
+            "✍️ ورودی سریع": "/quick",
             "❔ راهنما": "/help",
         }
         text = button_map.get(text, text)
@@ -102,6 +104,19 @@ class Application:
             return
         if awaiting == "source" and not text.startswith("/"):
             await self.run_source24(text)
+            return
+        if awaiting == "quick" and not text.startswith("/"):
+            if extract_status_links(text):
+                await self.run_shared_x_links(text)
+            else:
+                await self.run_manual_input(text)
+            return
+
+        # Sharing an X post to the private bot should be a zero-command fast lane.
+        # The link parser never fetches the supplied host; it extracts a status ID and
+        # uses the fixed public X syndication endpoint.
+        if not text.startswith("/") and extract_status_links(text):
+            await self.run_shared_x_links(text)
             return
 
         command, _, argument = text.partition(" ")
@@ -127,6 +142,8 @@ class Application:
             self.send_status()
         elif command == "/report":
             self.send_travel_report()
+        elif command == "/quick":
+            self.ask_for_quick_input()
         elif command == "/help":
             self.send_help()
         elif command == "/fic":
@@ -186,6 +203,8 @@ class Application:
             "دکمه‌های ضروری همیشه پایین چت می‌مانند؛ لازم نیست دستورها را حفظ کنی.\n"
             "• ۲ ساعت اخیر — همهٔ آپدیت‌ها حتی اگر قبلاً فرستاده شده باشند\n"
             "• ۲۴ ساعت منبع — انتخاب یک منبع و دریافت کامل\n"
+            "• فقط لینک یک پست X را بفرست — بدون دستور، مستقیم تبدیلش می‌کنم\n"
+            "• ورودی سریع — متن کره‌ای/ژاپنی/انگلیسی یا محتوای غیر-X را بده\n"
             "• سرچ آرشیو — تاریخ یا توضیح رویداد\n"
             "• فن‌فیک — همان لحظه دو لیست جدا از X و AO3\n"
             "• وضعیت و راهنما"
@@ -197,6 +216,17 @@ class Application:
         self.telegram.send_message(
             ensure_rtl_line(
                 "تاریخ یا توضیحت را بفرست؛ مثلاً:\n2026-07-14\n260714\nلایوی که داشت بازی می‌کرد و با خودش حرف می‌زد"
+            ),
+            reply_markup=main_keyboard(),
+        )
+
+    def ask_for_quick_input(self) -> None:
+        self.state.set_awaiting(self.settings.admin_user_id, "quick")
+        self.telegram.send_message(
+            ensure_rtl_line(
+                "لینک یک پست X یا متن خام را بفرست.\n"
+                "• لینک X: مدیا + متن همان پست را می‌گیرم و به کپشن کانال تبدیل می‌کنم.\n"
+                "• متن خام: برای Weverse، Instagram، مصاحبه، متن کره‌ای/ژاپنی/انگلیسی و مواردی که لینک X ندارند."
             ),
             reply_markup=main_keyboard(),
         )
@@ -344,11 +374,64 @@ class Application:
             "🗂 ۲۴ ساعت منبع — انتخاب منبع و دریافت کامل\n"
             "🔎 سرچ آرشیو — تاریخ یا توضیح رویداد\n"
             "📚 فن‌فیک — اجرای فوری دو لیست X و AO3\n"
+            "✍️ ورودی سریع — لینک X یا متن خام را به همان خروجی آمادهٔ کانال تبدیل می‌کند\n"
+            "🔗 لینک مستقیم X — حتی بدون زدن دکمه، فقط لینک را در چت بفرست\n"
             "📋 وضعیت — وضعیت بات\n"
             "📊 گزارش — گزارش جامع سفر و عملیات بدون نظارت\n"
             "❔ راهنما — همین توضیح"
         )
         self.telegram.send_message(ensure_rtl_line(text), reply_markup=main_keyboard())
+
+    async def run_shared_x_links(self, text: str) -> None:
+        refs = extract_status_links(text)
+        if not refs:
+            self.telegram.send_message(
+                "لینک پست X معتبر پیدا نشد.",
+                reply_markup=main_keyboard(),
+            )
+            return
+        self.telegram.send_message(
+            f"🔗 {len(refs)} لینک گرفتم؛ دارم متن و مدیای همان پست‌ها را آماده می‌کنم…",
+            reply_markup=main_keyboard(),
+        )
+        result = await asyncio.to_thread(collect_shared_statuses, text)
+        if result.updates:
+            await self.deliver_updates(result.updates, force=True)
+        if result.failed_ids:
+            self.telegram.send_message(
+                ensure_rtl_line(
+                    f"⚠️ {len(result.failed_ids)} لینک از X خوانده نشد. "
+                    "اگر مهم است، متن همان پست را با «✍️ ورودی سریع» بفرست تا بخش ترجمه و کپشن همچنان انجام شود."
+                ),
+                reply_markup=main_keyboard(),
+            )
+        elif not result.updates:
+            self.telegram.send_message(
+                "از لینک‌های فرستاده‌شده پست قابل‌استفاده‌ای نگرفتم؛ متن را با «✍️ ورودی سریع» بفرست.",
+                reply_markup=main_keyboard(),
+            )
+
+    async def run_manual_input(self, text: str) -> None:
+        clean = str(text or "").strip()
+        if not clean:
+            self.telegram.send_message("متن خالی بود.", reply_markup=main_keyboard())
+            return
+        now = datetime.now(timezone.utc)
+        update = Update(
+            id=f"manual-{short_id(clean + now.isoformat())}",
+            url="",
+            author="manual_input",
+            author_name="Manual input",
+            text=clean,
+            created_at=now,
+            source_priority=0,
+            raw_query="manual_text:telegram",
+        )
+        self.telegram.send_message(
+            "✍️ گرفتم؛ دارم با همان ترجمه، لحن کانال و دکمه‌های بازنویسی آماده‌اش می‌کنم…",
+            reply_markup=main_keyboard(),
+        )
+        await self.deliver_updates([update], force=True)
 
     async def run_recent2h(self) -> None:
         self.telegram.send_message(
