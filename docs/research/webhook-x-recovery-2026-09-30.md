@@ -106,16 +106,19 @@ They reinforce the existing choice for explicit shared-link ingestion and media 
 
 ## Implementation
 
-### Automatic degraded detection
+### Webhook-scoped degraded detection
 
-`x_provider_recovery._degraded()` now accepts the collector instance. Recovery mode is selected when either:
+The generic `x_provider_recovery` contract remains unchanged and env-driven. An earlier branch revision inferred degraded mode inside every `XCollector` from missing cookies; exact-head CI correctly rejected that design because unit/diagnostic collectors intentionally use empty cookie dictionaries and the broad inference bypassed Phase 3/completeness/source-authority contracts.
 
-1. `X_PROVIDER_PREFLIGHT=degraded` explicitly says so; or
-2. the collector does not have both required authenticated-X cookies (`auth_token` and `ct0`).
+The final design scopes capability detection to `app.webhook_server`:
 
-This is fail-fast capability detection, not a health guess. A collector literally cannot run the authenticated path without those credentials.
+1. after loading the concrete production `Settings`, inspect `auth_token` and `ct0`;
+2. if both are not available and no explicit `X_PROVIDER_PREFLIGHT` state exists, set this webhook process to `degraded`;
+3. preserve any explicit operator/provider state;
+4. install the same `x_degraded_recovery_runtime` hardening used by the Daily entrypoint;
+5. only then construct the webhook-owned assistant.
 
-Authenticated deployments with both cookies and no degraded signal continue using the primary collector.
+This is fail-fast capability detection at the correct deployment boundary, not a global collector semantic change. Authenticated runtimes and isolated tests therefore retain their established behavior.
 
 ### Same provider hardening on webhook runtime
 
@@ -140,7 +143,7 @@ Before this branch merges, Railway was also explicitly set to:
 
 This activates the existing public path immediately while the code-level automatic detection is validated.
 
-After the code repair is merged and owner-visible behavior is proven, the explicit provider-state variable can be removed; the missing-cookie detection is then sufficient.
+After the code repair is merged and owner-visible behavior is proven, the explicit provider-state variable can be removed; webhook startup will derive the degraded state from its concrete missing credentials without altering generic collector behavior.
 
 ## Safety boundaries
 
@@ -158,10 +161,12 @@ Unchanged:
 ## Validation contract
 
 Before merge:
-1. focused provider-recovery regression;
-2. webhook wiring regression;
+1. focused provider-recovery regression proving the generic env contract is preserved;
+2. webhook-scoped missing-cookie/explicit-state/installer regressions;
 3. canonical project validation;
 4. exact-head CI on all repository gates.
+
+The first implementation attempt failed full CI because missing-cookie inference was placed in generic `XCollector` recovery. Fourteen established Phase 3/source-authority/completeness regressions failed. That revision was not merged; the inference was moved to webhook startup instead.
 
 After merge:
 1. Railway deploy on exact main commit;
