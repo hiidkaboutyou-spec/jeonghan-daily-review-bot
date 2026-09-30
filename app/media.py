@@ -209,7 +209,7 @@ class MediaManager:
             [
                 "-i", str(source),
                 "-map", "0:v:0", "-map", "0:a?",
-                "-vf", r"scale='min(1920,iw)':'min(1920,ih)':force_original_aspect_ratio=decrease,format=yuv420p",
+                "-vf", r"scale=w=min(1920\,iw):h=min(1920\,ih):force_original_aspect_ratio=decrease,format=yuv420p",
                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
                 "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
                 "-movflags", "+faststart",
@@ -432,9 +432,9 @@ class MediaManager:
         attempts = [
             # Preserve a real 1080p source first. Only step down when the encoded
             # result still cannot fit the Bot API safety budget.
-            ["-i", str(source), "-map", "0:v:0", "-map", "0:a?", "-vf", r"scale='min(1920,iw)':'min(1920,ih)':force_original_aspect_ratio=decrease,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "27", "-c:a", "aac", "-b:a", "112k", "-movflags", "+faststart", "-avoid_negative_ts", "make_zero", str(target)],
-            ["-i", str(source), "-map", "0:v:0", "-map", "0:a?", "-vf", r"scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "29", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", "-avoid_negative_ts", "make_zero", str(target)],
-            ["-i", str(source), "-map", "0:v:0", "-map", "0:a?", "-vf", r"scale='min(960,iw)':'min(960,ih)':force_original_aspect_ratio=decrease,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "32", "-c:a", "aac", "-b:a", "80k", "-movflags", "+faststart", "-avoid_negative_ts", "make_zero", str(target)],
+            ["-i", str(source), "-map", "0:v:0", "-map", "0:a?", "-vf", r"scale=w=min(1920\,iw):h=min(1920\,ih):force_original_aspect_ratio=decrease,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "27", "-c:a", "aac", "-b:a", "112k", "-movflags", "+faststart", "-avoid_negative_ts", "make_zero", str(target)],
+            ["-i", str(source), "-map", "0:v:0", "-map", "0:a?", "-vf", r"scale=w=min(1280\,iw):h=min(1280\,ih):force_original_aspect_ratio=decrease,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "29", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", "-avoid_negative_ts", "make_zero", str(target)],
+            ["-i", str(source), "-map", "0:v:0", "-map", "0:a?", "-vf", r"scale=w=min(960\,iw):h=min(960\,ih):force_original_aspect_ratio=decrease,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "32", "-c:a", "aac", "-b:a", "80k", "-movflags", "+faststart", "-avoid_negative_ts", "make_zero", str(target)],
         ]
         for command in attempts:
             target.unlink(missing_ok=True)
