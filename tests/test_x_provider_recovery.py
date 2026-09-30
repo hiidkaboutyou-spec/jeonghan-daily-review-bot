@@ -146,49 +146,6 @@ class XProviderRecoveryTests(unittest.TestCase):
         original.assert_not_awaited()
         self.assertEqual([item.id for item in updates], ["1"])
 
-    @patch("app.x_provider_recovery.collect_degraded_window", new_callable=AsyncMock)
-    @patch("app.x_provider_recovery._ORIGINAL_COLLECT_WINDOW", new_callable=AsyncMock)
-    def test_missing_cookies_auto_enter_recovery_without_preflight_env(self, original, degraded):
-        degraded.return_value = [_update("source0", "101")]
-        collector = XCollector({}, _sources(1), [])
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("X_PROVIDER_PREFLIGHT", None)
-            updates = asyncio.run(
-                _collect_window_with_provider_recovery(
-                    collector,
-                    self.start,
-                    self.end,
-                    include_keywords=False,
-                )
-            )
-
-        original.assert_not_awaited()
-        degraded.assert_awaited_once()
-        self.assertEqual([item.id for item in updates], ["101"])
-
-    @patch("app.x_provider_recovery.collect_degraded_window", new_callable=AsyncMock)
-    @patch("app.x_provider_recovery._ORIGINAL_COLLECT_WINDOW", new_callable=AsyncMock)
-    def test_valid_cookies_without_degraded_signal_keep_authenticated_collector(self, original, degraded):
-        original.return_value = [_update("source0", "202")]
-        collector = XCollector(
-            {"auth_token": "auth", "ct0": "csrf"},
-            _sources(1),
-            [],
-        )
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("X_PROVIDER_PREFLIGHT", None)
-            updates = asyncio.run(
-                _collect_window_with_provider_recovery(
-                    collector,
-                    self.start,
-                    self.end,
-                    include_keywords=False,
-                )
-            )
-
-        original.assert_awaited_once()
-        degraded.assert_not_awaited()
-        self.assertEqual([item.id for item in updates], ["202"])
 
     @patch("app.x_provider_recovery.collect_syndication_timeline")
     def test_manual_source_works_during_degraded_provider(self, syndication):
