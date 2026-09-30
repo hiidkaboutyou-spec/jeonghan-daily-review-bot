@@ -40,21 +40,8 @@ def _provider_state() -> str:
     return os.environ.get("X_PROVIDER_PREFLIGHT", "").strip().lower()
 
 
-def _degraded(self: XCollector | None = None) -> bool:
-    """Use recovery whenever authenticated X is explicitly degraded or impossible.
-
-    GitHub Actions publishes X_PROVIDER_PREFLIGHT, but the always-on webhook host
-    starts independently and may legitimately have no X auth cookies. Missing
-    auth_token/ct0 is deterministic evidence that the authenticated collector
-    cannot run, so do not waste a full 31-source pass before entering the existing
-    read-only public-provider recovery chain.
-    """
-    if _provider_state() == "degraded":
-        return True
-    if self is None:
-        return False
-    cookies = getattr(self, "cookies", {}) or {}
-    return any(not str(cookies.get(name) or "").strip() for name in ("auth_token", "ct0"))
+def _degraded() -> bool:
+    return _provider_state() == "degraded"
 
 
 def _positive_int_env(name: str, default: int, maximum: int) -> int:
@@ -249,7 +236,7 @@ async def _collect_window_with_provider_recovery(
     include_keywords: bool = True,
     max_per_query: int = 60,
 ) -> list[Update]:
-    if not _degraded(self):
+    if not _degraded():
         return await _ORIGINAL_COLLECT_WINDOW(
             self,
             start,
@@ -282,7 +269,7 @@ async def _collect_source_with_provider_recovery(
     # degraded. This preserves stronger collector contracts such as
     # CompleteWindowXCollector, where an XCompletenessError must remain visible
     # rather than being silently converted into a partial recovery result.
-    if not _degraded(self):
+    if not _degraded():
         return await _ORIGINAL_COLLECT_SOURCE(self, normalized, start, end)
 
     try:
