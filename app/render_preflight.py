@@ -11,17 +11,16 @@ logger = logging.getLogger(__name__)
 def run_preflight() -> dict[str, str]:
     """Validate live dependencies before the Render web process starts.
 
-    This intentionally performs only bounded, read-only checks. If Telegram or
-    Gemini credentials are invalid, deployment must fail instead of advertising a
-    healthy assistant that can receive updates but cannot translate or reply.
+    This intentionally performs only bounded, read-only checks. Telegram access is
+    required because the assistant cannot receive or reply without it. Gemini is
+    optional: CaptionWriter already has a deterministic manual-review fallback, so
+    missing/unavailable Gemini must degrade translation quality without taking the
+    Telegram webhook offline.
     """
     settings = Settings.load(require_secrets=True)
     errors = settings.validate_files()
     if errors:
         raise ConfigError("; ".join(errors))
-    if not settings.gemini_api_key:
-        raise ConfigError("GEMINI_API_KEY is required for production webhook mode.")
-
     telegram = TelegramBot(
         settings.telegram_token,
         settings.admin_user_id,
@@ -40,36 +39,36 @@ def run_preflight() -> dict[str, str]:
     if not isinstance(chat, dict) or not chat.get("id"):
         raise ConfigError("Telegram review chat is not accessible to the bot.")
 
-    try:
-        from google import genai
-        from google.genai import types
-    except ImportError as exc:
-        raise ConfigError("google-genai is unavailable in the production image.") from exc
+    gemini_status = "fallback (GEMINI_API_KEY is not configured)"
+    if settings.gemini_api_key:
+        try:
+            from google import genai
+            from google.genai import types
 
-    try:
-        client = genai.Client(
-            api_key=settings.gemini_api_key,
-            http_options=types.HttpOptions(timeout=20_000),
-        )
-        model = client.models.get(model=settings.gemini_model)
-    except Exception as exc:
-        raise ConfigError(
-            f"Gemini preflight failed for {settings.gemini_model}: {type(exc).__name__}"
-        ) from None
-    if model is None:
-        raise ConfigError(f"Gemini model {settings.gemini_model} is unavailable.")
+            client = genai.Client(
+                api_key=settings.gemini_api_key,
+                http_options=types.HttpOptions(timeout=20_000),
+            )
+            model = client.models.get(model=settings.gemini_model)
+            if model is None:
+                raise RuntimeError("model lookup returned no data")
+        except Exception as exc:
+            gemini_status = f"fallback ({type(exc).__name__})"
+        else:
+            gemini_status = settings.gemini_model
 
     logger.info(
-        "Production preflight passed: Telegram bot=%s review_chat=%s Gemini=%s X-cookies=present",
+        "Production preflight passed: Telegram bot=%s review_chat=%s Gemini=%s X-cookies=%s",
         me.get("username") or me.get("id"),
         settings.review_chat_id,
-        settings.gemini_model,
+        gemini_status,
+        "present" if settings.x_cookies else "missing",
     )
     return {
         "telegram": "ok",
         "review_chat": "ok",
-        "gemini": settings.gemini_model,
-        "x_cookie": "ok",
+        "gemini": gemini_status,
+        "x_cookie": "ok" if settings.x_cookies else "offline",
     }
 
 
