@@ -15,6 +15,7 @@ from app.media_quality import (
 )
 from app.models import MediaItem
 from app.x_client import XCollector
+from app.x_link_ingest import _media_items
 
 
 class MediaQualityPolicyTests(unittest.TestCase):
@@ -93,6 +94,36 @@ class MediaQualityPolicyTests(unittest.TestCase):
         self.assertEqual(len(converted), 1)
         self.assertIn("1920x1080", converted[0].url)
         self.assertEqual((converted[0].width, converted[0].height), (1920, 1080))
+
+    def test_shared_x_link_ingest_picks_1080_variant_before_higher_bitrate_720(self):
+        raw = {
+            "mediaDetails": [
+                {
+                    "type": "video",
+                    "media_url_https": "https://pbs.twimg.com/ext_tw_video_thumb/example.jpg",
+                    "original_info": {"width": 1920, "height": 1080},
+                    "video_info": {
+                        "variants": [
+                            {
+                                "url": "https://video.twimg.com/ext_tw_video/1/pu/vid/avc1/1280x720/low.mp4",
+                                "content_type": "video/mp4",
+                                "bitrate": 7_000_000,
+                            },
+                            {
+                                "url": "https://video.twimg.com/ext_tw_video/1/pu/vid/avc1/1920x1080/high.mp4",
+                                "content_type": "video/mp4",
+                                "bitrate": 5_000_000,
+                            },
+                        ]
+                    },
+                }
+            ]
+        }
+
+        converted = _media_items(raw)
+
+        self.assertEqual(len(converted), 1)
+        self.assertIn("1920x1080", converted[0].url)
 
 
 @unittest.skipUnless(
