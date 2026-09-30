@@ -124,12 +124,18 @@ This is fail-fast capability detection at the correct deployment boundary, not a
 
 `app.webhook_server` now explicitly installs `x_degraded_recovery_runtime` on `WebhookAwarePersonalAssistant`, matching the production Daily composition.
 
-This makes the existing chain available on Railway:
+This makes the public recovery chain available on Railway. Based on the live #143
+shadow evidence, the provider order is now:
 
 authenticated X unavailable
-→ public profile syndication
-→ FxTwitter v2 fallback
-→ bounded Agent Reach fallback when usable
+→ FxTwitter API v2 (first public timeline provider)
+→ public profile syndication when FxTwitter errors or returns no rows
+→ bounded Agent Reach when both public timeline providers fail
+
+The order matters. Profile-syndication HTML can be structurally valid yet stale/empty;
+if it is accepted first, FxTwitter is never attempted. FxTwitter reached all 31
+configured sources with zero provider errors in the shadow run and supports a lower
+time boundary, so it is the stronger first read for the short owner-requested window.
 
 The public result remains partial and cannot advance the authenticated full-success cursor.
 
@@ -144,6 +150,24 @@ Before this branch merges, Railway was also explicitly set to:
 This activates the existing public path immediately while the code-level automatic detection is validated.
 
 After the code repair is merged and owner-visible behavior is proven, the explicit provider-state variable can be removed; webhook startup will derive the degraded state from its concrete missing credentials without altering generic collector behavior.
+
+## Provider-order correction
+
+The first version of the recovery layer treated FxTwitter only as an exception fallback
+after profile syndication raised an error. That is insufficient for the production
+symptom because syndication may return HTTP-successful structured data with zero
+updates in the requested window. A successful-empty response does not raise, so the
+stronger FxTwitter provider would never run.
+
+The final branch therefore calls FxTwitter first. If FxTwitter returns any raw timeline
+rows, its source/window-authorized result is used. If it returns no rows or raises a
+bounded provider error, the existing syndication reader is tried next. Only if both
+public timeline providers fail does the outer Agent Reach path become eligible.
+
+Focused tests prove:
+- FxTwitter wins without needlessly calling syndication when it has timeline rows;
+- a zero-row FxTwitter response falls back to syndication;
+- an FxTwitter provider error falls back to syndication.
 
 ## Safety boundaries
 
