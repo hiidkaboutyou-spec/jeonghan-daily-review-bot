@@ -21,8 +21,8 @@ class TelegramRuntimeOwnershipTests(unittest.TestCase):
     def test_actions_workflow_uses_auto_transport_ownership(self):
         workflow = (ROOT / ".github" / "workflows" / "main.yml").read_text(encoding="utf-8")
 
-        self.assertIn("ASSISTANT_RUNTIME_MODE: github_actions_auto", workflow)
-        self.assertNotIn("ASSISTANT_RUNTIME_MODE: github_actions_polling", workflow)
+        self.assertIn("telegram_transport:", workflow)
+        self.assertIn("'github_actions_polling' || 'github_actions_auto'", workflow)
         self.assertIn('if [ "$code" -eq 3 ]; then', workflow)
         self.assertIn('if [ "$code" -eq 4 ]; then', workflow)
 
