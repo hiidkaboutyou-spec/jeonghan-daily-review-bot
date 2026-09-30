@@ -50,6 +50,10 @@ def install(application_cls) -> None:
         if status != "pending":
             original_show_inbox(self, status=status, page=page, message_id=message_id)
             return
+        editorial = getattr(self, "show_editorial_inbox", None)
+        if callable(editorial):
+            editorial(message_id=message_id)
+            return
         show_source_first_inbox(self, message_id=message_id)
 
     def open_source_first_draft(self, message_id: int) -> None:
