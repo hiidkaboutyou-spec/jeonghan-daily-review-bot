@@ -19,7 +19,7 @@ import argparse
 import json
 import re
 import sys
-import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -32,9 +32,10 @@ ROOT = Path(__file__).resolve().parents[1]
 BASE_URL = "https://api.fxtwitter.com"
 HANDLE_RE = re.compile(r"^[A-Za-z0-9_]{1,15}$")
 USER_AGENT = "jeonghan-daily-review-bot/fxtwitter-shadow-probe"
-DEFAULT_TIMEOUT = 20.0
+DEFAULT_TIMEOUT = 10.0
 DEFAULT_PAGE_SIZE = 100
 DEFAULT_MAX_PAGES = 6
+DEFAULT_WORKERS = 6
 
 
 @dataclass(slots=True)
@@ -278,30 +279,49 @@ def run_probe(
     page_size: int,
     max_pages: int,
     timeout: float,
+    workers: int = DEFAULT_WORKERS,
     root: Path = ROOT,
 ) -> dict[str, Any]:
     end = datetime.now(timezone.utc)
     start = end - timedelta(hours=lookback_hours)
     sources = load_enabled_sources(root)
-    results: list[SourceResult] = []
+    results_by_handle: dict[str, SourceResult] = {}
 
-    for source in sources:
-        result = probe_source(
-            source,
-            start_epoch=start.timestamp(),
-            page_size=page_size,
-            max_pages=max_pages,
-            timeout=timeout,
-        )
-        results.append(result)
-        print(
-            f"@{result.handle}: {result.status} "
-            f"({result.reason}; pages={result.pages}; rows={result.rows}; "
-            f"window={result.window_rows})",
-            flush=True,
-        )
-        time.sleep(0.08)
+    # Six workers are intentionally far below the provider's documented public
+    # request ceiling while preventing one blocked route from serially stalling
+    # the entire 31-source diagnostic.
+    with ThreadPoolExecutor(max_workers=max(1, min(workers, len(sources) or 1))) as executor:
+        futures = {
+            executor.submit(
+                probe_source,
+                source,
+                start_epoch=start.timestamp(),
+                page_size=page_size,
+                max_pages=max_pages,
+                timeout=timeout,
+            ): str(source["handle"])
+            for source in sources
+        }
+        for future in as_completed(futures):
+            handle = futures[future]
+            try:
+                result = future.result()
+            except Exception as exc:  # fail closed without losing the other evidence
+                result = SourceResult(
+                    handle=handle,
+                    status="error",
+                    reason=f"worker_error:{type(exc).__name__}",
+                )
+            results_by_handle[handle.casefold()] = result
+            print(
+                f"@{result.handle}: {result.status} "
+                f"({result.reason}; pages={result.pages}; rows={result.rows}; "
+                f"window={result.window_rows})",
+                flush=True,
+            )
 
+    # Keep the report stable in configured-source order regardless of completion order.
+    results = [results_by_handle[str(source["handle"]).casefold()] for source in sources]
     complete = sum(item.complete for item in results)
     errors = sum(item.status == "error" for item in results)
     partial = len(results) - complete - errors
@@ -331,6 +351,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--page-size", type=int, default=DEFAULT_PAGE_SIZE)
     parser.add_argument("--max-pages", type=int, default=DEFAULT_MAX_PAGES)
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
+    parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS)
     parser.add_argument("--output", type=Path, default=Path("fxtwitter-shadow.json"))
     parser.add_argument("--require-complete", action="store_true")
     args = parser.parse_args(argv)
@@ -340,12 +361,14 @@ def main(argv: list[str] | None = None) -> int:
     page_size = min(100, max(1, args.page_size))
     max_pages = min(20, max(1, args.max_pages))
     timeout = min(60.0, max(1.0, args.timeout))
+    workers = min(12, max(1, args.workers))
 
     report = run_probe(
         lookback_hours=args.lookback_hours,
         page_size=page_size,
         max_pages=max_pages,
         timeout=timeout,
+        workers=workers,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
