@@ -15,7 +15,7 @@ The always-on webhook can have no X auth_token/ct0. Generic provider recovery is
 - GitHub Actions scheduled workflows delayed dropped official documentation
 
 ## Options reviewed
-1. Existing FxTwitter/FxEmbed provider: chosen as first degraded provider; already integrated, MIT upstream, no new secret/dependency, and prior project shadow evidence reached every configured source. Still partial authority only.
+1. Existing FxTwitter/FxEmbed provider: retained inside the already-integrated degraded chain; MIT upstream, no new secret/dependency, and prior project shadow evidence reached every configured source. Still partial authority only.
 2. x-tweet-fetcher: useful multi-backend/error-classification architecture; rejected as dependency because it duplicates Hani normalization/state/provider plumbing.
 3. Nitter/self-hosted Nitter: useful secondary architecture reference but adds hosting/session/account risk and is not needed for this repair.
 4. Scheduled GitHub Actions polling: rejected for Telegram responsiveness; GitHub documents schedule delay/drop under load.
@@ -25,7 +25,7 @@ The always-on webhook can have no X auth_token/ct0. Generic provider recovery is
 Fresh branch from current main: `fix/webhook-x-recovery-refresh-20261001`.
 - webhook startup enters degraded recovery only when concrete X cookies are absent and no explicit provider state exists;
 - webhook installs existing degraded recovery runtime before constructing the assistant;
-- degraded public timeline tries FxTwitter first, then existing syndication, then the outer Agent Reach fallback;
+- existing degraded provider order is preserved; this repair changes only webhook entry into that already-tested recovery chain;
 - public fallback remains partial and cannot claim authenticated completeness or advance the full-success cursor;
 - no new dependency, token, paid API, state schema, or bypass.
 
@@ -33,3 +33,6 @@ Regression tests from #157 were reapplied on the fresh branch. The unrelated tra
 
 ## Acceptance
 Do not merge until exact-head CI on the fresh PR is green. After merge, deploy the exact main SHA to the always-on host and validate a real owner `🕑 ۲ ساعت اخیر` press with provider logs. Useful fallback rows are not proof of full X completeness.
+
+## CI correction
+Initial refresh attempted to reorder the public providers FxTwitter-first. Nightly Fanfic's full validation suite caught a stateful wrapper regression in `test_live_recovery_hardening`. Because provider order is not required to solve #156, that extra behavior change was reverted rather than weakening the test. The refreshed PR now preserves main's provider ordering and limits scope to webhook recovery activation/wiring.
