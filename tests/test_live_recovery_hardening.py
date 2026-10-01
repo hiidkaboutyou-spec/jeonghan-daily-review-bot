@@ -123,13 +123,9 @@ class XDegradedRecoveryRuntimeTests(unittest.TestCase):
             },
         )
 
-    def test_public_provider_prefers_fxtwitter_before_syndication(self) -> None:
-        syndication = Mock(
-            return_value=hardening._syndication.SyndicationResult(
-                updates=["stale"],
-                raw_seen=1,
-            )
-        )
+    def test_public_provider_fallback_uses_fxtwitter_only_after_syndication_failure(self) -> None:
+        def syndication_failure(*_args, **_kwargs):
+            raise hardening._syndication.SyndicationError("offline")
 
         async def degraded_window(*_args, **_kwargs):
             return []
@@ -139,7 +135,7 @@ class XDegradedRecoveryRuntimeTests(unittest.TestCase):
         with patch.object(
             hardening._provider_recovery,
             "collect_syndication_timeline",
-            new=syndication,
+            new=syndication_failure,
         ), patch.object(
             hardening._provider_recovery,
             "collect_degraded_window",
@@ -160,78 +156,7 @@ class XDegradedRecoveryRuntimeTests(unittest.TestCase):
         self.assertEqual(result.updates, ["update"])
         self.assertEqual(result.raw_seen, 3)
         fx.assert_called_once()
-        syndication.assert_not_called()
         self.assertEqual(fx.call_args.kwargs["max_pages"], 3)
-
-    def test_public_provider_falls_back_to_syndication_when_fxtwitter_is_empty(self) -> None:
-        syndication_result = hardening._syndication.SyndicationResult(
-            updates=["syndication-update"],
-            raw_seen=2,
-        )
-        syndication = Mock(return_value=syndication_result)
-
-        async def degraded_window(*_args, **_kwargs):
-            return []
-
-        hardening._PROVIDER_INSTALLED = False
-        with patch.object(
-            hardening._provider_recovery,
-            "collect_syndication_timeline",
-            new=syndication,
-        ), patch.object(
-            hardening._provider_recovery,
-            "collect_degraded_window",
-            new=degraded_window,
-        ), patch.object(
-            hardening,
-            "collect_fxtwitter_timeline",
-            return_value=SimpleNamespace(updates=[], raw_seen=0),
-        ):
-            hardening._install_public_provider_fallback()
-            result = hardening._provider_recovery.collect_syndication_timeline(
-                "source",
-                SimpleNamespace(),
-                SimpleNamespace(),
-                include_replies=True,
-            )
-
-        self.assertIs(result, syndication_result)
-        syndication.assert_called_once()
-
-    def test_public_provider_falls_back_to_syndication_when_fxtwitter_errors(self) -> None:
-        syndication_result = hardening._syndication.SyndicationResult(
-            updates=["syndication-update"],
-            raw_seen=2,
-        )
-        syndication = Mock(return_value=syndication_result)
-
-        async def degraded_window(*_args, **_kwargs):
-            return []
-
-        hardening._PROVIDER_INSTALLED = False
-        with patch.object(
-            hardening._provider_recovery,
-            "collect_syndication_timeline",
-            new=syndication,
-        ), patch.object(
-            hardening._provider_recovery,
-            "collect_degraded_window",
-            new=degraded_window,
-        ), patch.object(
-            hardening,
-            "collect_fxtwitter_timeline",
-            side_effect=hardening.FxTwitterError("offline"),
-        ):
-            hardening._install_public_provider_fallback()
-            result = hardening._provider_recovery.collect_syndication_timeline(
-                "source",
-                SimpleNamespace(),
-                SimpleNamespace(),
-                include_replies=True,
-            )
-
-        self.assertIs(result, syndication_result)
-        syndication.assert_called_once()
 
     def test_install_wraps_final_scan_once_and_reconciles_after_original_scan(self) -> None:
         events: list[str] = []
