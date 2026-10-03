@@ -135,6 +135,7 @@ class TelegramOutcome:
 @dataclass(slots=True)
 class StateOutcome:
     state_checkpoint_success: bool = False
+    database_checkpoint_attempted: bool = False
     database_checkpoint_success: bool = False
     cursor_advanced: bool = False
     cursor_reason: str = ""
@@ -311,6 +312,7 @@ class OutcomeBuilder:
         self._outcome.state.state_checkpoint_success = success
 
     def mark_database_checkpoint(self, success: bool) -> None:
+        self._outcome.state.database_checkpoint_attempted = True
         self._outcome.state.database_checkpoint_success = success
 
     def set_cursor(self, *, advanced: bool, reason: str) -> None:
@@ -370,6 +372,10 @@ def classify_outcome(outcome: ProductionOutcome) -> tuple[str, list[str]]:
     # State/database checkpoint failure that risks correctness
     if not state.state_checkpoint_success and sc.attempted_source_count > 0:
         reasons.append("state_checkpoint_failed")
+        return OutcomeStatus.FAILED.value, reasons
+
+    if state.database_checkpoint_attempted and not state.database_checkpoint_success:
+        reasons.append("database_checkpoint_failed")
         return OutcomeStatus.FAILED.value, reasons
 
     # Outcome contract itself cannot be produced safely (handled by caller)
@@ -722,6 +728,7 @@ def validate_outcome(data: dict[str, Any]) -> ProductionOutcome:
     if isinstance(raw_state, dict):
         outcome.state = StateOutcome(
             state_checkpoint_success=bool(raw_state.get("state_checkpoint_success")),
+            database_checkpoint_attempted=bool(raw_state.get("database_checkpoint_attempted", False)),
             database_checkpoint_success=bool(raw_state.get("database_checkpoint_success")),
             cursor_advanced=bool(raw_state.get("cursor_advanced")),
             cursor_reason=str(raw_state.get("cursor_reason", "")),
