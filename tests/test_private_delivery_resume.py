@@ -13,7 +13,7 @@ from app.main import short_id
 from app.models import EventGroup, MediaItem, Update
 from app.private_runtime import PrivateReviewApplication
 from app.state import StateStore
-from app.telegram import TelegramError
+from app.telegram import TelegramError, TelegramPermanentError
 
 
 class PrivateDeliveryResumeTests(unittest.TestCase):
@@ -180,6 +180,41 @@ class PrivateDeliveryResumeTests(unittest.TestCase):
             warning = app.telegram.send_message.call_args_list[1]
             self.assertIn(update.url, warning.args[0])
             self.assertEqual(warning.kwargs["delivery_key"], f"media-unavailable:{update.id}")
+
+    def test_webhook_owned_delivery_never_calls_get_updates_between_groups(self):
+        with tempfile.TemporaryDirectory() as temp:
+            updates = [self.update(str(index), index) for index in range(1, 7)]
+            groups = [
+                EventGroup(key=f"single:{item.id}", category="general", title="old", updates=[item])
+                for item in updates
+            ]
+            app = PrivateReviewApplication.__new__(PrivateReviewApplication)
+            app.state = StateStore(Path(temp) / "state.json")
+            app.settings = SimpleNamespace(themes={"themes": {"general": {}}})
+            app.archive_db = Mock()
+            app.inbox = Mock()
+            app._deliver_private_media = AsyncMock(return_value=True)
+            app.process_telegram_updates = AsyncMock(
+                side_effect=TelegramPermanentError(
+                    "Telegram getUpdates failed: Conflict: webhook is active"
+                )
+            )
+            app.telegram_webhook_owned = True
+            app.writer = Mock()
+            app.writer.write_group.side_effect = [
+                GroupCopy("عنوان", "general", {item.id: f"ترجمه {item.id}"}) for item in updates
+            ]
+            app.themes = Mock()
+            app.themes.caption.side_effect = [f"کپشن {item.id}" for item in updates]
+            app.telegram = Mock()
+            app.telegram.send_message.return_value = {"message_id": 1}
+
+            with patch("app.private_runtime.organize_updates", return_value=groups):
+                asyncio.run(app.deliver_updates(updates, force=False))
+
+            app.process_telegram_updates.assert_not_awaited()
+            self.assertEqual(app.telegram.send_message.call_count, 7)
+            self.assertTrue(all(app.state.is_seen(item.id) for item in updates))
 
     def test_large_delivery_queue_polls_new_commands_between_batches(self):
         with tempfile.TemporaryDirectory() as temp:

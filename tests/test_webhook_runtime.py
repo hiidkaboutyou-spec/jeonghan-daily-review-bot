@@ -15,7 +15,7 @@ from app.telegram import TelegramTransientError
 from app.telegram_cloud_state import backup_fingerprint, ensure_process_backup_key
 from app.webhook_runtime_utils import derive_runtime_secret, maintenance_url_from_webhook
 from app.webhook_aware_assistant import WebhookAwarePersonalAssistant, github_actions_polling_only
-from app.webhook_server import WebhookRuntime
+from app.webhook_server import WebhookRuntime, _autonomous_maintenance_loop
 
 
 class _FakeState:
@@ -263,6 +263,23 @@ class WebhookRuntimeTests(unittest.TestCase):
                 WebhookRuntime._public_url_from_environment(),
                 "https://web--hani--abc.code.run",
             )
+
+    def test_autonomous_maintenance_loop_runs_without_external_http_wake(self):
+        runtime = WebhookRuntime()
+        runtime.maintenance_tick_seconds = 15
+        runtime.run_state = AsyncMock(side_effect=[None, asyncio.CancelledError()])  # type: ignore[method-assign]
+
+        async def exercise():
+            with patch("app.webhook_server.asyncio.sleep", new=AsyncMock(return_value=None)):
+                with self.assertRaises(asyncio.CancelledError):
+                    await _autonomous_maintenance_loop(runtime)
+
+        asyncio.run(exercise())
+
+        self.assertEqual(runtime.run_state.await_count, 2)
+        for call in runtime.run_state.await_args_list:
+            self.assertEqual(call.args[0].__name__, "maintenance_sync")
+        runtime.executor.shutdown(wait=True, cancel_futures=True)
 
     def test_successful_update_is_persisted_before_ack(self):
         runtime = WebhookRuntime()
