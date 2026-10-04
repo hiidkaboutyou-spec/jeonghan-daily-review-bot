@@ -294,7 +294,11 @@ class PrivateReviewApplication(Application):
             # A large translation queue can keep one Actions pass busy for several
             # minutes. Check Telegram between small batches so commands/callbacks
             # sent during that pass do not wait for the next workflow process.
-            if group_index and group_index % 5 == 0:
+            if (
+                group_index
+                and group_index % 5 == 0
+                and not bool(getattr(self, "telegram_webhook_owned", False))
+            ):
                 await self.process_telegram_updates()
             existing_drafts: dict[str, Draft] = {}
             if not force:
