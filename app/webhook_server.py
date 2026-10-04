@@ -23,6 +23,24 @@ from .x_client import XCollectionError
 logger = logging.getLogger(__name__)
 _T = TypeVar("_T")
 
+DEFAULT_MAINTENANCE_TICK_SECONDS = 60
+MIN_MAINTENANCE_TICK_SECONDS = 15
+MAX_MAINTENANCE_TICK_SECONDS = 300
+
+
+def _maintenance_tick_seconds() -> int:
+    raw = os.getenv("WEBHOOK_MAINTENANCE_TICK_SECONDS", "").strip()
+    try:
+        value = int(raw) if raw else DEFAULT_MAINTENANCE_TICK_SECONDS
+    except ValueError:
+        logger.warning(
+            "Invalid WEBHOOK_MAINTENANCE_TICK_SECONDS=%r; using %ss",
+            raw,
+            DEFAULT_MAINTENANCE_TICK_SECONDS,
+        )
+        value = DEFAULT_MAINTENANCE_TICK_SECONDS
+    return max(MIN_MAINTENANCE_TICK_SECONDS, min(MAX_MAINTENANCE_TICK_SECONDS, value))
+
 
 def _configure_webhook_x_recovery(settings: Settings) -> str:
     """Select public X recovery only for this no-cookie webhook process."""
@@ -59,6 +77,9 @@ class WebhookRuntime:
         self.public_base_url = ""
         self.last_backup_hash = ""
         self.last_scan_at = datetime.min.replace(tzinfo=timezone.utc)
+        self.last_maintenance_at = datetime.min.replace(tzinfo=timezone.utc)
+        self.last_maintenance_error = ""
+        self.maintenance_tick_seconds = _maintenance_tick_seconds()
 
     async def run_state(self, fn: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
         loop = asyncio.get_running_loop()
@@ -109,6 +130,10 @@ class WebhookRuntime:
             logger.warning("Telegram cloud-state restore unavailable (%s); using local state if present", type(exc).__name__)
 
         self.application = WebhookAwarePersonalAssistant(settings)
+        # This process owns Telegram through setWebhook. Delivery code must never
+        # interleave getUpdates while this flag is set; Telegram rejects polling
+        # whenever a webhook is active.
+        self.application.telegram_webhook_owned = True
         self.secret = derive_runtime_secret(settings.telegram_token)
         self.public_base_url = self._public_url_from_environment()
         if not self.public_base_url:
@@ -196,7 +221,12 @@ class WebhookRuntime:
                     asyncio.run(app.run_scheduled_scan())
                     asyncio.run(app.deliver_pending())
                     self.last_scan_at = now
+                self.last_maintenance_error = ""
+            except Exception as exc:
+                self.last_maintenance_error = type(exc).__name__
+                raise
             finally:
+                self.last_maintenance_at = datetime.now(timezone.utc)
                 app.state.save()
                 self._save_and_backup_if_changed()
 
@@ -218,12 +248,39 @@ class WebhookRuntime:
 runtime = WebhookRuntime()
 
 
+async def _autonomous_maintenance_loop(active_runtime: WebhookRuntime) -> None:
+    """Keep scheduled collection alive without depending on GitHub cron delivery."""
+    # Let the HTTP server become healthy before the first potentially expensive scan.
+    await asyncio.sleep(min(15, active_runtime.maintenance_tick_seconds))
+    while True:
+        try:
+            await active_runtime.run_state(active_runtime.maintenance_sync)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            active_runtime.last_maintenance_error = type(exc).__name__
+            logger.exception(
+                "Autonomous webhook maintenance failed (%s); next tick will retry",
+                type(exc).__name__,
+            )
+        await asyncio.sleep(active_runtime.maintenance_tick_seconds)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await runtime.run_state(runtime.startup_sync)
+    maintenance_task = asyncio.create_task(
+        _autonomous_maintenance_loop(runtime),
+        name="jeonghan-autonomous-maintenance",
+    )
     try:
         yield
     finally:
+        maintenance_task.cancel()
+        try:
+            await maintenance_task
+        except asyncio.CancelledError:
+            pass
         if runtime.application is not None:
             await runtime.run_state(runtime._save_and_backup_if_changed, force=True)
         runtime.executor.shutdown(wait=True, cancel_futures=True)
@@ -239,10 +296,19 @@ def root() -> dict[str, Any]:
 
 @api.get("/healthz")
 def healthz() -> dict[str, Any]:
+    last_maintenance = (
+        None
+        if runtime.last_maintenance_at == datetime.min.replace(tzinfo=timezone.utc)
+        else runtime.last_maintenance_at.isoformat()
+    )
     return {
         "ok": runtime.application is not None,
         "mode": "telegram-webhook",
         "public_base_url": bool(runtime.public_base_url),
+        "autonomous_maintenance": True,
+        "maintenance_tick_seconds": runtime.maintenance_tick_seconds,
+        "last_maintenance_at": last_maintenance,
+        "last_maintenance_error": runtime.last_maintenance_error,
     }
 
 
