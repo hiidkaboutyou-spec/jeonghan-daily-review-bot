@@ -11,6 +11,9 @@
     "max_media_per_post": 20,
     "review_only": true,
     "content_date_timezone": "Asia/Seoul",
-    "repository_content_requests": true
+    "repository_content_requests": true,
+    "trusted_webhook_origins": [
+      "https://jeonghan-personal-assistant-production.up.railway.app"
+    ]
   }
 }
