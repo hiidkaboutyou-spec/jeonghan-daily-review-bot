@@ -12,7 +12,10 @@ def derive_runtime_secret(token: str) -> str:
 
 def maintenance_url_from_webhook(webhook_url: str) -> str:
     parsed = urlsplit(str(webhook_url or "").strip())
-    # Maintenance can carry short-lived provider credentials. Never derive a\n    # secret-bearing wake URL over plaintext HTTP.\n    if parsed.scheme != "https" or not parsed.netloc:\n        return ""
+    # Maintenance can carry short-lived provider credentials. Never derive a
+    # secret-bearing wake URL over plaintext HTTP.
+    if parsed.scheme != "https" or not parsed.netloc:
+        return ""
     path = parsed.path or "/"
     suffix = "/telegram/webhook"
     if path.endswith(suffix):
