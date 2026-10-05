@@ -314,26 +314,15 @@ jobs:
           fi
           exit "$code"
 
-      - name: Checkpoint private review database
+      - name: Checkpoint and attest private review database
         if: >-
           always() &&
           env.LIVE_RUN == 'true' &&
           hashFiles('.state/private-review.sqlite3') != ''
-        run: |
-          python - <<'PY'
-          import sqlite3
-          from pathlib import Path
-          path = Path('.state/private-review.sqlite3')
-          if path.exists():
-              conn = sqlite3.connect(path, timeout=15)
-              try:
-                  result = conn.execute('PRAGMA quick_check').fetchone()
-                  if not result or str(result[0]).lower() != 'ok':
-                      raise SystemExit('private-review.sqlite3 failed quick_check')
-                  conn.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchall()
-              finally:
-                  conn.close()
-          PY
+        run: >-
+          python -m app.database_checkpoint_attestation
+          --database .state/private-review.sqlite3
+          --outcome production-outcome.json
 
       - name: Decide encrypted recovery snapshot cadence
         id: recovery
