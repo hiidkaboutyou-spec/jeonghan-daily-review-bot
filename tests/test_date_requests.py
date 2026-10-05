@@ -1,3 +1,4 @@
+import os
 import unittest
 from datetime import timezone
 
@@ -94,7 +95,10 @@ class DateBundleRuntime(unittest.TestCase):
         self.app.collector=collector
 
         identifier=enqueue(self.app,'2026-10-04','all')
-        self.tick()
+        # Other integration modules intentionally toggle this process-wide flag.
+        # Keep this regression on the authenticated collector path it is proving.
+        with patch.dict(os.environ, {'X_PROVIDER_PREFLIGHT': ''}, clear=False):
+            self.tick()
 
         job=self.app.state.data['date_requests']['jobs'][identifier]
         self.assertEqual(job['coverage']['alpha'],'partial')
