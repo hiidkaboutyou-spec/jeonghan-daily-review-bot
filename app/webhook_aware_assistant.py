@@ -68,11 +68,20 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
         maintenance_url = maintenance_url_from_webhook(webhook_url)
         if maintenance_url:
             secret = derive_runtime_secret(self.settings.telegram_token)
+            headers = {"X-Assistant-Secret": secret}
+            # GitHub Actions already owns the configured Gemini secret while the
+            # long-lived webhook host may intentionally have no provider secret.
+            # Lease it only to the authenticated HTTPS maintenance endpoint and
+            # never persist it in repository/state/Telegram backup storage.
+            gemini_key = str(getattr(self.settings, "gemini_api_key", "") or "").strip()
+            if gemini_key:
+                headers["X-Hani-Gemini-Key"] = gemini_key
             try:
                 response = self.telegram.session.post(
                     maintenance_url,
-                    headers={"X-Assistant-Secret": secret},
+                    headers=headers,
                     timeout=90,
+                    allow_redirects=False,
                 )
                 if 200 <= response.status_code < 300:
                     logger.info(
