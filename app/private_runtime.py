@@ -269,6 +269,7 @@ class PrivateReviewApplication(Application):
             self.telegram.send_message(text, reply_markup=markup)
 
     async def deliver_updates(self, updates: list[Update], *, force: bool) -> None:
+        request_id = getattr(self, "content_request_id", "")
         if not force:
             updates = [item for item in updates if not self.state.is_seen(item.id)]
         if not updates:
@@ -279,7 +280,9 @@ class PrivateReviewApplication(Application):
         guide = build_editorial_guide(groups, getattr(self.settings, "timezone", timezone.utc))
         groups = list(guide.groups)
         total_updates = sum(len(group.updates) for group in groups)
-        if total_updates > 1:
+        if request_id:
+            pass  # The date job sends one overview, then globally ordered posts.
+        elif total_updates > 1:
             self.telegram.send_message(
                 ensure_rtl_line(guide.overview),
                 reply_markup=main_keyboard(),
@@ -301,12 +304,12 @@ class PrivateReviewApplication(Application):
             ):
                 await self.process_telegram_updates()
             existing_drafts: dict[str, Draft] = {}
-            if not force:
+            if not force or request_id:
                 for update in group.updates:
-                    draft_id = short_id(f"scheduled:{group.key}:{update.id}")
+                    draft_id = short_id(f"request:{request_id}:{update.id}" if request_id else f"scheduled:{group.key}:{update.id}")
                     existing = self.state.get_draft(draft_id)
                     if existing is not None:
-                        if translation_unavailable(existing.caption):
+                        if translation_unavailable(existing.caption) or (request_id and existing.mode == "manual_review"):
                             # Old releases persisted outage placeholders. Remove
                             # them before deciding whether this group needs a fresh
                             # model call.
@@ -319,7 +322,7 @@ class PrivateReviewApplication(Application):
             # legacy/partial state is missing any draft, generate once and persist
             # every missing caption before the first network delivery in the group.
             copy = None
-            if force or len(existing_drafts) != len(group.updates):
+            if (force and not request_id) or len(existing_drafts) != len(group.updates):
                 copy = self.writer.write_group(group)
                 group.title = copy.title or group.title
                 if copy.category in self.settings.themes.get("themes", {}):
@@ -337,12 +340,15 @@ class PrivateReviewApplication(Application):
                 else:
                     if copy is None:
                         raise RuntimeError("draft generation plan is missing for an undelivered update")
-                    body = copy.bodies.get(update.id) or update.text
-                    if translation_unavailable(body):
+                    body = copy.bodies.get(update.id, "")
+                    if not body or translation_unavailable(body) or (request_id and update.id in manual_review):
                         deferred += 1
                         continue
                     caption = self.themes.caption(group, update, body, part, len(group.updates))
-                    if force:
+                    if request_id:
+                        draft_id = short_id(f"request:{request_id}:{update.id}")
+                        delivery_key = f"draft:{draft_id}"
+                    elif force:
                         draft_id = short_id(f"force:{update.id}:{datetime.now(timezone.utc).timestamp()}")
                         delivery_key = None
                     else:
@@ -432,6 +438,9 @@ class PrivateReviewApplication(Application):
                 temp.cleanup()
 
     async def run_search(self, query: str) -> None:
+        from .date_requests import route_date_request
+        if route_date_request(self, query):
+            return
         self.telegram.send_message(f"🔎 اول آرشیو خود بات را برای «{query[:200]}» می‌گردم، بعد در صورت نیاز X را هم چک می‌کنم…", reply_markup=main_keyboard())
         date_range = parse_date_query(query, self.settings.timezone)
         if date_range:

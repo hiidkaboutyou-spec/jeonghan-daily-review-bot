@@ -59,6 +59,13 @@ def _case_failures(case: dict, writer: ChannelStyleCaptionWriter) -> list[str]:
     failures.extend(f"entity:{item}" for item in entity_failures(source, body))
     failures.extend(f"semantic:{item}" for item in semantic_quality_failures(update, body))
     failures.extend(f"natural:{item}" for item in natural_persian_failures(update, body))
+    if failures:
+        # These are fixed public benchmark cases, never owner inbox/source data.
+        print("SMOKE PUBLIC CASE DIAGNOSTIC: " + json.dumps({
+            "id": case["id"], "body": body,
+            "direct_failed_ids": diagnostics.get("direct_failed_ids", []),
+            "repair_failed_ids": diagnostics.get("repair_failed_ids", []),
+        }, ensure_ascii=False), flush=True)
     return failures
 
 

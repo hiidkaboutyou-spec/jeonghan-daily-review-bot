@@ -219,6 +219,20 @@ class ArchiveStore:
             self.conn.execute("DELETE FROM archive_records")
         return self.sync_from_json(archive)
 
+    def get_update(self, identifier: str) -> Update | None:
+        row = self.conn.execute("SELECT raw_json FROM archive_records WHERE update_id=?", (identifier,)).fetchone()
+        return Update.from_dict(json.loads(row[0])) if row else None
+
+    def date_window(self, start: datetime, end: datetime) -> Iterable[Update]:
+        """Stream the entire window; date requests must not inherit the search cap."""
+        rows = self.conn.execute(
+            "SELECT raw_json FROM archive_records WHERE created_at >= ? AND created_at < ? "
+            "ORDER BY created_at, update_id",
+            (ensure_utc(start).isoformat(), ensure_utc(end).isoformat()),
+        )
+        for row in rows:
+            yield Update.from_dict(json.loads(row[0]))
+
     def search(
         self,
         query: str,

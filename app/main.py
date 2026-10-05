@@ -47,6 +47,8 @@ class Application:
         try:
             self._ensure_polling_mode_periodically()
             await self.process_telegram_updates()
+            from .date_requests import process_date_requests
+            await process_date_requests(self)
             await self.run_scheduled_scan()
             await self.deliver_pending()
             await self._run_interactive_polling_window(started_at)
@@ -111,6 +113,9 @@ class Application:
                 min(TELEGRAM_INTERACTIVE_POLL_SLICE_SECONDS, int(remaining)),
             )
             await self.process_telegram_updates(long_poll_seconds=long_poll)
+            if remaining >= 60 and deadline - _monotonic() >= 60:
+                from .date_requests import process_date_requests
+                await process_date_requests(self)
             # Checkpoint the offset/awaiting state after every interactive batch so
             # a later workflow timeout cannot replay already-confirmed button taps.
             self.state.save()
@@ -951,13 +956,13 @@ def _parse_state_datetime(value: Any) -> datetime | None:
 
 
 def parse_date_query(query: str, timezone_info=timezone.utc) -> tuple[datetime, datetime] | None:
-    query = query.strip()
-    patterns = [r"\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b", r"\b(\d{2})(\d{2})(\d{2})\b"]
+    query = query.strip().translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))
+    patterns = [r"\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b", r"\b(20\d{2})(\d{2})(\d{2})\b", r"\b(\d{2})(\d{2})(\d{2})\b"]
     for index, pattern in enumerate(patterns):
         match = re.search(pattern, query)
         if not match:
             continue
-        if index == 0:
+        if index < 2:
             year, month, day = map(int, match.groups())
         else:
             yy, month, day = map(int, match.groups())

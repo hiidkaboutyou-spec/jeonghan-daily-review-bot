@@ -154,6 +154,9 @@ class PersonalAssistantReviewApplication(ChannelStyleReviewApplication):
         text = str(message.get("text", "") or message.get("caption", "")).strip()
         if not text:
             return
+        from .date_requests import route_date_request
+        if route_date_request(self, text):
+            return
 
         # Replying directly to a delivered draft can control the same review actions
         # as the inline buttons. This makes review feel conversational on mobile.
