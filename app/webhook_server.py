@@ -4,6 +4,7 @@ import asyncio
 import hmac
 import logging
 import os
+import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
@@ -26,6 +27,19 @@ _T = TypeVar("_T")
 DEFAULT_MAINTENANCE_TICK_SECONDS = 60
 MIN_MAINTENANCE_TICK_SECONDS = 15
 MAX_MAINTENANCE_TICK_SECONDS = 300
+
+_TELEGRAM_API_URL_RE = re.compile(r"https://api\.telegram\.org/bot[^/\s]+")
+_TELEGRAM_TOKEN_RE = re.compile(r"\b\d{4,}:[A-Za-z0-9_-]{8,}\b")
+
+
+def _safe_telegram_error_detail(exc: Exception) -> str:
+    """Keep actionable Telegram failures while redacting Bot API credentials."""
+
+    if not isinstance(exc, (TelegramPermanentError, TelegramTransientError)):
+        return type(exc).__name__
+    detail = str(exc).strip()[:600] or type(exc).__name__
+    detail = _TELEGRAM_API_URL_RE.sub("<telegram-api>", detail)
+    return _TELEGRAM_TOKEN_RE.sub("<redacted>", detail)
 
 
 def _maintenance_tick_seconds() -> int:
@@ -127,7 +141,10 @@ class WebhookRuntime:
         try:
             restore_from_telegram(bootstrap_telegram, state_dir)
         except Exception as exc:
-            logger.warning("Telegram cloud-state restore unavailable (%s); using local state if present", type(exc).__name__)
+            logger.warning(
+                "Telegram cloud-state restore unavailable (%s); using local state if present",
+                _safe_telegram_error_detail(exc),
+            )
 
         self.application = WebhookAwarePersonalAssistant(settings)
         # This process owns Telegram through setWebhook. Delivery code must never
@@ -180,12 +197,21 @@ class WebhookRuntime:
             for attempt in range(1, 4):
                 try:
                     asyncio.run(app._process_one_telegram_update(item))
-                except TelegramPermanentError:
+                except TelegramPermanentError as exc:
+                    logger.error(
+                        "Webhook update %s permanent Telegram failure (%s); consuming update",
+                        update_id,
+                        _safe_telegram_error_detail(exc),
+                    )
                     app.state.telegram_offset = max(app.state.telegram_offset, update_id + 1)
                     break
                 except TelegramTransientError as exc:
                     if attempt >= 3:
-                        logger.warning("Webhook update %s exhausted Telegram retries (%s)", update_id, type(exc).__name__)
+                        logger.warning(
+                            "Webhook update %s exhausted Telegram retries (%s)",
+                            update_id,
+                            _safe_telegram_error_detail(exc),
+                        )
                         handled = False
                         break
                     continue
@@ -240,7 +266,10 @@ class WebhookRuntime:
         try:
             backup_to_telegram(app.telegram, state_dir)
         except Exception as exc:
-            logger.warning("Telegram cloud-state backup failed (%s)", type(exc).__name__)
+            logger.warning(
+                "Telegram cloud-state backup failed (%s)",
+                _safe_telegram_error_detail(exc),
+            )
             return
         self.last_backup_hash = backup_fingerprint(state_dir)
 
