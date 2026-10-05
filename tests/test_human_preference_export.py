@@ -94,6 +94,17 @@ class HumanPreferenceExportTests(unittest.TestCase):
         rows, summary = build_preference_rows(state, self.store, include_undecided=True)
         self.assertEqual(summary["pairs_exported"], 1)
 
+    def test_ineligible_edit_is_never_exported_even_with_undecided_flag(self):
+        state, draft, _ = self.make_state()
+        self.confirm_edit(draft, "جونگهان امروز اومد 🩷", eligible="ineligible")
+        rows, summary = build_preference_rows(
+            state,
+            self.store,
+            include_undecided=True,
+        )
+        self.assertEqual(rows, [])
+        self.assertEqual(summary["pairs_exported"], 0)
+
     def test_stale_draft_fingerprint_is_not_exported(self):
         state, draft, _ = self.make_state()
         self.confirm_edit(draft, "جونگهان امروز اومد 🩷")
