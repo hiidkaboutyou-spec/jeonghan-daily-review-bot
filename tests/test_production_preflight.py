@@ -11,7 +11,9 @@ from unittest.mock import AsyncMock, patch
 from app.config import ConfigError
 from app.production_preflight import (
     _check_gemini,
+    _check_ollama,
     _check_telegram,
+    _check_translation_provider,
     _check_x,
     _publish_github_provider_state,
 )
@@ -29,6 +31,7 @@ def settings(**overrides):
         "x_cookies": {},
         "sources": [],
         "keyword_groups": [],
+        "runtime": {},
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -81,6 +84,20 @@ class ProductionPreflightTests(unittest.TestCase):
     def test_missing_optional_providers_use_degraded_modes(self):
         self.assertIn("fallback", _check_gemini(settings()))
         self.assertIn("offline", asyncio.run(_check_x(settings())))
+
+    @patch("app.production_preflight.OllamaStructuredClient.from_settings")
+    def test_translation_preflight_routes_explicit_ollama_without_gemini_key(self, client_from_settings):
+        client_from_settings.return_value.healthcheck.return_value = "ok (ollama:local; ctx=32768)"
+        configured = settings(runtime={"translation_provider": "ollama", "ollama_model": "local"})
+        name, status = _check_translation_provider(configured)
+        self.assertEqual(name, "ollama")
+        self.assertIn("ok", status)
+        client_from_settings.assert_called_once_with(configured)
+
+    def test_invalid_ollama_configuration_degrades_instead_of_breaking_telegram(self):
+        configured = settings(runtime={"translation_provider": "ollama"})
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertIn("fallback", _check_ollama(configured))
 
     @patch("app.production_preflight.XCollector")
     def test_x_failure_becomes_degraded_without_raising(self, collector_class):
