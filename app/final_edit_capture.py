@@ -559,6 +559,36 @@ class FinalEditStore:
             calibration_eligible=str(row["calibration_eligible"]), calibration_metadata=metadata,
         )
 
+    def list_active_final_edits(
+        self,
+        *,
+        eligible_only: bool = True,
+        limit: int = 10_000,
+    ) -> list[FinalEditRecord]:
+        """Return bounded metadata for active, confirmed human final edits.
+
+        Full final bodies remain private and must be resolved explicitly through
+        :meth:`final_body` by a caller that is already operating on the private
+        review database.  This keeps generic state/calibration paths text-free.
+        """
+        limit = max(1, min(int(limit), 100_000))
+        where = [
+            "active=1",
+            "revoked=0",
+            "confirmation_status=?",
+            "edit_provenance=?",
+        ]
+        params: list[object] = [CONFIRMED_FINAL_EDIT, FINAL_EDIT_PROVENANCE]
+        if eligible_only:
+            where.append("calibration_eligible='eligible'")
+        rows = self.conn.execute(
+            "SELECT * FROM final_edits WHERE "
+            + " AND ".join(where)
+            + " ORDER BY confirmed_at, final_edit_id LIMIT ?",
+            (*params, limit),
+        ).fetchall()
+        return [self._record(row) for row in rows]
+
     def close(self) -> None:
         self.conn.close()
 
