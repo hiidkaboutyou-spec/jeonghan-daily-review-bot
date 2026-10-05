@@ -9,7 +9,7 @@ AGENTS = ROOT / "AGENTS.md"
 SKILLS = ROOT / ".agents" / "skills"
 
 PROJECT_SKILLS = {
-    "jeonghan-daily-review-bot": {"project-next-stage", "evidence-first-engineering", "hani-production-acceptance"},
+    "jeonghan-daily-review-bot": {"project-next-stage", "evidence-first-engineering", "hani-production-acceptance", "agent-session-safety"},
     "Persian-Literary-Translation-Engine": {"project-next-stage", "evidence-first-engineering", "translation-engine-acceptance"},
 }
 
