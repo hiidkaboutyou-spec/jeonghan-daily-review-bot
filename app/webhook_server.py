@@ -243,6 +243,8 @@ class WebhookRuntime:
             now = datetime.now(timezone.utc)
             try:
                 asyncio.run(app.process_due_reminders())
+                from .date_requests import process_date_requests
+                asyncio.run(process_date_requests(app))
                 if now - self.last_scan_at >= timedelta(minutes=12):
                     asyncio.run(app.run_scheduled_scan())
                     asyncio.run(app.deliver_pending())

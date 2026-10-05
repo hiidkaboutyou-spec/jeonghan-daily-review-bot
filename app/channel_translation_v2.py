@@ -405,9 +405,12 @@ TRANSLATION REQUIREMENTS:
                 "id": item.id,
                 "source": item.translation_source(),
                 "candidate": direct.bodies.get(item.id, ""),
-                "quality_failures": semantic_quality_failures(
-                    item, direct.bodies.get(item.id, "")
-                ),
+                "quality_failures": list(dict.fromkeys(
+                    verify_hard_facts(item.translation_source(), direct.bodies.get(item.id, ""),
+                                      analyze_source(item.translation_source()))
+                    + entity_failures(item.translation_source(), direct.bodies.get(item.id, ""))
+                    + semantic_quality_failures(item, direct.bodies.get(item.id, ""))
+                )),
                 "canonical_jeonghan": "جونگهان" if source_names_jeonghan(item.text) else None,
             }
             for item in group.updates

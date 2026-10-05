@@ -110,7 +110,7 @@ class StateStore:
                 fresh[key] = max(0, min(int(value.get(key, 0) or 0), 1000))
             except (TypeError, ValueError):
                 fresh[key] = 0
-        for key in ("seen", "archive", "sessions", "drafts", "awaiting"):
+        for key in ("seen", "archive", "sessions", "drafts", "awaiting", "date_requests"):
             raw = value.get(key)
             if isinstance(raw, dict):
                 fresh[key] = raw

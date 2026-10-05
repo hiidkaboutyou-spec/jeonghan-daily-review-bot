@@ -88,7 +88,12 @@ def _finalize_output(self, group, copy: GroupCopy) -> GroupCopy:
         if manual_translation_fallback(body):
             manual[item.id] = ["translation model unavailable; source preserved"]
             continue
-        failures = semantic_quality_failures(item, body)
+        source = item.translation_source()
+        failures = list(dict.fromkeys(
+            verify_hard_facts(source, body, analyze_source(source))
+            + entity_failures(source, body)
+            + semantic_quality_failures(item, body)
+        ))
         if failures:
             manual[item.id] = failures
             bodies[item.id] = manual_review_body(body, failures)
