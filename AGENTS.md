@@ -80,7 +80,7 @@ For every substantive bugfix, feature, refactor, dependency/tool decision, perfo
 9. Completion claims must name the strongest actually-proven level: implemented, PR-head verified, merged, post-merge main verified, owner-visible confirmed.
 10. If owner-visible/live evidence is still required, say so explicitly instead of claiming the issue is fixed.
 
-For broad next-stage requests, this contract applies **in addition to** `project-next-stage`; it does not reduce the required stage scope.
+For broad next-stage requests, this contract applies **in addition to** `project-next-stage`; it does not reduce the required stage scope.\n\nFor scheduled/hourly, long-running, resumed, or tool-heavy engineering work, also read and follow `.agents/skills/agent-session-safety/SKILL.md` before mutation. Revalidate saved session state against current GitHub truth, gate writes/external side effects before execution, and verify the returned result after every mutation.
 
 <!-- project-memory:start -->
 ## Deep next-stage requests
