@@ -7,12 +7,14 @@ import json
 import os
 import sqlite3
 import tempfile
+import zlib
 from pathlib import Path
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-FORMAT = "jeonghan-private-state-backup-v1"
-AAD = FORMAT.encode("utf-8")
+LEGACY_FORMAT = "jeonghan-private-state-backup-v1"
+FORMAT = "jeonghan-private-state-backup-v2"
+MAX_DECOMPRESSED_PAYLOAD_BYTES = 128 * 1024 * 1024
 STATE_FILES = ("state.json", "private-review.sqlite3")
 
 
@@ -58,7 +60,7 @@ def _validate_sqlite(data: bytes) -> None:
             raise BackupError("Restored private database failed SQLite quick_check.")
 
 
-def _payload_for(state_dir: Path) -> bytes:
+def _payload_for(state_dir: Path, *, format_name: str = FORMAT) -> bytes:
     files: dict[str, dict[str, str]] = {}
     for name in STATE_FILES:
         path = state_dir / name
@@ -75,17 +77,18 @@ def _payload_for(state_dir: Path) -> bytes:
         }
     if not files:
         raise BackupError("No state files exist to back up.")
-    return json.dumps({"format": FORMAT, "files": files}, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return json.dumps({"format": format_name, "files": files}, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
 def encrypt(state_dir: Path, output: Path) -> None:
     key = _key_from_env()
-    payload = _payload_for(state_dir)
+    payload = zlib.compress(_payload_for(state_dir), level=9)
     nonce = os.urandom(12)
-    ciphertext = AESGCM(key).encrypt(nonce, payload, AAD)
+    ciphertext = AESGCM(key).encrypt(nonce, payload, FORMAT.encode("utf-8"))
     envelope = {
         "format": FORMAT,
         "algorithm": "AES-256-GCM",
+        "compression": "zlib",
         "nonce": base64.b64encode(nonce).decode("ascii"),
         "ciphertext": base64.b64encode(ciphertext).decode("ascii"),
     }
@@ -98,23 +101,47 @@ def encrypt(state_dir: Path, output: Path) -> None:
         temp.unlink(missing_ok=True)
 
 
+def _decompress_payload(compressed: bytes) -> bytes:
+    decompressor = zlib.decompressobj()
+    output = bytearray()
+    for start in range(0, len(compressed), 64 * 1024):
+        remaining = MAX_DECOMPRESSED_PAYLOAD_BYTES + 1 - len(output)
+        if remaining <= 0:
+            raise BackupError("Decompressed state backup exceeds the safety limit.")
+        output.extend(decompressor.decompress(compressed[start : start + 64 * 1024], remaining))
+        if len(output) > MAX_DECOMPRESSED_PAYLOAD_BYTES or decompressor.unconsumed_tail:
+            raise BackupError("Decompressed state backup exceeds the safety limit.")
+    remaining = MAX_DECOMPRESSED_PAYLOAD_BYTES + 1 - len(output)
+    output.extend(decompressor.flush(remaining))
+    if len(output) > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+        raise BackupError("Decompressed state backup exceeds the safety limit.")
+    if not decompressor.eof or decompressor.unused_data:
+        raise BackupError("Compressed state backup payload is invalid.")
+    return bytes(output)
+
+
 def _decrypt_blob(input_path: Path) -> dict[str, bytes]:
     key = _key_from_env()
     try:
         envelope = json.loads(input_path.read_text(encoding="utf-8"))
-        if envelope.get("format") != FORMAT or envelope.get("algorithm") != "AES-256-GCM":
+        format_name = str(envelope.get("format", ""))
+        if format_name not in {LEGACY_FORMAT, FORMAT} or envelope.get("algorithm") != "AES-256-GCM":
             raise BackupError("Encrypted state backup has an unsupported format.")
+        if format_name == FORMAT and envelope.get("compression") != "zlib":
+            raise BackupError("Encrypted state backup has unsupported compression.")
         nonce = base64.b64decode(str(envelope["nonce"]), validate=True)
         if len(nonce) != 12:
             raise BackupError("Encrypted state backup nonce is invalid.")
         ciphertext = base64.b64decode(str(envelope["ciphertext"]), validate=True)
-        payload = AESGCM(key).decrypt(nonce, ciphertext, AAD)
+        payload = AESGCM(key).decrypt(nonce, ciphertext, format_name.encode("utf-8"))
+        if format_name == FORMAT:
+            payload = _decompress_payload(payload)
         decoded = json.loads(payload.decode("utf-8"))
     except BackupError:
         raise
     except Exception as exc:
         raise BackupError("Encrypted state backup failed authentication or parsing.") from exc
-    if decoded.get("format") != FORMAT or not isinstance(decoded.get("files"), dict):
+    if decoded.get("format") != format_name or not isinstance(decoded.get("files"), dict):
         raise BackupError("Decrypted state backup payload is invalid.")
     files: dict[str, bytes] = {}
     for name, record in decoded["files"].items():

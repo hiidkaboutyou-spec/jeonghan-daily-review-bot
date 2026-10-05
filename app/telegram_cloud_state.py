@@ -15,6 +15,9 @@ from tools.state_backup import BackupError, encrypt, restore
 logger = logging.getLogger(__name__)
 BACKUP_FILENAME = "jeonghan-assistant-state.enc"
 BACKUP_CAPTION = "🔐 Jeonghan Assistant encrypted state backup — do not delete or unpin."
+# Telegram's hosted Bot API only lets bots download files up to 20 MB through
+# getFile. Keep a margin so a newly pinned backup is guaranteed to be restorable.
+MAX_RESTORABLE_BACKUP_BYTES = 19 * 1024 * 1024
 
 
 def ensure_process_backup_key(token: str) -> None:
@@ -117,6 +120,13 @@ def backup_to_telegram(telegram: TelegramBot, state_dir: Path) -> int:
     state_dir.mkdir(parents=True, exist_ok=True)
     backup_path = state_dir / BACKUP_FILENAME
     encrypt(state_dir, backup_path)
+    backup_size = backup_path.stat().st_size
+    if backup_size > MAX_RESTORABLE_BACKUP_BYTES:
+        backup_path.unlink(missing_ok=True)
+        raise BackupError(
+            "Encrypted Telegram state backup is too large to restore "
+            f"({backup_size} bytes; safe limit {MAX_RESTORABLE_BACKUP_BYTES} bytes)."
+        )
     pinned = _pinned_backup(telegram)
 
     try:

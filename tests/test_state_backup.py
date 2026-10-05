@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import sqlite3
@@ -9,7 +10,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from tools.state_backup import BackupError, encrypt, restore, validate
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+from tools.state_backup import BackupError, LEGACY_FORMAT, encrypt, restore, validate
 
 
 class StateBackupTests(unittest.TestCase):
@@ -57,6 +60,60 @@ class StateBackupTests(unittest.TestCase):
             encrypt(root / ".state", second)
             self.assertNotEqual(self.envelope(first)["nonce"], self.envelope(second)["nonce"])
             self.assertNotEqual(self.envelope(first)["ciphertext"], self.envelope(second)["ciphertext"])
+
+    def test_new_backup_uses_compressed_v2_envelope(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"STATE_BACKUP_KEY": self.key()}):
+            root = Path(temp)
+            self.make_state(root)
+            encrypted = root / "backup.enc"
+            encrypt(root / ".state", encrypted)
+            envelope = self.envelope(encrypted)
+            self.assertEqual(envelope["format"], "jeonghan-private-state-backup-v2")
+            self.assertEqual(envelope["compression"], "zlib")
+
+    def test_v2_compression_avoids_base64_size_amplification(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"STATE_BACKUP_KEY": self.key()}):
+            root = Path(temp)
+            self.make_state(root)
+            state_dir = root / ".state"
+            with sqlite3.connect(state_dir / "private-review.sqlite3") as conn:
+                conn.execute("CREATE TABLE repeated(value BLOB)")
+                conn.execute("INSERT INTO repeated(value) VALUES (?)", (b"repeatable-state" * 200_000,))
+            raw_size = sum((state_dir / name).stat().st_size for name in ("state.json", "private-review.sqlite3"))
+            encrypted = root / "backup.enc"
+            encrypt(state_dir, encrypted)
+            self.assertLess(encrypted.stat().st_size, raw_size)
+
+    def test_legacy_v1_backup_remains_restorable(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"STATE_BACKUP_KEY": self.key()}):
+            root = Path(temp)
+            state_bytes, db_bytes = self.make_state(root)
+            files = {}
+            for name in ("state.json", "private-review.sqlite3"):
+                data = (root / ".state" / name).read_bytes()
+                files[name] = {
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                    "data": base64.b64encode(data).decode("ascii"),
+                }
+            payload = json.dumps(
+                {"format": LEGACY_FORMAT, "files": files}, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8")
+            nonce = bytes(range(12))
+            key = base64.b64decode(self.key())
+            envelope = {
+                "format": LEGACY_FORMAT,
+                "algorithm": "AES-256-GCM",
+                "nonce": base64.b64encode(nonce).decode("ascii"),
+                "ciphertext": base64.b64encode(
+                    AESGCM(key).encrypt(nonce, payload, LEGACY_FORMAT.encode("utf-8"))
+                ).decode("ascii"),
+            }
+            encrypted = root / "legacy.enc"
+            encrypted.write_text(json.dumps(envelope), encoding="utf-8")
+            destination = root / "restore"
+            restore(encrypted, destination)
+            self.assertEqual((destination / "state.json").read_bytes(), state_bytes)
+            self.assertEqual((destination / "private-review.sqlite3").read_bytes(), db_bytes)
 
     def test_validation_rejects_authenticated_but_incomplete_backup(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {"STATE_BACKUP_KEY": self.key()}):
