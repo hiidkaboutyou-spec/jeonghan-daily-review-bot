@@ -137,6 +137,7 @@ class DateBundleRuntime(unittest.TestCase):
         self.assertEqual(len(self.app.state.data['date_requests']['jobs'][identifier]['selected']),510)
 
     def test_invalid_date_does_not_become_global_search(self):
+        self.assertFalse(route_date_request(self.app,''))
         self.assertTrue(route_date_request(self.app,'/date 20261399'))
         self.assertNotIn('date_requests',self.app.state.data)
 
@@ -152,7 +153,7 @@ class DateBundleRuntime(unittest.TestCase):
     def test_bridge_accepts_only_fixed_schema_once_after_restart(self):
         self.app.settings.runtime={'repository_content_requests':True}
         response=Mock()
-        response.iter_content.return_value=[b'[{"id":"request-1","date":"2026-10-04","topic":"live"}]']
+        response.iter_content.return_value=[b'[{"id":"bad","date":"2026-99-99","topic":"live"},{"id":"request-1","date":"2026-10-04","topic":"live"}]']
         with patch('app.date_requests.requests.get',return_value=response) as get:
             sync_repository_requests(self.app)
             self.app.state=StateStore(self.app.state.path)
@@ -160,3 +161,24 @@ class DateBundleRuntime(unittest.TestCase):
             sync_repository_requests(self.app)
         self.assertEqual(len(self.app.state.data['date_requests']['jobs']),1)
         self.assertIn('/main/config/content_requests.json',get.call_args.args[0])
+
+    def test_actual_webhook_maintenance_advances_jobs_and_isolates_job_errors(self):
+        from app.webhook_server import WebhookRuntime
+        runtime=WebhookRuntime()
+        runtime.application=self.app
+        runtime._save_and_backup_if_changed=Mock()
+        self.app.process_due_reminders=AsyncMock()
+        self.app.run_scheduled_scan=AsyncMock()
+        self.app.deliver_pending=AsyncMock()
+        self.app.settings.runtime['date_request_steps_per_tick']=5
+        try:
+            identifier=enqueue(self.app,'2026-10-04','live')
+            runtime.maintenance_sync()
+            self.assertFalse(self.app.state.data['date_requests']['jobs'][identifier]['pending_sources'])
+            with patch('app.date_requests._process_date_step',new=AsyncMock(side_effect=RuntimeError('job error'))):
+                runtime.last_scan_at=__import__('datetime').datetime.min.replace(tzinfo=timezone.utc)
+                runtime.maintenance_sync()
+            self.assertEqual(self.app.run_scheduled_scan.await_count,2)
+            self.assertEqual(self.app.state.data['date_requests']['last_error'],'RuntimeError')
+        finally:
+            runtime.executor.shutdown(wait=True,cancel_futures=True)

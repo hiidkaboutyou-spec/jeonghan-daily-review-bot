@@ -46,7 +46,7 @@ _HARD_NAME_GROUPS = {
     "VERNON": ["Vernon", "ورنون", "버논", "バーノン"],
     "DINO": ["Dino", "دینو", "디노", "ディノ"],
 }
-_SPEAKER_RE = re.compile(r"^\s*([^\s:：]{1,24})\s*[:：]\s*(.+)$", re.M)
+_SPEAKER_RE = re.compile(r"^[ \t]*([^\n:：]{1,40}?)[ \t]*[:：][ \t]*(.+)$", re.M)
 _QUOTE_MARK_RE = re.compile(r'(?:["“«][^"”»\n]{2,}["”»])')
 _CJK_OR_HANGUL_RE = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]")
 

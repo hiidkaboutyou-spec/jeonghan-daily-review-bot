@@ -28,6 +28,8 @@ Only these three fields are accepted. IDs are bounded; dates are validated; `top
 
 Issue #158 identified repair requests that omitted hard-fact failures. A regression against the previous installed production writer confirmed that translating `Jeonghan ate 2 apples.` with an invented 3 produced **an empty repair failure list**. If repair failed, the finalizer only reran semantic checks and could omit the manual-review flag for this hard-number failure.
 
+The first PR live smoke run (37262408300) failed the Korean dialogue case while English/Japanese passed. Follow-up inspection reproduced a separate verifier bug: multiword Persian labels such as `یون جونگهان:` were not recognized as speaker turns. The speaker parser now accepts bounded multiword labels; missing and reordered turns remain failures. Generation and repair receive source-grounded speaker-turn scaffolds, and failed public benchmark outputs are exposed for diagnosis without logging private inbox content.
+
 The repair payload now contains deduplicated hard-fact, entity, and semantic failures using the complete attributed `translation_source()`. The finalizer reruns the same gates. Existing natural Persian instructions preserve register, numbers, speakers, emoji, negation, and quoted attribution. Date bundles defer missing captions, model-outage placeholders, and manual-review candidates instead of falling back silently to original English/Korean/Japanese text. Translation retries back off; after three unsuccessful attempts the bundle reports pending translation and retains its place. A repeated date request retries it. This does not manufacture API quota or prove every live model output is fluent.
 
 ## Research decision
@@ -45,6 +47,6 @@ FxTwitter discovery proposals and an operating-system switch were not promoted t
 
 Regression tests cover compact/Persian dates, the real admin handler and date-search entrypoint, full archive windows exceeding 500 posts, both configured sources, source filtering, global ordering, partial recovery, attributed thread extension, invalid dates, missing translations, crash/restart send recovery, and trusted-main queue acceptance across restart. Installed-writer tests demonstrate both the previously failing repair-payload and hard-failure finalizer cases.
 
-Local validation: requirements install, pip check, compileall, `python -m app --check`, and the full unittest suite. PR/main CI and owner-visible live delivery must be recorded separately; local mocked runtime tests do not establish that Railway has deployed this revision, that X is accessible, or that Gemini quota is available.
+Local validation: requirements install, pip check, compileall, `python -m app --check`, and 1,337 unittest tests (6 skipped). PR/main CI and owner-visible live delivery must be recorded separately; local mocked runtime tests do not establish that Railway has deployed this revision, that X is accessible, or that Gemini quota is available.
 
 Rollback: revert this change and set `repository_content_requests` false. Durable date-job state and existing archive rows can remain; no daily source policy or transport secret needs to be changed.

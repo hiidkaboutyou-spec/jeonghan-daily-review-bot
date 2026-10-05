@@ -34,8 +34,10 @@ from .channel_style_runtime import (
     is_trivial_source,
     legacy_category_to_content_type,
     verify_hard_facts,
+    _SPEAKER_RE,
 )
 from .models import EventGroup
+from .channel_entities import canonicalize_entities
 from .translation_safety import semantic_quality_failures
 from .channel_translation_playbook import (
     compact_style_examples,
@@ -45,6 +47,14 @@ from .channel_translation_playbook import (
 from .gemini_structured import last_generation_block_reason
 
 logger = logging.getLogger(__name__)
+
+
+def speaker_contract(item) -> list[dict[str, str]]:
+    """Source-grounded turn scaffold; never invent a speaker for unlabeled prose."""
+    source = item.translation_source()
+    return [{"label": canonicalize_entities(source, label.strip()), "source_turn": text}
+            for label, text in _SPEAKER_RE.findall(source)
+            if label.strip() not in {"http", "https", "fan trans", "source"}]
 
 DIRECT_PIPELINE_VERSION = "channel-direct-v5-natural-persian"
 
@@ -253,6 +263,7 @@ class ChannelStyleCaptionWriter(_BaseWriter):
                 "id": item.id,
                 "author": item.author,
                 "text": item.translation_source(),
+                "speaker_turns": speaker_contract(item),
                 "language": item.lang,
                 "url": item.url,
                 "media": [{"kind": media.kind, "url": media.url} for media in item.media],
@@ -337,7 +348,7 @@ TRANSLATION REQUIREMENTS:
 - {commentary_policy(analysis.content_type)}
 - content type = {analysis.content_type}
 - اگر SOURCE چند speaker دارد، هر turn را جدا و به همان ترتیب نگه دار.
-- label هر speaker، مخصوصاً emojiهایی مثل 🍒/🪽/🐶، باید عیناً و در ابتدای همان turn بماند؛ آن را عوض یا جابه‌جا نکن.
+- برای هر source_turn در speaker_turns دقیقاً یک خط با label همان جدول و دونقطه بنویس؛ نوبت‌ها را ادغام نکن. نام فارسیِ گوینده از همین جدول می‌آید؛ ایموجی‌هایی مثل 🍒/🪽/🐶 باید عیناً و در ابتدای همان turn بمانند.
 - ㅋㅋㅋ/ㅎㅎㅎ و emojiهای منبع را همان تعداد حفظ کن مگر خود source معنای دیگری بدهد.
 - علامت‌ها و تزئین‌های Unicode منبع مثل `♡︎ ゙﹗!` را عیناً کپی کن؛ آن‌ها را نرمال، ترجمه یا با حرفی از خط دیگر جایگزین نکن.
 - تاریخ را به تقویم دیگری تبدیل نکن؛ مثلاً 8월 20일 باید «۲۰ آگوست» بماند، نه تاریخ شمسی معادل آن.
@@ -405,6 +416,7 @@ TRANSLATION REQUIREMENTS:
                 "id": item.id,
                 "source": item.translation_source(),
                 "candidate": direct.bodies.get(item.id, ""),
+                "speaker_turns": speaker_contract(item),
                 "quality_failures": list(dict.fromkeys(
                     verify_hard_facts(item.translation_source(), direct.bodies.get(item.id, ""),
                                       analyze_source(item.translation_source()))
@@ -422,7 +434,9 @@ TRANSLATION REQUIREMENTS:
             "فارسی‌وار کنی؛ اما هیچ گزاره، فاعل/مفعول، نفی، علت، مالکیت، نسبت with/by/for، شدت احساس یا "
             "ترتیب زمانی را عوض نکن. اسم Jeonghan/정한/ジョンハン در متن فارسی اگر در SOURCE آمده باید "
             "دقیقاً «جونگهان» باشد. URL/hashtag/emoji/laughter/عدد/speaker را حفظ کن. label هر "
-            "speaker/emoji و labelهای انگلیسی fan trans:/source: را عیناً و در همان خط نگه دار. "
+            "speaker/emoji را در همان خط نگه دار؛ نام گوینده را مطابق label فارسیِ speaker_turns بنویس "
+            "و برای هر source_turn دقیقاً یک خط با همان label و دونقطه بده. ایموجیِ گوینده و "
+            "labelهای انگلیسی fan trans:/source: را عیناً نگه دار. "
             "تاریخ را بین تقویم‌ها تبدیل نکن؛ 8월 20일 یعنی ۲۰ آگوست، نه ۳۰ مرداد. "
             "اگر quality_failures به translationese یا لحن کتابی اشاره می‌کند، جمله را طوری بازنویسی کن "
             "که یک فارسی‌زبان بدون دیدن SOURCE فکر کند اصل متن فارسی بوده. در متن خودمانی معمولاً "

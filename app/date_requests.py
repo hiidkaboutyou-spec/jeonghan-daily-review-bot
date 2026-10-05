@@ -43,6 +43,8 @@ def request_timezone(app):
 
 
 def route_date_request(app, text: str) -> bool:
+    if not text.strip():
+        return False
     normalized = text.translate(DIGITS)
     command = normalized.split(maxsplit=1)[0].split("@")[0].lower()
     if command == "/date_status":
@@ -138,7 +140,12 @@ def sync_repository_requests(app):
                 continue
             if not isinstance(entry["date"], str) or not re.fullmatch(r"20\d{2}-\d{2}-\d{2}", entry["date"]):
                 continue
-            enqueue(app, entry["date"], entry["topic"], external_id=identifier)
+            if not isinstance(entry["topic"], str) or entry["topic"] not in {"all", "live"}:
+                continue
+            try:
+                enqueue(app, entry["date"], entry["topic"], external_id=identifier)
+            except ValueError:
+                continue  # One invalid/future request must not block later entries.
             accepted.append(identifier)
             app.state.save()
         namespace.pop("bridge_error", None)

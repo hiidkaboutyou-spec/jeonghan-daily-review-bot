@@ -6,9 +6,15 @@ from unittest.mock import Mock
 from app.ai import GroupCopy
 from app.models import Update, EventGroup
 from app.channel_translation_v2_install import install_direct_v2
+from app.channel_style_runtime import verify_hard_facts
 
 
 class InstalledHardRepair(unittest.TestCase):
+    def test_korean_speakers_accept_valid_multiword_persian_names(self):
+        source='정한: 말 왜 이렇게 많은 거야?!\n정한: 하 진짜 짜증나….\n정한: 조용히 할게요 ㅋㅋㅋ'
+        body='یون جونگهان: چرا این‌قدر حرف می‌زنی؟!\nیون جونگهان: آه واقعاً رو اعصابمه….\nیون جونگهان: ساکت می‌شم ㅋㅋㅋ'
+        self.assertEqual(verify_hard_facts(source,body),[])
+        self.assertIn('speaker turn structure lost', verify_hard_facts(source,body.splitlines()[0]))
     def writer(self, repaired):
         memory=SimpleNamespace(retrieve_examples=lambda *a,**k: [], relevant_glossary=lambda *a: [])
         writer=install_direct_v2(SimpleNamespace(memory=memory, _client_or_none=lambda: object()))
