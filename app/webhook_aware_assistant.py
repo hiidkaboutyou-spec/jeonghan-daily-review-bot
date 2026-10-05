@@ -65,17 +65,33 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
             await super().run()
             return 0
 
-        maintenance_url = maintenance_url_from_webhook(webhook_url)
+        runtime_settings = getattr(self.settings, "runtime", {}) or {}
+        trusted_origins = [
+            str(item).strip()
+            for item in runtime_settings.get("trusted_webhook_origins", [])
+            if str(item).strip()
+        ]
+        maintenance_url = maintenance_url_from_webhook(
+            webhook_url,
+            trusted_origins=trusted_origins,
+        )
         if maintenance_url:
             secret = derive_runtime_secret(self.settings.telegram_token)
             headers = {"X-Assistant-Secret": secret}
             # GitHub Actions already owns the configured Gemini secret while the
             # long-lived webhook host may intentionally have no provider secret.
-            # Lease it only to the authenticated HTTPS maintenance endpoint and
+            # Lease it only to the authenticated, origin-pinned HTTPS endpoint and
             # never persist it in repository/state/Telegram backup storage.
             gemini_key = str(getattr(self.settings, "gemini_api_key", "") or "").strip()
             if gemini_key:
-                headers["X-Hani-Gemini-Key"] = gemini_key
+                if not trusted_origins:
+                    logger.error(
+                        "Gemini is configured but no trusted webhook origin exists; refusing provider credential handoff."
+                    )
+                    if safe_auto:
+                        return WEBHOOK_MAINTENANCE_FAILED_EXIT_CODE
+                else:
+                    headers["X-Hani-Gemini-Key"] = gemini_key
             try:
                 response = self.telegram.session.post(
                     maintenance_url,
