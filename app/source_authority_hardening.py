@@ -214,6 +214,13 @@ async def _configured_collect_source(
     except XCompletenessError:
         raise
     except _x_client.XCollectionError as exc:
+        # This concrete production override is the completeness authority. Preserve
+        # timeline failure provenance here so downstream author-scoped recovery can
+        # return useful observations without ever being mislabeled as complete.
+        self.last_errors = _x_client._unique(
+            self.last_errors
+            + [f"@{handle}: source_timeline_fallback ({_x_client._safe_error(exc)})"]
+        )
         raise XCompletenessError(
             f"Could not prove a complete source timeline for @{handle}; "
             f"search-only fallback was not used. {_x_client._safe_error(exc)}"
