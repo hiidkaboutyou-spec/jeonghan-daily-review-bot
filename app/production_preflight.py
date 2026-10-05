@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .config import ConfigError, Settings
 from .telegram import TelegramBot, TelegramError
+from .ollama_structured import OllamaStructuredClient, configured_translation_provider
 from .x_client import XCollectionError, XCollector
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,24 @@ def _check_gemini(settings: Settings) -> str:
     return f"ok ({settings.gemini_model})"
 
 
+def _check_ollama(settings: Settings) -> str:
+    try:
+        client = OllamaStructuredClient.from_settings(settings)
+    except (TypeError, ValueError) as exc:
+        return f"fallback (ollama configuration: {type(exc).__name__})"
+    return client.healthcheck()
+
+
+def _check_translation_provider(settings: Settings) -> tuple[str, str]:
+    try:
+        provider = configured_translation_provider(settings)
+    except ValueError as exc:
+        return "translation", f"fallback (configuration: {type(exc).__name__})"
+    if provider == "ollama":
+        return "ollama", _check_ollama(settings)
+    return "gemini", _check_gemini(settings)
+
+
 async def _check_x(settings: Settings) -> str:
     missing = [name for name in ("auth_token", "ct0") if not settings.x_cookies.get(name)]
     if missing:
@@ -97,10 +116,11 @@ async def run_preflight() -> dict[str, str]:
         raise ConfigError("; ".join(errors))
 
     telegram_status = _check_telegram(settings)
+    provider_name, provider_status = _check_translation_provider(settings)
     return {
         "telegram": telegram_status,
         "x": await _check_x(settings),
-        "gemini": _check_gemini(settings),
+        provider_name: provider_status,
     }
 
 
