@@ -328,13 +328,13 @@ class RealtimeArchitectureTests(unittest.TestCase):
         settings = Settings.load(require_secrets=False)
         self.assertEqual(int(settings.runtime["scheduled_min_interval_minutes"]), 12)
 
-    def test_all_33_configured_paths_remain_unique_with_suspended_source_disabled(self):
+    def test_all_34_configured_paths_remain_unique_with_suspended_source_disabled(self):
         settings = Settings.load(require_secrets=False)
         enabled = [source for source in settings.sources if source.get("enabled", True)]
         handles = [str(source["handle"]).lower() for source in settings.sources]
-        self.assertEqual(len(handles), 33)
-        self.assertEqual(len(set(handles)), 33)
-        self.assertEqual(len(enabled), 32)
+        self.assertEqual(len(handles), 34)
+        self.assertEqual(len(set(handles)), 34)
+        self.assertEqual(len(enabled), 33)
         self.assertEqual(
             [str(source["handle"]).lower() for source in settings.sources if not source.get("enabled", True)],
             ["flamehanie"],
