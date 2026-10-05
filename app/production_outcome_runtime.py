@@ -164,8 +164,10 @@ def _install_ai_hooks() -> None:
         result = original_write(self, group, mode=mode)
 
         if builder is not None:
-            # Check if fallback was used (no client = fallback path)
-            client = self._client_or_none()
+            # Check the translation-specific backend when one is installed.
+            # Search/title helpers may still use the Gemini client independently.
+            translation_client = getattr(self, "_translation_client_or_none", None)
+            client = translation_client() if callable(translation_client) else self._client_or_none()
             if client is None:
                 builder.record_ai_job(success=True, fallback=True)
             else:
