@@ -31,3 +31,29 @@ dependencies after reboot as well as immediately after setup.
 Do not disable the GitHub live schedule until one local pass has succeeded, state recovery
 has been verified, and the local single-writer boundary is active. CI/check workflows and
 the nightly fanfic workflow remain on GitHub Actions.
+
+
+## Optional no-key local translation with Ollama
+
+The tracked default remains Gemini. A local macOS runtime can explicitly use an already-installed
+Ollama model for the translation-v2 generation step without an API key:
+
+```bash
+export HANI_TRANSLATION_PROVIDER=ollama
+export OLLAMA_MODEL='<exact model name shown by ollama list>'
+export OLLAMA_NUM_CTX=32768
+.venv/bin/python -m tools.local_runtime.install_launch_agent
+```
+
+The installer persists only these non-secret Ollama settings in the LaunchAgent plist. The model
+server remains local by default at `http://127.0.0.1:11434`; `OLLAMA_BASE_URL` can override it
+explicitly.
+
+Before the assistant sends source text to the selected local model, production preflight checks
+`/api/tags` and requires the exact configured model to be installed. Translation output still passes
+the existing source-fidelity, entity, semantic-quality and manual-review gates. Ollama is never an
+automatic fallback merely because Gemini is unavailable.
+
+Search expansion and candidate-title helpers remain on their existing deterministic/Gemini paths;
+the Ollama selection is deliberately scoped to translation so a local provider cannot unexpectedly
+change archive search behavior.
