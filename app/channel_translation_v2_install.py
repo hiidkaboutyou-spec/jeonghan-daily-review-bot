@@ -151,7 +151,8 @@ def _installed_write_group(self, group, *, mode: str = "default") -> GroupCopy:
         logger.error("V2 style retrieval failed; using hardened v1: %s", v1._safe_error(exc))
         return _finalize_output(self, group, _ORIGINAL_V1_WRITE_GROUP(self, group, mode=mode))
 
-    client = self._client_or_none()
+    translation_client = getattr(self, "_translation_client_or_none", None)
+    client = translation_client() if callable(translation_client) else self._client_or_none()
     self.last_diagnostics = {
         "pipeline_version": DIRECT_PIPELINE_VERSION,
         "style_version": CHANNEL_STYLE_VERSION,

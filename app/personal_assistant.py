@@ -264,12 +264,20 @@ class PersonalAssistantReviewApplication(ChannelStyleReviewApplication):
         except (TypeError, ValueError):
             scan_failures = 0
         style_ready = bool(getattr(self, "channel_style_enabled", False))
-        if self.settings.gemini_api_key and style_ready:
-            translation = "هوشمند + سبک چنل"
+        writer = getattr(self, "writer", None)
+        provider = str(getattr(writer, "_translation_provider_name", "gemini") or "gemini")
+        default_model = str(getattr(self.settings, "gemini_model", "") or "")
+        provider_model = str(
+            getattr(writer, "_translation_model", default_model) or default_model
+        )
+        if provider == "ollama" and style_ready:
+            translation = f"Ollama محلی ({provider_model}) + سبک چنل"
+        elif self.settings.gemini_api_key and style_ready:
+            translation = f"Gemini ({provider_model}) + سبک چنل"
         elif self.settings.gemini_api_key:
-            translation = "هوشمند"
+            translation = f"Gemini ({provider_model})"
         else:
-            translation = "حالت امن جایگزین (Gemini تنظیم نشده)"
+            translation = "حالت امن جایگزین (مدل ترجمه تنظیم نشده)"
         indexed = int(getattr(self, "channel_style_indexed_examples", 0) or 0)
 
         if scan_failures:

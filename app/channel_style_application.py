@@ -6,6 +6,7 @@ from .ai import CaptionWriter
 from .channel_style_safety import validate_production_style_memory
 from .channel_translation import ChannelStyleCaptionWriter
 from .channel_translation_v2_install import harden_legacy_instance, install_direct_v2
+from .ollama_structured import install_ollama_translation
 from .config import ROOT
 # Compatibility export: older tests/extensions patch this symbol directly. The
 # safe runtime still inherits through it via the MediaDedup/TelegramSafe chain.
@@ -51,6 +52,7 @@ class ChannelStyleReviewApplication(TelegramSafeReviewApplication):
                 self.memory,
             )
             install_direct_v2(self.writer)
+            install_ollama_translation(self.writer, settings)
         except Exception as exc:
             self.writer = self.legacy_writer
             self.channel_style_error = type(exc).__name__
@@ -62,6 +64,8 @@ class ChannelStyleReviewApplication(TelegramSafeReviewApplication):
 
         self.channel_style_enabled = True
         logger.info(
-            "Channel translation v2 active as PRIMARY production behavior with %s historical examples.",
+            "Channel translation v2 active with provider=%s model=%s and %s historical examples.",
+            getattr(self.writer, "_translation_provider_name", "gemini"),
+            getattr(self.writer, "_translation_model", settings.gemini_model),
             indexed,
         )

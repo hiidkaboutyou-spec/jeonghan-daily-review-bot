@@ -24,6 +24,21 @@ def main() -> int:
     for directory in (support, logs, agents):
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     plist_path = agents / f"{LABEL}.plist"
+    environment = {"PYTHONUNBUFFERED": "1"}
+    # Ollama configuration is non-secret. Persist only values explicitly supplied
+    # at install time so the tracked repository can keep Gemini as its default and
+    # the local LaunchAgent can independently opt into no-key local translation.
+    for name in (
+        "HANI_TRANSLATION_PROVIDER",
+        "OLLAMA_MODEL",
+        "OLLAMA_BASE_URL",
+        "OLLAMA_NUM_CTX",
+        "OLLAMA_TIMEOUT_SECONDS",
+    ):
+        value = os.environ.get(name, "").strip()
+        if value:
+            environment[name] = value
+
     payload = {
         "Label": LABEL,
         "ProgramArguments": [str(python), "-m", "tools.local_runtime.run_once"],
@@ -33,7 +48,7 @@ def main() -> int:
         "ProcessType": "Background",
         "StandardOutPath": str(logs / "runtime.log"),
         "StandardErrorPath": str(logs / "runtime-error.log"),
-        "EnvironmentVariables": {"PYTHONUNBUFFERED": "1"},
+        "EnvironmentVariables": environment,
     }
     temporary = plist_path.with_suffix(".plist.tmp")
     with temporary.open("wb") as stream:
