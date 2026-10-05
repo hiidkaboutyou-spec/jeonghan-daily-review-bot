@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import json
 import logging
 import os
 import re
@@ -16,6 +17,11 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from .config import ConfigError, Settings
 from .telegram import TelegramBot, TelegramPermanentError, TelegramTransientError
 from .telegram_cloud_state import backup_fingerprint, backup_to_telegram, restore_from_telegram
+from .translation_lease import (
+    TranslationLeaseError,
+    apply_translation_lease,
+    consume_translation_lease,
+)
 from .webhook_aware_assistant import WebhookAwarePersonalAssistant
 from . import x_degraded_recovery_runtime as _x_degraded_recovery_runtime
 from .webhook_runtime_utils import derive_runtime_secret
@@ -93,6 +99,7 @@ class WebhookRuntime:
         self.last_scan_at = datetime.min.replace(tzinfo=timezone.utc)
         self.last_maintenance_at = datetime.min.replace(tzinfo=timezone.utc)
         self.last_maintenance_error = ""
+        self.translation_lease_expires_at = datetime.min.replace(tzinfo=timezone.utc)
         self.maintenance_tick_seconds = _maintenance_tick_seconds()
 
     async def run_state(self, fn: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
@@ -177,6 +184,41 @@ class WebhookRuntime:
             raise RuntimeError("Webhook runtime is not initialized")
         return self.application
 
+    def apply_translation_lease_sync(self, envelope: Any) -> bool:
+        """Decrypt and install a provider credential only in this process memory."""
+        with self.lock:
+            lease = consume_translation_lease(envelope)
+            app = self._require_app()
+            applied = apply_translation_lease(app, lease)
+            if applied:
+                self.translation_lease_expires_at = datetime.fromtimestamp(
+                    lease.expires_at,
+                    tz=timezone.utc,
+                )
+                logger.info(
+                    "Accepted encrypted translation lease for provider=%s model=%s",
+                    lease.provider,
+                    lease.model,
+                )
+            else:
+                logger.info(
+                    "Ignored Gemini translation lease because an explicit non-Gemini provider is active."
+                )
+            return applied
+
+    @staticmethod
+    def _translation_provider_ready(app: WebhookAwarePersonalAssistant) -> bool:
+        writer = getattr(app, "writer", None)
+        provider = str(
+            getattr(writer, "_translation_provider_name", "gemini") or "gemini"
+        ).strip().casefold()
+        if provider != "gemini":
+            return True
+        return bool(
+            str(getattr(writer, "api_key", "") or "").strip()
+            or str(getattr(app.settings, "gemini_api_key", "") or "").strip()
+        )
+
     def process_update_sync(self, item: dict[str, Any]) -> bool:
         """Process and durably save one Telegram update before acknowledging it.
 
@@ -247,7 +289,12 @@ class WebhookRuntime:
                 asyncio.run(process_date_requests(app))
                 if now - self.last_scan_at >= timedelta(minutes=12):
                     asyncio.run(app.run_scheduled_scan())
-                    asyncio.run(app.deliver_pending())
+                    if self._translation_provider_ready(app):
+                        asyncio.run(app.deliver_pending())
+                    else:
+                        logger.warning(
+                            "Pending delivery deferred until a translation provider credential is available."
+                        )
                     self.last_scan_at = now
                 self.last_maintenance_error = ""
             except Exception as exc:
@@ -332,14 +379,25 @@ def healthz() -> dict[str, Any]:
         if runtime.last_maintenance_at == datetime.min.replace(tzinfo=timezone.utc)
         else runtime.last_maintenance_at.isoformat()
     )
+    app = runtime.application
+    writer = getattr(app, "writer", None) if app is not None else None
+    provider = str(
+        getattr(writer, "_translation_provider_name", "gemini") or "gemini"
+    ).strip().casefold()
+    translation_ready = (
+        runtime._translation_provider_ready(app) if app is not None else False
+    )
     return {
-        "ok": runtime.application is not None,
+        "ok": app is not None,
         "mode": "telegram-webhook",
         "public_base_url": bool(runtime.public_base_url),
         "autonomous_maintenance": True,
         "maintenance_tick_seconds": runtime.maintenance_tick_seconds,
         "last_maintenance_at": last_maintenance,
         "last_maintenance_error": runtime.last_maintenance_error,
+        "translation_provider": provider,
+        "translation_ready": translation_ready,
+        "translation_lease_active": runtime.translation_lease_expires_at > datetime.now(timezone.utc),
     }
 
 
@@ -365,11 +423,35 @@ async def telegram_webhook(
 
 
 @api.post("/maintenance")
-async def maintenance(x_assistant_secret: str | None = Header(default=None)) -> dict[str, bool]:
+async def maintenance(
+    request: Request,
+    x_assistant_secret: str | None = Header(default=None),
+) -> dict[str, bool]:
     supplied = str(x_assistant_secret or "")
     if not runtime.secret or not hmac.compare_digest(supplied, runtime.secret):
         raise HTTPException(status_code=403, detail="invalid maintenance secret")
+
+    lease_applied = False
+    raw = await request.body()
+    if raw:
+        try:
+            payload = json.loads(raw)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=400, detail="invalid maintenance payload") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="invalid maintenance payload")
+        envelope = payload.get("translation_lease")
+        if envelope is not None:
+            try:
+                lease_applied = await runtime.run_state(
+                    runtime.apply_translation_lease_sync,
+                    envelope,
+                )
+            except TranslationLeaseError as exc:
+                logger.warning("Rejected invalid translation lease (%s)", type(exc).__name__)
+                raise HTTPException(status_code=400, detail="invalid translation lease") from exc
+
     # Run before acknowledging so a free host cannot spin down after a 202 while the
     # work exists only in volatile memory.
     await runtime.run_state(runtime.maintenance_sync)
-    return {"ok": True}
+    return {"ok": True, "translation_lease": lease_applied}
