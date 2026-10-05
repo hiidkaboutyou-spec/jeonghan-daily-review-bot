@@ -266,9 +266,9 @@ class PersonalAssistantReviewApplication(ChannelStyleReviewApplication):
         style_ready = bool(getattr(self, "channel_style_enabled", False))
         writer = getattr(self, "writer", None)
         provider = str(getattr(writer, "_translation_provider_name", "gemini") or "gemini")
+        default_model = str(getattr(self.settings, "gemini_model", "") or "")
         provider_model = str(
-            getattr(writer, "_translation_model", self.settings.gemini_model)
-            or self.settings.gemini_model
+            getattr(writer, "_translation_model", default_model) or default_model
         )
         if provider == "ollama" and style_ready:
             translation = f"Ollama محلی ({provider_model}) + سبک چنل"
