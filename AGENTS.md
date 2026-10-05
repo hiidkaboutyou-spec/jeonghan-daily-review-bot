@@ -82,6 +82,8 @@ For every substantive bugfix, feature, refactor, dependency/tool decision, perfo
 
 For broad next-stage requests, this contract applies **in addition to** `project-next-stage`; it does not reduce the required stage scope.\n\nFor scheduled/hourly, long-running, resumed, or tool-heavy engineering work, also read and follow `.agents/skills/agent-session-safety/SKILL.md` before mutation. Revalidate saved session state against current GitHub truth, gate writes/external side effects before execution, and verify the returned result after every mutation.
 
+For scheduled/hourly, multi-step agent execution, or any decision to add/connect external agent, MCP, knowledge-base, terminal, telemetry, or evaluation tooling, also read and follow `.agents/skills/verified-agent-orchestration/SKILL.md`. Keep planning separate from mutation, require provenance/privacy/license review, and treat completion as evidence-bound rather than self-declared.
+
 <!-- project-memory:start -->
 ## Deep next-stage requests
 
