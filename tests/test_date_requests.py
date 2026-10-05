@@ -1,3 +1,4 @@
+import os
 import unittest
 from datetime import timezone
 
@@ -21,7 +22,7 @@ from app.archive_store import ArchiveStore
 from app.state import StateStore
 from app.models import Update
 from app.personal_assistant import PersonalAssistantReviewApplication
-from app.x_client import XCollector
+from app.x_client import XCollector, XCollectionError
 from app.ai import GroupCopy
 
 
@@ -84,6 +85,27 @@ class DateBundleRuntime(unittest.TestCase):
         identifier=enqueue(self.app,'2026-10-04','all')
         self.tick(5)
         self.assertEqual(self.app.state.data['date_requests']['jobs'][identifier]['status'],'partial')
+
+    def test_timeline_to_search_fallback_cannot_claim_complete_source(self):
+        sources=[{'handle':'alpha', 'mode':'full_feed'}]
+        self.app.settings.sources=sources
+        collector=XCollector({'auth_token':'test','ct0':'test'},sources,{})
+        collector._collect_source_timeline=AsyncMock(side_effect=XCollectionError('timeline unavailable'))
+        collector._run_queries=AsyncMock(return_value=[self.update('1')])
+        self.app.collector=collector
+
+        identifier=enqueue(self.app,'2026-10-04','all')
+        # Other integration modules intentionally toggle this process-wide flag.
+        # Keep this regression on the authenticated collector path it is proving.
+        with patch.dict(os.environ, {'X_PROVIDER_PREFLIGHT': ''}, clear=False):
+            self.tick()
+
+        job=self.app.state.data['date_requests']['jobs'][identifier]
+        self.assertEqual(job['coverage']['alpha'],'partial')
+        self.assertTrue(any('source_timeline_fallback' in error for error in collector.last_errors))
+
+        self.tick(3)
+        self.assertEqual(job['status'],'partial')
 
     def test_missing_translation_is_pending_not_raw_or_seen(self):
         self.app.archive_db.index_update(self.update('1'))
