@@ -32,7 +32,7 @@ from app.webhook_runtime_utils import maintenance_url_from_webhook
 
 class TranslationLeaseTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        self.private_key = rsa.generate_private_key(public_exponent=65537, key_size=3072)
         self.public_pem = self.private_key.public_key().public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo,
