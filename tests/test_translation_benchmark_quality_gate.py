@@ -11,6 +11,7 @@ from tools.run_translation_benchmark import (
     _bound_human_review,
     _load_human_reviews,
     _output_sha256,
+    _p95_latency_ms,
     _output_mode,
     _quality_gate,
     _resume_case_order,
@@ -21,6 +22,32 @@ from tools.run_translation_benchmark import (
 
 
 class TranslationBenchmarkQualityGateTests(unittest.TestCase):
+    def test_latency_summary_reports_mean_and_p95_without_becoming_a_quality_claim(self):
+        results = [
+            {
+                "output_mode": "styled",
+                "verifier_result": "PASS",
+                "api_diagnostics": {
+                    "old_legacy": {"elapsed_ms": 100.0},
+                    "new_pipeline": {"elapsed_ms": 80.0},
+                },
+            },
+            {
+                "output_mode": "styled",
+                "verifier_result": "PASS",
+                "api_diagnostics": {
+                    "old_legacy": {"elapsed_ms": 300.0},
+                    "new_pipeline": {"elapsed_ms": 120.0},
+                },
+            },
+        ]
+        summary = _summary(results)
+        self.assertEqual(summary["latency_ms"]["old_legacy"]["mean_ms"], 200.0)
+        self.assertEqual(summary["latency_ms"]["old_legacy"]["p95_ms"], 300.0)
+        self.assertEqual(summary["latency_ms"]["new_pipeline"]["mean_ms"], 100.0)
+        self.assertEqual(summary["latency_ms"]["new_pipeline"]["p95_ms"], 120.0)
+        self.assertEqual(_p95_latency_ms([]), None)
+
     def test_human_review_is_bound_to_exact_output_digest(self):
         output = "ترجمهٔ دقیق"
         review = {
