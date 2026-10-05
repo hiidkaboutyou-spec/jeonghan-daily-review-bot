@@ -94,12 +94,14 @@ class DateBundleRuntime(unittest.TestCase):
         self.app.collector=collector
 
         identifier=enqueue(self.app,'2026-10-04','all')
-        self.tick(4)
+        self.tick()
 
         job=self.app.state.data['date_requests']['jobs'][identifier]
         self.assertEqual(job['coverage']['alpha'],'partial')
-        self.assertEqual(job['status'],'partial')
         self.assertTrue(any('source_timeline_fallback' in error for error in collector.last_errors))
+
+        self.tick(3)
+        self.assertEqual(job['status'],'partial')
 
     def test_missing_translation_is_pending_not_raw_or_seen(self):
         self.app.archive_db.index_update(self.update('1'))
