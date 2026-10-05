@@ -27,6 +27,7 @@ _T = TypeVar("_T")
 DEFAULT_MAINTENANCE_TICK_SECONDS = 60
 MIN_MAINTENANCE_TICK_SECONDS = 15
 MAX_MAINTENANCE_TICK_SECONDS = 300
+MAX_EPHEMERAL_PROVIDER_SECRET_LENGTH = 512
 
 _TELEGRAM_API_URL_RE = re.compile(r"https://api\.telegram\.org/bot[^/\s]+")
 _TELEGRAM_TOKEN_RE = re.compile(r"\b\d{4,}:[A-Za-z0-9_-]{8,}\b")
@@ -93,6 +94,7 @@ class WebhookRuntime:
         self.last_scan_at = datetime.min.replace(tzinfo=timezone.utc)
         self.last_maintenance_at = datetime.min.replace(tzinfo=timezone.utc)
         self.last_maintenance_error = ""
+        self.last_provider_lease_at = datetime.min.replace(tzinfo=timezone.utc)
         self.maintenance_tick_seconds = _maintenance_tick_seconds()
 
     async def run_state(self, fn: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
@@ -237,6 +239,47 @@ class WebhookRuntime:
             self._save_and_backup_if_changed()
             return handled
 
+    def translation_ready(self) -> bool:
+        app = self.application
+        if app is None:
+            return False
+        writer = getattr(app, "writer", None)
+        provider = str(getattr(writer, "_translation_provider_name", "gemini") or "gemini").casefold()
+        if provider == "ollama":
+            return getattr(writer, "_translation_client_or_none", None) is not None
+        return bool(str(getattr(writer, "api_key", "") or "").strip())
+
+    def install_gemini_credential_lease_sync(self, api_key: str) -> bool:
+        """Install a Gemini key in process memory only after authenticated handoff."""
+        value = str(api_key or "").strip()
+        if not value:
+            return False
+        if len(value) > MAX_EPHEMERAL_PROVIDER_SECRET_LENGTH:
+            raise ConfigError("Provider credential lease is invalid.")
+
+        with self.lock:
+            app = self._require_app()
+            writer = getattr(app, "writer", None)
+            provider = str(getattr(writer, "_translation_provider_name", "gemini") or "gemini").casefold()
+            if provider != "gemini":
+                return False
+
+            if self.settings is not None:
+                self.settings.gemini_api_key = value
+            for candidate in (writer, getattr(app, "legacy_writer", None)):
+                if candidate is None or not hasattr(candidate, "api_key"):
+                    continue
+                previous = str(getattr(candidate, "api_key", "") or "")
+                changed = previous != value
+                candidate.api_key = value
+                if changed and hasattr(candidate, "_client"):
+                    candidate._client = None
+                if changed and hasattr(candidate, "_gemini_circuit_open"):
+                    candidate._gemini_circuit_open = ""
+
+            self.last_provider_lease_at = datetime.now(timezone.utc)
+            return True
+
     def maintenance_sync(self) -> None:
         with self.lock:
             app = self._require_app()
@@ -247,7 +290,12 @@ class WebhookRuntime:
                 asyncio.run(process_date_requests(app))
                 if now - self.last_scan_at >= timedelta(minutes=12):
                     asyncio.run(app.run_scheduled_scan())
-                    asyncio.run(app.deliver_pending())
+                    if self.translation_ready():
+                        asyncio.run(app.deliver_pending())
+                    else:
+                        logger.warning(
+                            "Pending delivery deferred until a translation credential is available."
+                        )
                     self.last_scan_at = now
                 self.last_maintenance_error = ""
             except Exception as exc:
@@ -332,12 +380,24 @@ def healthz() -> dict[str, Any]:
         if runtime.last_maintenance_at == datetime.min.replace(tzinfo=timezone.utc)
         else runtime.last_maintenance_at.isoformat()
     )
+    last_provider_lease = (
+        None
+        if runtime.last_provider_lease_at == datetime.min.replace(tzinfo=timezone.utc)
+        else runtime.last_provider_lease_at.isoformat()
+    )
+    writer = getattr(runtime.application, "writer", None) if runtime.application is not None else None
+    translation_provider = str(
+        getattr(writer, "_translation_provider_name", "gemini") or "gemini"
+    )
     return {
         "ok": runtime.application is not None,
         "mode": "telegram-webhook",
         "public_base_url": bool(runtime.public_base_url),
         "autonomous_maintenance": True,
         "maintenance_tick_seconds": runtime.maintenance_tick_seconds,
+        "translation_provider": translation_provider,
+        "translation_ready": runtime.translation_ready(),
+        "last_provider_lease_at": last_provider_lease,
         "last_maintenance_at": last_maintenance,
         "last_maintenance_error": runtime.last_maintenance_error,
     }
@@ -365,10 +425,21 @@ async def telegram_webhook(
 
 
 @api.post("/maintenance")
-async def maintenance(x_assistant_secret: str | None = Header(default=None)) -> dict[str, bool]:
+async def maintenance(
+    x_assistant_secret: str | None = Header(default=None),
+    x_hani_gemini_key: str | None = Header(default=None),
+) -> dict[str, bool]:
     supplied = str(x_assistant_secret or "")
     if not runtime.secret or not hmac.compare_digest(supplied, runtime.secret):
         raise HTTPException(status_code=403, detail="invalid maintenance secret")
+    if x_hani_gemini_key:
+        try:
+            await runtime.run_state(
+                runtime.install_gemini_credential_lease_sync,
+                x_hani_gemini_key,
+            )
+        except ConfigError as exc:
+            raise HTTPException(status_code=400, detail="invalid provider credential lease") from exc
     # Run before acknowledging so a free host cannot spin down after a 202 while the
     # work exists only in volatile memory.
     await runtime.run_state(runtime.maintenance_sync)
