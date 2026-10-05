@@ -7,7 +7,7 @@ description: Execute the next substantial safe stage of the Jeonghan Daily Revie
 
 Use this skill when the user asks to "do the next stage", "continue deeply", "advance the project", or equivalent without prescribing a narrow change.
 
-Read `AGENTS.md` and `docs/AGENT_NEXT_STAGE_PROTOCOL.md` first.
+Read `AGENTS.md` and `docs/AGENT_NEXT_STAGE_PROTOCOL.md` first. Also read `.agents/skills/agent-session-safety/SKILL.md` so resumed/scheduled work revalidates state and gates every mutation.
 
 ## Required behavior
 
