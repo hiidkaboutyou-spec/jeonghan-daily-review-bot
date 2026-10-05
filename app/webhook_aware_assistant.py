@@ -5,6 +5,7 @@ import os
 from datetime import datetime, timedelta, timezone
 
 from .personal_assistant import PersonalAssistantReviewApplication, assistant_main_keyboard
+from .translation_lease import TranslationLeaseError, build_translation_lease
 from .webhook_runtime_utils import derive_runtime_secret, maintenance_url_from_webhook
 from .x_client import XCollectionError, normalize_handle
 
@@ -65,14 +66,50 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
             await super().run()
             return 0
 
-        maintenance_url = maintenance_url_from_webhook(webhook_url)
+        trusted_origins = [
+            str(item).strip()
+            for item in self.settings.runtime.get("trusted_webhook_origins", [])
+            if str(item).strip()
+        ]
+        maintenance_url = maintenance_url_from_webhook(
+            webhook_url,
+            trusted_origins=trusted_origins,
+        )
         if maintenance_url:
             secret = derive_runtime_secret(self.settings.telegram_token)
+            request_kwargs: dict[str, object] = {
+                "headers": {"X-Assistant-Secret": secret},
+                "timeout": 90,
+                # A credential-bearing maintenance request must never carry custom
+                # headers/body to a redirected host.
+                "allow_redirects": False,
+            }
+            if self.settings.gemini_api_key:
+                if not trusted_origins:
+                    logger.error(
+                        "Gemini is configured but no trusted webhook origin exists; refusing to attach a translation lease."
+                    )
+                    if safe_auto:
+                        return WEBHOOK_MAINTENANCE_FAILED_EXIT_CODE
+                else:
+                    try:
+                        lease = build_translation_lease(
+                            self.settings.gemini_api_key,
+                            self.settings.gemini_model,
+                        )
+                    except TranslationLeaseError as exc:
+                        logger.error(
+                            "Could not build translation lease (%s); refusing unsafe provider handoff.",
+                            type(exc).__name__,
+                        )
+                        if safe_auto:
+                            return WEBHOOK_MAINTENANCE_FAILED_EXIT_CODE
+                    else:
+                        request_kwargs["json"] = {"translation_lease": lease}
             try:
                 response = self.telegram.session.post(
                     maintenance_url,
-                    headers={"X-Assistant-Secret": secret},
-                    timeout=90,
+                    **request_kwargs,
                 )
                 if 200 <= response.status_code < 300:
                     logger.info(
