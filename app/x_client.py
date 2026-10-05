@@ -277,6 +277,13 @@ class XCollector:
                 raise XCollectionError(
                     f"Could not read @{handle}: {_safe_error(timeline_error)} | {_safe_error(search_error)}"
                 ) from search_error
+            # Search fallback can recover useful observations, but it cannot prove
+            # that the source timeline window was exhausted. Preserve that degraded
+            # provenance so callers never promote fallback rows to complete coverage.
+            self.last_errors = _unique(
+                self.last_errors
+                + [f"@{handle}: source_timeline_fallback ({_safe_error(timeline_error)})"]
+            )
         return _dedupe(results)[:1000]
 
     async def _collect_source_timeline(
