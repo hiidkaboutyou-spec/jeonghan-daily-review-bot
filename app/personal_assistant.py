@@ -264,9 +264,10 @@ class PersonalAssistantReviewApplication(ChannelStyleReviewApplication):
         except (TypeError, ValueError):
             scan_failures = 0
         style_ready = bool(getattr(self, "channel_style_enabled", False))
-        provider = str(getattr(self.writer, "_translation_provider_name", "gemini") or "gemini")
+        writer = getattr(self, "writer", None)
+        provider = str(getattr(writer, "_translation_provider_name", "gemini") or "gemini")
         provider_model = str(
-            getattr(self.writer, "_translation_model", self.settings.gemini_model)
+            getattr(writer, "_translation_model", self.settings.gemini_model)
             or self.settings.gemini_model
         )
         if provider == "ollama" and style_ready:
