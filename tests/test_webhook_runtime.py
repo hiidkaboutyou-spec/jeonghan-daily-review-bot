@@ -15,7 +15,11 @@ from app.telegram import TelegramPermanentError, TelegramTransientError
 from app.telegram_cloud_state import backup_fingerprint, ensure_process_backup_key
 from app.webhook_runtime_utils import derive_runtime_secret, maintenance_url_from_webhook
 from app.webhook_aware_assistant import WebhookAwarePersonalAssistant, github_actions_polling_only
-from app.webhook_server import WebhookRuntime, _autonomous_maintenance_loop
+from app.webhook_server import (
+    EPHEMERAL_PROVIDER_LEASE_TTL_SECONDS,
+    WebhookRuntime,
+    _autonomous_maintenance_loop,
+)
 
 
 class _FakeState:
@@ -213,6 +217,148 @@ class WebhookRuntimeTests(unittest.TestCase):
             "https://assistant.example/maintenance",
         )
         self.assertEqual(maintenance_url_from_webhook("not-a-url"), "")
+        self.assertEqual(
+            maintenance_url_from_webhook("http://assistant.example/telegram/webhook"),
+            "",
+        )
+        self.assertEqual(
+            maintenance_url_from_webhook(
+                "https://evil.example/telegram/webhook",
+                trusted_origins=["https://assistant.example"],
+            ),
+            "",
+        )
+
+    def test_actions_maintenance_wake_leases_gemini_key_without_redirects(self):
+        app = object.__new__(WebhookAwarePersonalAssistant)
+        post = Mock(return_value=SimpleNamespace(status_code=200))
+        app.settings = SimpleNamespace(
+            telegram_token="123:abc",
+            gemini_api_key="gemini-secret-for-test",
+            runtime={"trusted_webhook_origins": ["https://assistant.example"]},
+        )
+        app.telegram = SimpleNamespace(
+            api=Mock(
+                return_value={
+                    "url": "https://assistant.example/telegram/webhook",
+                }
+            ),
+            session=SimpleNamespace(post=post),
+        )
+
+        result = asyncio.run(app.run())
+
+        self.assertEqual(result, 3)
+        call = post.call_args
+        self.assertEqual(call.args[0], "https://assistant.example/maintenance")
+        self.assertEqual(
+            call.kwargs["headers"]["X-Hani-Gemini-Key"],
+            "gemini-secret-for-test",
+        )
+        self.assertFalse(call.kwargs["allow_redirects"])
+
+    def test_runtime_gemini_lease_updates_writer_in_memory(self):
+        runtime = WebhookRuntime()
+        writer = SimpleNamespace(
+            api_key="",
+            _client=object(),
+            _translation_provider_name="gemini",
+        )
+        legacy = SimpleNamespace(api_key="", _client=object())
+        runtime.settings = SimpleNamespace(gemini_api_key="")
+        runtime.application = SimpleNamespace(
+            writer=writer,
+            legacy_writer=legacy,
+        )
+
+        self.assertFalse(runtime.translation_ready())
+        self.assertTrue(
+            runtime.install_gemini_credential_lease_sync("gemini-secret-for-test")
+        )
+        self.assertTrue(runtime.translation_ready())
+        self.assertEqual(runtime.settings.gemini_api_key, "gemini-secret-for-test")
+        self.assertEqual(writer.api_key, "gemini-secret-for-test")
+        self.assertIsNone(writer._client)
+        self.assertEqual(legacy.api_key, "gemini-secret-for-test")
+        self.assertIsNone(legacy._client)
+        self.assertNotEqual(
+            runtime.last_provider_lease_at,
+            datetime.min.replace(tzinfo=timezone.utc),
+        )
+        runtime.executor.shutdown(wait=True, cancel_futures=True)
+
+    def test_expired_runtime_gemini_lease_is_cleared_and_not_ready(self):
+        runtime = WebhookRuntime()
+        writer = SimpleNamespace(
+            api_key="gemini-secret-for-test",
+            _client=object(),
+            _translation_provider_name="gemini",
+        )
+        legacy = SimpleNamespace(api_key="gemini-secret-for-test", _client=object())
+        runtime.settings = SimpleNamespace(gemini_api_key="gemini-secret-for-test")
+        runtime.application = SimpleNamespace(
+            writer=writer,
+            legacy_writer=legacy,
+        )
+        now = datetime.now(timezone.utc)
+        runtime.last_provider_lease_at = now - timedelta(
+            seconds=EPHEMERAL_PROVIDER_LEASE_TTL_SECONDS + 1
+        )
+
+        runtime._expire_gemini_credential_lease_if_needed(
+            runtime.application,
+            now=now,
+        )
+
+        self.assertFalse(runtime.translation_ready())
+        self.assertEqual(runtime.settings.gemini_api_key, "")
+        self.assertEqual(writer.api_key, "")
+        self.assertIsNone(writer._client)
+        self.assertEqual(legacy.api_key, "")
+        self.assertIsNone(legacy._client)
+        runtime.executor.shutdown(wait=True, cancel_futures=True)
+
+    def test_static_gemini_key_is_not_replaced_by_runtime_lease(self):
+        runtime = WebhookRuntime()
+        runtime.static_gemini_configured = True
+        writer = SimpleNamespace(
+            api_key="static-key",
+            _client=object(),
+            _translation_provider_name="gemini",
+        )
+        runtime.settings = SimpleNamespace(gemini_api_key="static-key")
+        runtime.application = SimpleNamespace(writer=writer, legacy_writer=None)
+
+        self.assertFalse(
+            runtime.install_gemini_credential_lease_sync("different-key")
+        )
+        self.assertEqual(writer.api_key, "static-key")
+        self.assertEqual(runtime.settings.gemini_api_key, "static-key")
+        runtime.executor.shutdown(wait=True, cancel_futures=True)
+
+    def test_autonomous_delivery_waits_for_translation_credential(self):
+        runtime = WebhookRuntime()
+        runtime.last_scan_at = datetime.min.replace(tzinfo=timezone.utc)
+        app = SimpleNamespace(
+            writer=SimpleNamespace(
+                api_key="",
+                _translation_provider_name="gemini",
+            ),
+            process_due_reminders=AsyncMock(),
+            run_scheduled_scan=AsyncMock(),
+            deliver_pending=AsyncMock(),
+            state=SimpleNamespace(save=Mock()),
+            settings=SimpleNamespace(state_path=Path(".state/state.json")),
+        )
+        runtime.application = app
+
+        with patch("app.date_requests.process_date_requests", new=AsyncMock()):
+            with patch.object(runtime, "_save_and_backup_if_changed"):
+                runtime.maintenance_sync()
+
+        app.run_scheduled_scan.assert_awaited_once()
+        app.deliver_pending.assert_not_awaited()
+        runtime.executor.shutdown(wait=True, cancel_futures=True)
 
     def test_telegram_token_can_supply_process_only_backup_key(self):
         with patch.dict(os.environ, {"STATE_BACKUP_KEY": ""}, clear=False):
