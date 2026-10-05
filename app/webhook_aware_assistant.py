@@ -66,9 +66,10 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
             await super().run()
             return 0
 
+        runtime_settings = getattr(self.settings, "runtime", {}) or {}
         trusted_origins = [
             str(item).strip()
-            for item in self.settings.runtime.get("trusted_webhook_origins", [])
+            for item in runtime_settings.get("trusted_webhook_origins", [])
             if str(item).strip()
         ]
         maintenance_url = maintenance_url_from_webhook(
@@ -84,7 +85,10 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
                 # headers/body to a redirected host.
                 "allow_redirects": False,
             }
-            if self.settings.gemini_api_key:
+            gemini_api_key = str(
+                getattr(self.settings, "gemini_api_key", "") or ""
+            ).strip()
+            if gemini_api_key:
                 if not trusted_origins:
                     logger.error(
                         "Gemini is configured but no trusted webhook origin exists; refusing to attach a translation lease."
@@ -94,8 +98,15 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
                 else:
                     try:
                         lease = build_translation_lease(
-                            self.settings.gemini_api_key,
-                            self.settings.gemini_model,
+                            gemini_api_key,
+                            str(
+                                getattr(
+                                    self.settings,
+                                    "gemini_model",
+                                    "gemini-3.5-flash-lite",
+                                )
+                                or "gemini-3.5-flash-lite"
+                            ).strip(),
                         )
                     except TranslationLeaseError as exc:
                         logger.error(
