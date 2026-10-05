@@ -61,6 +61,10 @@ def build_preference_rows(
     }
 
     for record in records:
+        # Explicitly ineligible edits are never preference labels, even when the
+        # caller asks to include undecided records for manual research.
+        if record.calibration_eligible == "ineligible":
+            continue
         raw_draft = drafts.get(record.draft_id)
         if not isinstance(raw_draft, dict):
             skipped["missing_draft"] += 1
