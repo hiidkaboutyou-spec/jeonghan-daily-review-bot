@@ -10,12 +10,35 @@ def derive_runtime_secret(token: str) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def maintenance_url_from_webhook(webhook_url: str) -> str:
-    parsed = urlsplit(str(webhook_url or "").strip())
-    # Maintenance can carry short-lived provider credentials. Never derive a
-    # secret-bearing wake URL over plaintext HTTP.
+def _normalized_https_origin(value: str) -> str:
+    parsed = urlsplit(str(value or "").strip())
     if parsed.scheme != "https" or not parsed.netloc:
         return ""
+    return urlunsplit(("https", parsed.netloc.lower(), "", "", "")).rstrip("/")
+
+
+def maintenance_url_from_webhook(
+    webhook_url: str,
+    *,
+    trusted_origins: list[str] | tuple[str, ...] | None = None,
+) -> str:
+    parsed = urlsplit(str(webhook_url or "").strip())
+    # Maintenance may carry provider credentials. Never derive a credential-bearing
+    # wake URL over plaintext HTTP.
+    if parsed.scheme != "https" or not parsed.netloc:
+        return ""
+
+    trusted = {
+        origin
+        for origin in (
+            _normalized_https_origin(item) for item in (trusted_origins or ())
+        )
+        if origin
+    }
+    current_origin = _normalized_https_origin(webhook_url)
+    if trusted and current_origin not in trusted:
+        return ""
+
     path = parsed.path or "/"
     suffix = "/telegram/webhook"
     if path.endswith(suffix):
