@@ -28,6 +28,7 @@ DEFAULT_MAINTENANCE_TICK_SECONDS = 60
 MIN_MAINTENANCE_TICK_SECONDS = 15
 MAX_MAINTENANCE_TICK_SECONDS = 300
 MAX_EPHEMERAL_PROVIDER_SECRET_LENGTH = 512
+EPHEMERAL_PROVIDER_LEASE_TTL_SECONDS = 10 * 60
 
 _TELEGRAM_API_URL_RE = re.compile(r"https://api\.telegram\.org/bot[^/\s]+")
 _TELEGRAM_TOKEN_RE = re.compile(r"\b\d{4,}:[A-Za-z0-9_-]{8,}\b")
@@ -95,6 +96,7 @@ class WebhookRuntime:
         self.last_maintenance_at = datetime.min.replace(tzinfo=timezone.utc)
         self.last_maintenance_error = ""
         self.last_provider_lease_at = datetime.min.replace(tzinfo=timezone.utc)
+        self.static_gemini_configured = False
         self.maintenance_tick_seconds = _maintenance_tick_seconds()
 
     async def run_state(self, fn: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
@@ -132,6 +134,9 @@ class WebhookRuntime:
         if errors:
             raise ConfigError("; ".join(errors))
         self.settings = settings
+        self.static_gemini_configured = bool(
+            str(getattr(settings, "gemini_api_key", "") or "").strip()
+        )
         _configure_webhook_x_recovery(settings)
         _install_webhook_x_recovery()
         bootstrap_telegram = TelegramBot(
@@ -188,6 +193,7 @@ class WebhookRuntime:
         """
         with self.lock:
             app = self._require_app()
+            self._expire_gemini_credential_lease_if_needed(app)
             try:
                 update_id = int(item.get("update_id", 0) or 0)
             except (TypeError, ValueError):
@@ -239,6 +245,39 @@ class WebhookRuntime:
             self._save_and_backup_if_changed()
             return handled
 
+    def _provider_lease_fresh(self, now: datetime | None = None) -> bool:
+        if self.last_provider_lease_at == datetime.min.replace(tzinfo=timezone.utc):
+            return False
+        current = now or datetime.now(timezone.utc)
+        return current - self.last_provider_lease_at <= timedelta(
+            seconds=EPHEMERAL_PROVIDER_LEASE_TTL_SECONDS
+        )
+
+    def _expire_gemini_credential_lease_if_needed(
+        self,
+        app: WebhookAwarePersonalAssistant,
+        *,
+        now: datetime | None = None,
+    ) -> None:
+        if self.static_gemini_configured or self._provider_lease_fresh(now):
+            return
+        if self.last_provider_lease_at == datetime.min.replace(tzinfo=timezone.utc):
+            return
+
+        if self.settings is not None:
+            self.settings.gemini_api_key = ""
+        writer = getattr(app, "writer", None)
+        for candidate in (writer, getattr(app, "legacy_writer", None)):
+            if candidate is None or not hasattr(candidate, "api_key"):
+                continue
+            candidate.api_key = ""
+            if hasattr(candidate, "_client"):
+                candidate._client = None
+            if hasattr(candidate, "_gemini_circuit_open"):
+                candidate._gemini_circuit_open = ""
+        self.last_provider_lease_at = datetime.min.replace(tzinfo=timezone.utc)
+        logger.info("Expired in-memory Gemini provider credential lease.")
+
     def translation_ready(self) -> bool:
         app = self.application
         if app is None:
@@ -247,7 +286,10 @@ class WebhookRuntime:
         provider = str(getattr(writer, "_translation_provider_name", "gemini") or "gemini").casefold()
         if provider == "ollama":
             return getattr(writer, "_translation_client_or_none", None) is not None
-        return bool(str(getattr(writer, "api_key", "") or "").strip())
+        has_key = bool(str(getattr(writer, "api_key", "") or "").strip())
+        if self.static_gemini_configured:
+            return has_key
+        return has_key and self._provider_lease_fresh()
 
     def install_gemini_credential_lease_sync(self, api_key: str) -> bool:
         """Install a Gemini key in process memory only after authenticated handoff."""
@@ -259,6 +301,8 @@ class WebhookRuntime:
 
         with self.lock:
             app = self._require_app()
+            if self.static_gemini_configured:
+                return False
             writer = getattr(app, "writer", None)
             provider = str(getattr(writer, "_translation_provider_name", "gemini") or "gemini").casefold()
             if provider != "gemini":
@@ -284,6 +328,7 @@ class WebhookRuntime:
         with self.lock:
             app = self._require_app()
             now = datetime.now(timezone.utc)
+            self._expire_gemini_credential_lease_if_needed(app, now=now)
             try:
                 asyncio.run(app.process_due_reminders())
                 from .date_requests import process_date_requests
