@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from app.models import Update
 from app.state import StateStore
-from app.telegram import TelegramTransientError
+from app.telegram import TelegramPermanentError, TelegramTransientError
 from app.telegram_cloud_state import backup_fingerprint, ensure_process_backup_key
 from app.webhook_runtime_utils import derive_runtime_secret, maintenance_url_from_webhook
 from app.webhook_aware_assistant import WebhookAwarePersonalAssistant, github_actions_polling_only
@@ -31,15 +31,15 @@ class _FakeState:
 
 
 class _FakeApp:
-    def __init__(self, *, transient: bool = False) -> None:
+    def __init__(self, *, error: Exception | None = None) -> None:
         self.state = _FakeState()
-        self.transient = transient
+        self.error = error
         self.calls = 0
 
     async def _process_one_telegram_update(self, _item) -> None:
         self.calls += 1
-        if self.transient:
-            raise TelegramTransientError("temporary")
+        if self.error is not None:
+            raise self.error
 
 
 class WebhookRuntimeTests(unittest.TestCase):
@@ -293,15 +293,39 @@ class WebhookRuntimeTests(unittest.TestCase):
         self.assertGreaterEqual(fake.state.saved, 1)
         runtime.executor.shutdown(wait=True, cancel_futures=True)
 
-    def test_exhausted_transient_failure_is_not_acknowledged(self):
+    def test_exhausted_transient_failure_logs_safe_reason_without_ack(self):
         runtime = WebhookRuntime()
-        fake = _FakeApp(transient=True)
+        fake = _FakeApp(error=TelegramTransientError("Telegram sendMessage temporarily failed with HTTP 503."))
         runtime.application = fake  # type: ignore[assignment]
         with patch.object(runtime, "_save_and_backup_if_changed"):
-            handled = runtime.process_update_sync({"update_id": 5})
+            with self.assertLogs("app.webhook_server", level="WARNING") as captured:
+                handled = runtime.process_update_sync({"update_id": 5})
         self.assertFalse(handled)
         self.assertEqual(fake.calls, 3)
         self.assertEqual(fake.state.telegram_offset, 0)
+        self.assertIn("temporarily failed with HTTP 503", "\n".join(captured.output))
+        runtime.executor.shutdown(wait=True, cancel_futures=True)
+
+    def test_permanent_failure_logs_sanitized_reason_before_consuming_update(self):
+        runtime = WebhookRuntime()
+        fake = _FakeApp(
+            error=TelegramPermanentError(
+                "Telegram sendMessage failed: chat not found via "
+                "https://api.telegram.org/bot123456:unsafe-token/sendMessage"
+            )
+        )
+        runtime.application = fake  # type: ignore[assignment]
+        with patch.object(runtime, "_save_and_backup_if_changed"):
+            with self.assertLogs("app.webhook_server", level="ERROR") as captured:
+                handled = runtime.process_update_sync({"update_id": 9})
+        output = "\n".join(captured.output)
+        self.assertTrue(handled)
+        self.assertEqual(fake.calls, 1)
+        self.assertEqual(fake.state.telegram_offset, 10)
+        self.assertIn("chat not found", output)
+        self.assertIn("<telegram-api>", output)
+        self.assertNotIn("123456:unsafe-token", output)
+        self.assertNotIn("api.telegram.org", output)
         runtime.executor.shutdown(wait=True, cancel_futures=True)
 
 
