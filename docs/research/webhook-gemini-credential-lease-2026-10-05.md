@@ -14,17 +14,20 @@ Use the existing authenticated maintenance wake as a narrow, memory-only credent
 
 1. GitHub Actions derives the existing `X-Assistant-Secret` from the Telegram bot token.
 2. For HTTPS webhook origins only, the Actions runtime adds the existing GitHub `GEMINI_API_KEY` as `X-Hani-Gemini-Key`.
-3. Redirects are disabled so the secret-bearing request cannot be forwarded to another origin.
-4. The webhook validates `X-Assistant-Secret` before accepting the provider credential.
-5. The key is installed only into the in-process Settings/writer objects. It is not written to repository files, SQLite, Telegram state backups, or Railway variables.
-6. If the webhook starts without a translation credential, automatic X collection may queue fresh posts but pending delivery is deferred until a credential lease arrives, preventing avoidable source-only fallback delivery.
+3. Credential-bearing maintenance is pinned to the configured production Railway origin.
+4. Redirects are disabled so the secret-bearing request cannot be forwarded to another origin.
+5. The webhook validates `X-Assistant-Secret` before accepting the provider credential.
+6. The key is installed only into the in-process Settings/writer objects. It is not written to repository files, SQLite, Telegram state backups, or Railway variables.
+7. If the webhook starts without a translation credential, automatic X collection may queue fresh posts but pending delivery is deferred until a credential lease arrives, preventing avoidable source-only fallback delivery.
 
-The lease is refreshed by normal GitHub Actions live wakes. A process restart loses the lease by design.
+The lease is refreshed by normal GitHub Actions live wakes, expires after 10 minutes if refresh stops, and is actively cleared from the in-process writer/client. A process restart also loses the lease by design.
 
 ## Security boundaries
 
 - Plain HTTP maintenance URLs are rejected.
+- The credential handoff is restricted to the configured production Railway origin.
 - Requests do not follow redirects.
+- A non-static Gemini lease expires after 10 minutes and is cleared from the in-process writer/client.
 - Provider credential values are never logged or returned in API responses.
 - The existing maintenance authentication remains mandatory.
 - Credential length is bounded.
@@ -48,3 +51,11 @@ Current public model gateways increasingly require their own API keys or user-wa
 ## Rollback
 
 Revert the four runtime/test changes in this PR. No schema, persisted state, Telegram webhook ownership, X cursor, or Railway variable migration is involved.
+
+
+## Post-merge production verification
+
+- PR #178 merged to `main` as `f4781ab933863c3c2b2598265559309d8740e74f`.
+- Exact-head validation was green across the Daily workflow, live EN/KO/JA translation smoke, Fanfic, Maintenance, Security, CodeQL, and exact production Docker validation.
+- Railway deployment `77aa4ece-dfbc-4297-bb5f-aeda7e9248b3` built exactly `f4781ab9...`, reached `SUCCESS`, restored private state, registered the Telegram webhook, and passed `/healthz`.
+- Startup still correctly reports Gemini unavailable before the first Actions lease; the next main live wake is the acceptance event for `translation_ready`.
