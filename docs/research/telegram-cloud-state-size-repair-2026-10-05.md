@@ -6,6 +6,8 @@ Base: `main@c3aec24598ab5e274d9cfc3d1bb3bfc78c9b9757`
 
 Branch: `fix/telegram-compressed-cloud-state-166`
 
+Implementation head before this evidence-only update: `5f7a05212f90cf05b700ba7db9f7181194815a15`
+
 ## Problem and acceptance criteria
 
 The first production deployment containing safe Telegram error details logged:
