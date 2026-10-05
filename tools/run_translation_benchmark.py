@@ -164,6 +164,34 @@ def _run_quota_aware(
         sleep_fn(wait)
 
 
+def _p95_latency_ms(values: list[float]) -> float | None:
+    """Nearest-rank p95 for end-to-end logical provider operations."""
+    clean = sorted(float(value) for value in values if isinstance(value, (int, float)) and value >= 0)
+    if not clean:
+        return None
+    rank = max(1, (95 * len(clean) + 99) // 100)
+    return round(clean[rank - 1], 3)
+
+
+def _pipeline_latency_summary(results: list[dict], pipeline: str) -> dict:
+    values: list[float] = []
+    for item in results:
+        diagnostics = item.get("api_diagnostics", {})
+        if not isinstance(diagnostics, dict):
+            continue
+        details = diagnostics.get(pipeline, {})
+        if not isinstance(details, dict):
+            continue
+        value = details.get("elapsed_ms")
+        if isinstance(value, (int, float)) and value >= 0:
+            values.append(float(value))
+    return {
+        "samples": len(values),
+        "mean_ms": round(sum(values) / len(values), 3) if values else None,
+        "p95_ms": _p95_latency_ms(values),
+    }
+
+
 def _new_needs_quota_retry(writer: ChannelStyleCaptionWriter, messages: list[str]) -> bool:
     fallback = str(writer.last_diagnostics.get("fallback", ""))
     lower = "\n".join(messages).lower()
@@ -235,6 +263,10 @@ def _summary(results: list[dict]) -> dict:
         "human_publishable_fraction": (
             round(human_publishable / len(human_reviewed), 4) if human_reviewed else None
         ),
+        "latency_ms": {
+            "old_legacy": _pipeline_latency_summary(results, "old_legacy"),
+            "new_pipeline": _pipeline_latency_summary(results, "new_pipeline"),
+        },
     }
 
 
@@ -490,11 +522,13 @@ def run(
             source = group.updates[0].translation_source()
             analysis = analyze_source(source)
 
+            old_started = time.perf_counter()
             old_copy, old_api = _run_quota_aware(
                 lambda: old_writer.write_group(group),
                 retry_if=_old_needs_quota_retry,
                 max_quota_retries=max_quota_retries,
             )
+            old_api["elapsed_ms"] = round((time.perf_counter() - old_started) * 1000.0, 3)
 
             if pace_seconds > 0:
                 time.sleep(min(max(pace_seconds, 2.0), 8.0))
@@ -503,11 +537,13 @@ def run(
                 new_writer.last_diagnostics = {}
                 return new_writer.write_group(group)
 
+            new_started = time.perf_counter()
             new_copy, new_api = _run_quota_aware(
                 _run_new,
                 retry_if=lambda _result, messages: _new_needs_quota_retry(new_writer, messages),
                 max_quota_retries=max_quota_retries,
             )
+            new_api["elapsed_ms"] = round((time.perf_counter() - new_started) * 1000.0, 3)
 
             old_body = old_copy.bodies.get(case_id, "")
             new_body = new_copy.bodies.get(case_id, "")
