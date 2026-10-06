@@ -259,6 +259,7 @@ class PersonalAssistantReviewApplication(ChannelStyleReviewApplication):
         sources = sum(bool(item.get("enabled", True)) for item in self.settings.sources)
         last_run = str(data.get("last_auto_run") or "").strip()
         last_attempt = str(data.get("last_auto_attempt") or "").strip()
+        last_degraded = str(data.get("last_degraded_scan_at") or "").strip()
         try:
             scan_failures = max(0, int(data.get("x_scan_failure_streak", 0) or 0))
         except (TypeError, ValueError):
@@ -282,6 +283,11 @@ class PersonalAssistantReviewApplication(ChannelStyleReviewApplication):
 
         if scan_failures:
             next_action = "دریافت X در آخرین تلاش ناقص بود؛ بازهٔ جاافتاده محفوظ است و اجرای بعدی دوباره امتحان می‌کند."
+        elif last_degraded:
+            next_action = (
+                "بازیابی عمومی X فعال است؛ خبرهای تازه را ادامه می‌دهم و cursor اصلی را "
+                "برای backfill کامل بعد از برگشت X نگه می‌دارم."
+            )
         elif pending:
             next_action = f"اول {pending} پیش‌نویس منتظر را مرور کن."
         elif queue:
@@ -305,7 +311,13 @@ class PersonalAssistantReviewApplication(ChannelStyleReviewApplication):
                 f"وضعیت آخرین تلاش X: ناقص ({scan_failures} تلاش پیاپی) · "
                 f"{self._friendly_last_run(last_attempt)}\n\n"
                 if scan_failures
-                else "وضعیت دریافت X: کامل\n\n"
+                else (
+                    "وضعیت دریافت X: بازیابی عمومی فعال · "
+                    f"آخرین پوشش همهٔ منابع: {self._friendly_last_run(last_degraded)} · "
+                    "cursor اصلی برای backfill محفوظ است\n\n"
+                    if last_degraded
+                    else "وضعیت دریافت X: کامل\n\n"
+                )
             )
             + f"پیشنهاد من: {next_action}\n\n"
             "از این به بعد می‌تونی عادی فارسی تایپ کنی؛ لازم نیست اسم commandها را یادت بماند."
