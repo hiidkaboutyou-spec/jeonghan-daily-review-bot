@@ -19,6 +19,9 @@ from app.webhook_server import (
     EPHEMERAL_PROVIDER_LEASE_TTL_SECONDS,
     WebhookRuntime,
     _autonomous_maintenance_loop,
+    api,
+    maintenance,
+    runtime as webhook_runtime,
 )
 
 
@@ -210,6 +213,27 @@ class WebhookRuntimeTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(len(first), 64)
         self.assertRegex(first, r"^[a-f0-9]+$")
+
+    def test_maintenance_http_acknowledges_before_queue_drain(self):
+        original_secret = webhook_runtime.secret
+        webhook_runtime.secret = "test-maintenance-secret"
+        try:
+            with patch.object(webhook_runtime, "schedule_maintenance", create=True) as schedule:
+                with patch.object(webhook_runtime, "run_state", new=AsyncMock()) as run_state:
+                    result = asyncio.run(
+                        maintenance(
+                            x_assistant_secret="test-maintenance-secret",
+                            x_hani_gemini_key="gemini-secret-for-test",
+                        )
+                    )
+
+            self.assertEqual(result, {"ok": True})
+            schedule.assert_called_once_with(gemini_api_key="gemini-secret-for-test")
+            run_state.assert_not_awaited()
+            route = next(item for item in api.routes if getattr(item, "path", "") == "/maintenance")
+            self.assertEqual(route.status_code, 202)
+        finally:
+            webhook_runtime.secret = original_secret
 
     def test_maintenance_url_uses_same_webhook_origin(self):
         self.assertEqual(
