@@ -30,6 +30,10 @@ class DegradedRealtimeCheckpointTests(unittest.TestCase):
             ],
             provider_preflight_blocked=lambda: False,
             collect_window=AsyncMock(return_value=[]),
+            sources=[
+                {"handle": "alpha", "enabled": True},
+                {"handle": "beta", "enabled": True},
+            ],
             _hani_degraded_attempted_sources=["alpha", "beta"],
             _hani_degraded_failed_sources=dict(failed or {}),
         )
@@ -99,6 +103,22 @@ class DegradedRealtimeCheckpointTests(unittest.TestCase):
         self.assertEqual(app.state.data["last_degraded_scan_at"], previous)
         self.assertEqual(app.state.data["x_scan_failure_streak"], 4)
         app._notify_x_failure_if_due.assert_called_once()
+
+    def test_priority_collector_source_failure_blocks_checkpoint(self):
+        now = datetime.now(timezone.utc)
+        app = self._app(now=now)
+        app.collector.sources.append({"handle": "priority_only", "enabled": True})
+        app.collector._hani_degraded_attempted_sources.append("priority_only")
+        app.collector._hani_degraded_failed_sources = {"priority_only": "timeout"}
+        app.collector.last_errors.append(
+            "@priority_only: recovery_chain_failed (timeout)"
+        )
+
+        with patch.dict(os.environ, {"X_PROVIDER_PREFLIGHT": "degraded"}):
+            asyncio.run(app.run_scheduled_scan())
+
+        self.assertEqual(app.state.data["last_degraded_scan_at"], "")
+        self.assertEqual(app.state.data["x_scan_failure_streak"], 4)
 
     def test_state_store_preserves_degraded_checkpoint_across_restart(self):
         stamp = "2026-10-06T21:00:00+00:00"
