@@ -150,6 +150,22 @@ class TranslationPublishabilityTests(unittest.TestCase):
         broken = "این آیفون نارنجی مال جونگهان ـه ㅋㅋㅋ 😂"
         self.assertTrue(natural_persian_failures(reaction, broken))
 
+    def test_natural_colloquial_atrafian_is_not_mistaken_for_formal_verb(self):
+        interview = update(
+            "Jeonghan: I think I’m happiest when I can make the people around me laugh. "
+            "I don’t want anything big, just a comfortable day together."
+        )
+        natural = (
+            "جونگهان: فکر می‌کنم وقتی می‌تونم اطرافیانم رو بخندونم خوشحال‌ترینم. "
+            "چیز بزرگی نمی‌خوام، فقط یه روز راحت در کنار هم."
+        )
+
+        self.assertEqual(natural_persian_failures(interview, natural), [])
+        self.assertNotIn(
+            "formal verb conjugation in informal context",
+            semantic_quality_failures(interview, natural),
+        )
+
     def test_real_b01_artifact_machine_register_and_mixed_token_fail_closed(self):
         item = update(
             "THAT’S JEONGHAN’S ORANGE IPHONE ㅋㅋㅋ bae jeewan took his mirror "
