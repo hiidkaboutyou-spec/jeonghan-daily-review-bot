@@ -362,9 +362,11 @@ class WebhookRuntime:
                 from .date_requests import process_date_requests
                 asyncio.run(process_date_requests(app))
                 scan_due = now - self.last_scan_at >= timedelta(minutes=12)
+                scan_attempted = False
                 if scan_due:
-                    asyncio.run(app.run_scheduled_scan())
-                    self.last_scan_at = now
+                    scan_attempted = bool(asyncio.run(app.run_scheduled_scan()))
+                    if scan_attempted:
+                        self.last_scan_at = now
 
                 # Collection and delivery have different prerequisites. A fresh
                 # credential lease may arrive between scheduled X scans; flush the
@@ -372,7 +374,7 @@ class WebhookRuntime:
                 # short-lived lease to expire.
                 if self.translation_ready():
                     asyncio.run(app.deliver_pending())
-                elif scan_due:
+                elif scan_attempted:
                     logger.warning(
                         "Pending delivery deferred until a translation credential is available."
                     )
