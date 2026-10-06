@@ -333,15 +333,21 @@ class WebhookRuntime:
                 asyncio.run(app.process_due_reminders())
                 from .date_requests import process_date_requests
                 asyncio.run(process_date_requests(app))
-                if now - self.last_scan_at >= timedelta(minutes=12):
+                scan_due = now - self.last_scan_at >= timedelta(minutes=12)
+                if scan_due:
                     asyncio.run(app.run_scheduled_scan())
-                    if self.translation_ready():
-                        asyncio.run(app.deliver_pending())
-                    else:
-                        logger.warning(
-                            "Pending delivery deferred until a translation credential is available."
-                        )
                     self.last_scan_at = now
+
+                # Collection and delivery have different prerequisites. A fresh
+                # credential lease may arrive between scheduled X scans; flush the
+                # durable queue immediately instead of waiting long enough for the
+                # short-lived lease to expire.
+                if self.translation_ready():
+                    asyncio.run(app.deliver_pending())
+                elif scan_due:
+                    logger.warning(
+                        "Pending delivery deferred until a translation credential is available."
+                    )
                 self.last_maintenance_error = ""
             except Exception as exc:
                 self.last_maintenance_error = type(exc).__name__
