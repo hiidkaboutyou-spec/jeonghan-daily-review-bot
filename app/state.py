@@ -28,6 +28,7 @@ class StateStore:
             "telegram_failures": {},
             "last_auto_run": "",
             "last_auto_attempt": "",
+            "last_degraded_scan_at": "",
             "last_x_error_notice": "",
             "polling_mode_checked": "",
             "translation_outage_notice": "",
@@ -98,6 +99,7 @@ class StateStore:
         for key in (
             "last_auto_run",
             "last_auto_attempt",
+            "last_degraded_scan_at",
             "last_x_error_notice",
             "polling_mode_checked",
             "translation_outage_notice",
