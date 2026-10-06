@@ -215,9 +215,10 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
         if collector is None:
             return False
 
+        configured_sources = getattr(collector, "sources", None) or self.settings.sources
         active = {
             normalize_handle(str(source.get("handle", "")))
-            for source in self.settings.sources
+            for source in configured_sources
             if source.get("enabled", True)
         }
         active.discard("")
