@@ -202,10 +202,53 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
             return
         await self.deliver_updates(updates, force=True)
 
+    def _degraded_recovery_pass_complete(self) -> bool:
+        """Return true only when public recovery touched every active source without a source failure.
+
+        This is deliberately *not* authenticated completeness. It is only strong
+        enough to advance a separate realtime cadence checkpoint; last_auto_run
+        remains the authoritative backfill cursor until authenticated X recovers.
+        """
+        if os.getenv("X_PROVIDER_PREFLIGHT", "").strip().casefold() != "degraded":
+            return False
+        collector = getattr(self, "collector", None)
+        if collector is None:
+            return False
+
+        configured_sources = getattr(collector, "sources", None) or self.settings.sources
+        active = {
+            normalize_handle(str(source.get("handle", "")))
+            for source in configured_sources
+            if source.get("enabled", True)
+        }
+        active.discard("")
+        attempted = {
+            normalize_handle(str(handle))
+            for handle in (getattr(collector, "_hani_degraded_attempted_sources", []) or [])
+        }
+        attempted.discard("")
+        failed = {
+            normalize_handle(str(handle))
+            for handle in (getattr(collector, "_hani_degraded_failed_sources", {}) or {})
+        }
+        failed.discard("")
+
+        return bool(active) and active.issubset(attempted) and not (active & failed)
+
     async def run_scheduled_scan(self) -> None:
         """Run the production scan at the configured near-real-time cadence."""
         now = datetime.now(timezone.utc)
-        last = self._state_datetime("last_auto_run") or (now - timedelta(hours=2))
+        authoritative_last = self._state_datetime("last_auto_run") or (now - timedelta(hours=2))
+        last = authoritative_last
+        provider_degraded = (
+            os.getenv("X_PROVIDER_PREFLIGHT", "").strip().casefold() == "degraded"
+        )
+        degraded_last = (
+            self._state_datetime("last_degraded_scan_at") if provider_degraded else None
+        )
+        if degraded_last and degraded_last > last:
+            last = degraded_last
+
         last_attempt = self._state_datetime("last_auto_attempt")
         interval = max(
             1,
@@ -218,7 +261,13 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
         self.state.data["last_auto_attempt"] = now.isoformat()
 
         lookback = max(2, int(self.settings.runtime.get("scheduled_lookback_hours", 24)))
-        start = max(last - timedelta(minutes=30), now - timedelta(hours=lookback))
+        # Public recovery is intentionally non-authoritative, but once one pass
+        # reaches every configured source without a source-level failure we can
+        # keep realtime retries bounded. A two-hour overlap is deliberately much
+        # wider than the normal 30-minute overlap so bursty fan accounts are
+        # re-read across several 12-minute maintenance ticks.
+        overlap = timedelta(hours=2) if degraded_last else timedelta(minutes=30)
+        start = max(last - overlap, now - timedelta(hours=lookback))
         if getattr(self.collector, "provider_preflight_blocked", lambda: False)():
             logger.warning(
                 "Scheduled X scan skipped because the immediately preceding provider probe was offline."
@@ -240,7 +289,22 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
         # max_auto_items_per_run can still drain the durable queue in bounded batches.
         self.state.queue_updates(fresh, force=False)
 
+        if self._degraded_recovery_pass_complete():
+            # This checkpoint is scheduling-only. It must never become the
+            # authenticated success cursor: last_auto_run remains untouched so a
+            # future healthy X pass can backfill the entire unproven interval.
+            self.state.data["last_degraded_scan_at"] = now.isoformat()
+            self.state.data["last_failed_sources"] = []
+            self.state.data["last_x_error_notice"] = ""
+            self.state.data["x_scan_failure_streak"] = 0
+            logger.warning(
+                "Scheduled X scan used public recovery across every active source; "
+                "realtime degraded checkpoint advanced while authoritative cursor stayed held."
+            )
+            return
+
         if getattr(self.collector, "last_errors", []):
+            self.state.data["last_failed_sources"] = list(self.collector.last_errors)[:10]
             logger.warning(
                 "Scheduled X scan returned partial results (%s paths); cursor retained for retry.",
                 len(self.collector.last_errors),
@@ -249,7 +313,9 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
             return
 
         self.state.data["last_auto_run"] = now.isoformat()
+        self.state.data["last_degraded_scan_at"] = ""
         self.state.data["last_x_error_notice"] = ""
+        self.state.data["last_failed_sources"] = []
         self.state.data["x_scan_failure_streak"] = 0
 
     def _record_x_scan_failure(self, now: datetime) -> None:

@@ -60,7 +60,7 @@ _BOOKISH_RE = re.compile(
 # Voice-aware: formal verb conjugations that break the colloquial voice
 _FORMAL_VERB_RE = re.compile(
     r"(?:می[‌ ]?شود|می[‌ ]?کند|می[‌ ]?خواهد|می[‌ ]?باشد|می[‌ ]?نماید|"
-    r"درصدد|استفاده از|متعلق به|به وضوح|اطرافیان)",
+    r"درصدد|استفاده از|متعلق به|به وضوح)",
     re.I,
 )
 # Voice-aware: excessive emoji (>4 in a short text)
