@@ -324,6 +324,34 @@ class WebhookRuntime:
             self.last_provider_lease_at = datetime.now(timezone.utc)
             return True
 
+    def schedule_maintenance(self, *, gemini_api_key: str | None = None) -> None:
+        """Queue one authenticated maintenance pass on the state-owner worker.
+
+        HTTP callers must not remain connected while a large durable delivery queue
+        is translated and sent. The queue itself is persisted, so a process failure
+        before or during this task is retried by the next autonomous/Actions wake.
+        """
+        value = str(gemini_api_key or "").strip()
+        if len(value) > MAX_EPHEMERAL_PROVIDER_SECRET_LENGTH:
+            raise ConfigError("Provider credential lease is invalid.")
+
+        def _run() -> None:
+            try:
+                if value:
+                    self.install_gemini_credential_lease_sync(value)
+                self.maintenance_sync()
+            except Exception as exc:
+                self.last_maintenance_error = type(exc).__name__
+                logger.exception(
+                    "Queued webhook maintenance failed (%s); durable state will retry",
+                    type(exc).__name__,
+                )
+
+        try:
+            self.executor.submit(_run)
+        except RuntimeError as exc:
+            raise RuntimeError("Webhook maintenance worker is unavailable") from exc
+
     def maintenance_sync(self) -> None:
         with self.lock:
             app = self._require_app()
@@ -475,7 +503,7 @@ async def telegram_webhook(
     return {"ok": True}
 
 
-@api.post("/maintenance")
+@api.post("/maintenance", status_code=202)
 async def maintenance(
     x_assistant_secret: str | None = Header(default=None),
     x_hani_gemini_key: str | None = Header(default=None),
@@ -483,15 +511,13 @@ async def maintenance(
     supplied = str(x_assistant_secret or "")
     if not runtime.secret or not hmac.compare_digest(supplied, runtime.secret):
         raise HTTPException(status_code=403, detail="invalid maintenance secret")
-    if x_hani_gemini_key:
-        try:
-            await runtime.run_state(
-                runtime.install_gemini_credential_lease_sync,
-                x_hani_gemini_key,
-            )
-        except ConfigError as exc:
-            raise HTTPException(status_code=400, detail="invalid provider credential lease") from exc
-    # Run before acknowledging so a free host cannot spin down after a 202 while the
-    # work exists only in volatile memory.
-    await runtime.run_state(runtime.maintenance_sync)
+    try:
+        runtime.schedule_maintenance(gemini_api_key=x_hani_gemini_key)
+    except ConfigError as exc:
+        raise HTTPException(status_code=400, detail="invalid provider credential lease") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="maintenance worker unavailable") from exc
+    # The durable delivery queue is already persisted. Accept the wake immediately
+    # so Actions does not time out while translation/media delivery continues on the
+    # single state-owner worker; crashes are retried by the next maintenance wake.
     return {"ok": True}
