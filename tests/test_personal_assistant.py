@@ -80,5 +80,35 @@ class PersonalAssistantIntentTests(unittest.TestCase):
         self.assertNotIn("همه‌چیز مرتب است", message)
 
 
+    def test_dashboard_reports_public_recovery_without_claiming_complete(self):
+        app = object.__new__(PersonalAssistantReviewApplication)
+        app.state = SimpleNamespace(
+            data={
+                "pending_delivery": [],
+                "last_auto_run": "2026-08-12T16:00:00+00:00",
+                "last_auto_attempt": "2026-08-12T17:00:00+00:00",
+                "last_degraded_scan_at": "2026-08-12T17:00:00+00:00",
+                "x_scan_failure_streak": 0,
+            }
+        )
+        app.inbox = Mock()
+        app.inbox.count.return_value = 0
+        app.settings = SimpleNamespace(
+            sources=[{"enabled": True}],
+            gemini_api_key="key",
+            timezone=timezone.utc,
+        )
+        app.channel_style_enabled = True
+        app.channel_style_indexed_examples = 16306
+        app.telegram = Mock()
+
+        app.send_assistant_dashboard()
+
+        message = app.telegram.send_message.call_args.args[0]
+        self.assertIn("بازیابی عمومی فعال", message)
+        self.assertIn("cursor اصلی برای backfill محفوظ است", message)
+        self.assertNotIn("وضعیت دریافت X: کامل", message)
+
+
 if __name__ == "__main__":
     unittest.main()
