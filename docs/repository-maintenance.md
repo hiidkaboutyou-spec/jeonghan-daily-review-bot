@@ -10,6 +10,22 @@ Production stability, state compatibility, collection completeness, deduplicatio
 
 ## Audited maintenance tools
 
+## Awesome Python discovery policy
+
+Source reviewed: `vinta/awesome-python` (2026-10-08).
+
+`awesome-python` is a **discovery catalog**, not a dependency bundle. Hani must never copy its catalog into runtime requirements or adopt a package because it is popular. Every candidate still goes through the repository evidence-first dependency review: concrete gap, upstream activity, license, Python 3.11/runner compatibility, privacy/network impact, failure mode, rollback, and measured benefit.
+
+Current decisions:
+
+- **Hypothesis 6.168.5 — adopted, maintenance-only.** Upstream `HypothesisWorks/hypothesis`; latest reviewed release `v6.168.5` published 2026-10-05; MPL-2.0. It adds property-based coverage for Telegram Unicode splitting and durable callback-token round-trips. It lives only in `requirements-maintenance.txt` and is never installed by the production Docker/runtime dependency path.
+- **httpx / alternate HTTP stacks — deferred.** Hani's current `requests.Session` boundaries are explicit and already have bounded retry/error handling. A network-stack migration needs provider-specific latency/reliability evidence before adding a second client or replacing the existing one.
+- **structlog — deferred.** `app/observability.py` already emits privacy-allowlisted JSON metadata and Sentry scrubbing. Replacing that path without a demonstrated observability gap would duplicate behavior and increase privacy regression risk.
+- **pydantic-settings — deferred.** `app.config.Settings` already performs explicit secret/config parsing and validation. A production dependency is not justified until schema complexity or repeated validation defects demonstrate a concrete gap.
+- **Scrapy/browser automation/crawler frameworks — deferred.** X and AO3 retrieval already have purpose-built collectors and bounded platform behavior. Heavier crawlers or browser runtimes require a concrete source gap plus runner-cost, anti-abuse, privacy, and reliability evidence before adoption.
+
+Re-evaluate deferred candidates only from a measured problem or benchmark. Do not create dependency churn merely because the catalog contains a newer or more feature-rich library.
+
 ### Ruff 0.16.7 — adopted, CI/dev only
 
 Repository: `astral-sh/ruff`
@@ -209,7 +225,7 @@ A clean plan still does not prove a move is safe. Dynamic imports, subprocess/CL
 
 `Hani Maintenance Diagnostics` uses three levels:
 
-1. **Blocking:** Ruff definite Python errors; migration-state coherence; both recovery-family Import Linter protected contracts; literal dynamic-import bypass audits for both protected recovery modules; inventory/planner parse errors when invoked; and the existing unit suite when per-test Stage B coverage is collected.
+1. **Blocking:** Hypothesis property invariants for Telegram Unicode splitting/callback storage; Ruff definite Python errors; migration-state coherence; both recovery-family Import Linter protected contracts; literal dynamic-import bypass audits for both protected recovery modules; inventory/planner parse errors when invoked; and the existing unit suite when per-test Stage B coverage is collected.
 2. **Report-only:** Grimp relationships, Coverage.py evidence, Ruff import ordering/format checks, Vulture candidates, Deptry findings, and Complexipy hotspots.
 3. **Human/agent review:** every move, rename, deletion, dependency removal, complexity refactor, compatibility-shim removal, package-boundary change, or proposal for an additional architecture contract.
 

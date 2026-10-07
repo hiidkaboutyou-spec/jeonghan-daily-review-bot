@@ -6,6 +6,7 @@ on:
       - "app/**"
       - "tools/**"
       - "tests/**"
+      - "maintenance_tests/**"
       - "requirements*.txt"
       - ".coveragerc-maintenance"
       - ".importlinter"
@@ -21,6 +22,7 @@ on:
       - "app/**"
       - "tools/**"
       - "tests/**"
+      - "maintenance_tests/**"
       - "requirements*.txt"
       - ".coveragerc-maintenance"
       - ".importlinter"
@@ -66,11 +68,18 @@ jobs:
           .maintenance-env/bin/python -m pip install --disable-pip-version-check -r requirements.txt -r requirements-maintenance.txt
           .maintenance-env/bin/python -m pip check
 
+      - name: Property-based Telegram invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          .maintenance-env/bin/python -m compileall -q maintenance_tests
+          .maintenance-env/bin/python -m unittest discover -s maintenance_tests -p "test_*.py" -v
+
       - name: Ruff definite-error gate
         shell: bash
         run: |
           set -euo pipefail
-          .maintenance-env/bin/ruff check app tools tests \
+          .maintenance-env/bin/ruff check app tools tests maintenance_tests \
             --select E9,F63,F7,F82 \
             --output-format=github
 
@@ -269,10 +278,10 @@ jobs:
         shell: bash
         run: |
           set -u
-          .maintenance-env/bin/ruff check app tools tests --select I --output-format=concise > ruff-import-order.txt 2>&1 || true
+          .maintenance-env/bin/ruff check app tools tests maintenance_tests --select I --output-format=concise > ruff-import-order.txt 2>&1 || true
 
           format_raw="$(mktemp)"
-          .maintenance-env/bin/ruff format --check app tools tests > "$format_raw" 2>&1 || true
+          .maintenance-env/bin/ruff format --check app tools tests maintenance_tests > "$format_raw" 2>&1 || true
           awk '
             /^unformatted:/ {
               if (getline > 0) {
@@ -301,6 +310,7 @@ jobs:
           {
             echo "### Hani maintenance diagnostics"
             echo "- Ruff definite Python errors: blocking."
+            echo "- Hypothesis property tests for Telegram Unicode splitting and callback token round-trips: blocking, maintenance-only."
             echo "- Stage B Grimp import-chain evidence: report-only; never authorizes moves/deletions."
             echo "- Stage B Coverage.py per-test evidence: collected on PR/manual/scheduled runs; no global coverage threshold yet."
             echo "- LibCST refactor planner: blocking self-tests and available only for explicitly approved future migrations; no automatic apply."
