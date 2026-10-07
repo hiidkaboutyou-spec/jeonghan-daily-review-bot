@@ -20,6 +20,7 @@ from app.webhook_server import (
     WebhookRuntime,
     _autonomous_maintenance_loop,
     api,
+    healthz,
     maintenance,
     runtime as webhook_runtime,
 )
@@ -310,6 +311,49 @@ class WebhookRuntimeTests(unittest.TestCase):
             datetime.min.replace(tzinfo=timezone.utc),
         )
         runtime.executor.shutdown(wait=True, cancel_futures=True)
+
+    def test_healthz_reports_pending_delivery_blocked_by_missing_translation_credential(self):
+        app = SimpleNamespace(
+            writer=SimpleNamespace(
+                api_key="",
+                _translation_provider_name="gemini",
+            ),
+            state=SimpleNamespace(
+                data={"pending_delivery": [{"id": "private-update"}]},
+            ),
+        )
+
+        with patch.object(webhook_runtime, "application", app):
+            with patch.object(webhook_runtime, "translation_ready", return_value=False):
+                result = healthz()
+
+        self.assertTrue(result["delivery_backlog_present"])
+        self.assertTrue(result["delivery_blocked"])
+        self.assertEqual(
+            result["delivery_blocked_reason"],
+            "translation_credential_unavailable",
+        )
+        self.assertNotIn("private-update", str(result))
+
+    def test_healthz_does_not_report_blocked_when_translation_is_ready(self):
+        app = SimpleNamespace(
+            writer=SimpleNamespace(
+                api_key="gemini-secret-for-test",
+                _translation_provider_name="gemini",
+            ),
+            state=SimpleNamespace(
+                data={"pending_delivery": [{"id": "private-update"}]},
+            ),
+        )
+
+        with patch.object(webhook_runtime, "application", app):
+            with patch.object(webhook_runtime, "translation_ready", return_value=True):
+                result = healthz()
+
+        self.assertTrue(result["delivery_backlog_present"])
+        self.assertFalse(result["delivery_blocked"])
+        self.assertEqual(result["delivery_blocked_reason"], "")
+        self.assertNotIn("private-update", str(result))
 
     def test_expired_runtime_gemini_lease_is_cleared_and_not_ready(self):
         runtime = WebhookRuntime()
