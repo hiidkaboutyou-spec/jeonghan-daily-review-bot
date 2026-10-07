@@ -9,3 +9,5 @@ grimp==3.17
 import-linter==2.15
 setuptools==84.0.0
 libcst==1.9.0
+# Property-based regression coverage for Unicode/Telegram invariants.
+hypothesis==6.168.5
