@@ -235,8 +235,8 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
 
         return bool(active) and active.issubset(attempted) and not (active & failed)
 
-    async def run_scheduled_scan(self) -> None:
-        """Run the production scan at the configured near-real-time cadence."""
+    async def run_scheduled_scan(self) -> bool:
+        """Run one scheduled scan attempt; return False when cadence skips it."""
         now = datetime.now(timezone.utc)
         authoritative_last = self._state_datetime("last_auto_run") or (now - timedelta(hours=2))
         last = authoritative_last
@@ -255,7 +255,7 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
             int(self.settings.runtime.get("scheduled_min_interval_minutes", 12)),
         )
         if last_attempt and now - last_attempt < timedelta(minutes=interval):
-            return
+            return False
         # Persisted even when X returns partial results, so a temporary X rate
         # limit cannot make every chained Actions pass repeat the full 24h scan.
         self.state.data["last_auto_attempt"] = now.isoformat()
@@ -274,13 +274,13 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
             )
             self.state.data["last_failed_sources"] = list(self.collector.last_errors)[:10]
             self._record_x_scan_failure(now)
-            return
+            return True
         try:
             updates = await self.collector.collect_window(start, now, max_per_query=200)
         except XCollectionError as exc:
             logger.warning("Scheduled X scan failed: %s", exc)
             self._record_x_scan_failure(now)
-            return
+            return True
 
         fresh = [item for item in updates if not self.state.is_seen(item.id)]
         fresh.sort(key=lambda item: (item.created_at, item.id))
@@ -301,7 +301,7 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
                 "Scheduled X scan used public recovery across every active source; "
                 "realtime degraded checkpoint advanced while authoritative cursor stayed held."
             )
-            return
+            return True
 
         if getattr(self.collector, "last_errors", []):
             self.state.data["last_failed_sources"] = list(self.collector.last_errors)[:10]
@@ -310,13 +310,14 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
                 len(self.collector.last_errors),
             )
             self._record_x_scan_failure(now)
-            return
+            return True
 
         self.state.data["last_auto_run"] = now.isoformat()
         self.state.data["last_degraded_scan_at"] = ""
         self.state.data["last_x_error_notice"] = ""
         self.state.data["last_failed_sources"] = []
         self.state.data["x_scan_failure_streak"] = 0
+        return True
 
     def _record_x_scan_failure(self, now: datetime) -> None:
         """Retry transient X gaps silently before alarming the private inbox."""

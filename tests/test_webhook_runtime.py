@@ -390,14 +390,15 @@ class WebhookRuntimeTests(unittest.TestCase):
 
     def test_autonomous_delivery_waits_for_translation_credential(self):
         runtime = WebhookRuntime()
-        runtime.last_scan_at = datetime.min.replace(tzinfo=timezone.utc)
+        previous_scan = datetime.min.replace(tzinfo=timezone.utc)
+        runtime.last_scan_at = previous_scan
         app = SimpleNamespace(
             writer=SimpleNamespace(
                 api_key="",
                 _translation_provider_name="gemini",
             ),
             process_due_reminders=AsyncMock(),
-            run_scheduled_scan=AsyncMock(),
+            run_scheduled_scan=AsyncMock(return_value=True),
             deliver_pending=AsyncMock(),
             state=SimpleNamespace(save=Mock()),
             settings=SimpleNamespace(state_path=Path(".state/state.json")),
@@ -409,6 +410,34 @@ class WebhookRuntimeTests(unittest.TestCase):
                 runtime.maintenance_sync()
 
         app.run_scheduled_scan.assert_awaited_once()
+        app.deliver_pending.assert_not_awaited()
+        self.assertGreater(runtime.last_scan_at, previous_scan)
+        runtime.executor.shutdown(wait=True, cancel_futures=True)
+
+    def test_cadence_skipped_scan_does_not_postpone_next_maintenance_retry(self):
+        runtime = WebhookRuntime()
+        previous_scan = datetime.min.replace(tzinfo=timezone.utc)
+        runtime.last_scan_at = previous_scan
+        app = SimpleNamespace(
+            writer=SimpleNamespace(
+                api_key="",
+                _translation_provider_name="gemini",
+            ),
+            process_due_reminders=AsyncMock(),
+            run_scheduled_scan=AsyncMock(return_value=False),
+            deliver_pending=AsyncMock(),
+            state=SimpleNamespace(save=Mock()),
+            settings=SimpleNamespace(state_path=Path(".state/state.json")),
+        )
+        runtime.application = app
+
+        with patch("app.date_requests.process_date_requests", new=AsyncMock()):
+            with patch.object(runtime, "_save_and_backup_if_changed"):
+                runtime.maintenance_sync()
+                runtime.maintenance_sync()
+
+        self.assertEqual(app.run_scheduled_scan.await_count, 2)
+        self.assertEqual(runtime.last_scan_at, previous_scan)
         app.deliver_pending.assert_not_awaited()
         runtime.executor.shutdown(wait=True, cancel_futures=True)
 
