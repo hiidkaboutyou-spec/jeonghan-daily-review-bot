@@ -291,6 +291,18 @@ class WebhookRuntime:
             return has_key
         return has_key and self._provider_lease_fresh()
 
+    def pending_delivery_count(self) -> int:
+        """Return a content-free backlog count for private operational health."""
+        app = self.application
+        state = getattr(app, "state", None) if app is not None else None
+        data = getattr(state, "data", None)
+        if not isinstance(data, dict):
+            return 0
+        pending = data.get("pending_delivery", [])
+        if not isinstance(pending, list):
+            return 0
+        return sum(1 for item in pending if isinstance(item, dict))
+
     def install_gemini_credential_lease_sync(self, api_key: str) -> bool:
         """Install a Gemini key in process memory only after authenticated handoff."""
         value = str(api_key or "").strip()
@@ -375,9 +387,13 @@ class WebhookRuntime:
                 if self.translation_ready():
                     asyncio.run(app.deliver_pending())
                 elif scan_attempted:
-                    logger.warning(
-                        "Pending delivery deferred until a translation credential is available."
-                    )
+                    pending_count = self.pending_delivery_count()
+                    if pending_count:
+                        logger.warning(
+                            "Pending delivery deferred until a translation credential is available "
+                            "(%d queued item(s)).",
+                            pending_count,
+                        )
                 self.last_maintenance_error = ""
             except Exception as exc:
                 self.last_maintenance_error = type(exc).__name__
@@ -470,6 +486,9 @@ def healthz() -> dict[str, Any]:
     translation_provider = str(
         getattr(writer, "_translation_provider_name", "gemini") or "gemini"
     )
+    translation_ready = runtime.translation_ready()
+    delivery_backlog_present = runtime.pending_delivery_count() > 0
+    delivery_blocked = delivery_backlog_present and not translation_ready
     return {
         "ok": runtime.application is not None,
         "mode": "telegram-webhook",
@@ -477,7 +496,12 @@ def healthz() -> dict[str, Any]:
         "autonomous_maintenance": True,
         "maintenance_tick_seconds": runtime.maintenance_tick_seconds,
         "translation_provider": translation_provider,
-        "translation_ready": runtime.translation_ready(),
+        "translation_ready": translation_ready,
+        "delivery_backlog_present": delivery_backlog_present,
+        "delivery_blocked": delivery_blocked,
+        "delivery_blocked_reason": (
+            "translation_credential_unavailable" if delivery_blocked else ""
+        ),
         "last_provider_lease_at": last_provider_lease,
         "last_maintenance_at": last_maintenance,
         "last_maintenance_error": runtime.last_maintenance_error,
