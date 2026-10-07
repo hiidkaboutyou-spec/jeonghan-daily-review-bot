@@ -231,6 +231,22 @@ If `private-review.sqlite3` fails `PRAGMA quick_check`:
 
 If `state.json` is malformed, the backup tool rejects it rather than encrypting/restoring it as valid state.
 
+## Read-only incident diagnostics
+
+The public `trimstray/the-book-of-secret-knowledge` collection is used only as an operational reference. Hani does **not** vendor its scripts or execute arbitrary troubleshooting one-liners. Start with project-owned, content-safe checks and only then use understood OS diagnostics on an authorized host.
+
+Repository/runtime checks:
+
+```bash
+python -m pip check
+python -m app --check
+python -m unittest tests.test_webhook_runtime -v
+```
+
+When an authorized runtime shell is available, useful read-only host checks include process/listener/disk inspection such as `ps`, `lsof -i -P -n` (or `ss -ltnp` on Linux), and `df -h`. Query the existing `/healthz` endpoint rather than inspecting private queue rows directly.
+
+Do **not** make packet capture, process tracing, memory inspection, broad environment dumps, or database dumps a default diagnostic. Tools such as `tcpdump`, `strace`, `ngrep` and similar can expose tokens, request bodies, source content or private review data. Use them only for a narrowly scoped, owner-authorized incident with redaction and never paste raw output into public CI/issues.
+
 ## Rollback guidance
 
 Before merge, rollback means moving/closing PR work — never force-push/reset production main as part of normal operation.

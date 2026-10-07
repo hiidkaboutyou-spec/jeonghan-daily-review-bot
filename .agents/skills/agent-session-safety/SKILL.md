@@ -47,6 +47,22 @@ Prefer:
 
 Drop stale hypotheses, duplicated logs, and large unrelated outputs. Never compact away a failing check, unresolved review comment, production-risk caveat, or required acceptance step.
 
+## 3.1 Long-run pressure and concurrency
+
+For long or scheduled runs, reduce context pressure incrementally instead of repeatedly rebuilding the whole session:
+
+- evict stale hypotheses and duplicate tool output first;
+- summarize large read-only results into exact SHAs, paths, conclusions and unresolved blockers;
+- keep the tool call/result relationship intact when summarizing so evidence is not detached from the action that produced it;
+- never trim the current failing check, open review concern, rollback plan, privacy caveat, or next acceptance gate;
+- after any compaction/resume, re-read current GitHub state before mutating.
+
+Parallel read-only research is allowed. Only one agent/session may hold mutation authority for the same branch or canonical integration path at a time. If another active change overlaps the same files/behavior, converge through a stacked/rebased PR rather than racing writes.
+
+Treat stop/steer as explicit state transitions: do not abandon a mutation halfway without recording what committed, what did not, and the safe continuation point. A restarted run resumes from durable repository truth, not from presumed in-memory state.
+
+These rules adapt useful public long-run-agent ideas independently; they do not add another agent runtime or scheduler to Hani.
+
 ## 4. Pre-action mutation gate
 
 Before every write or external side effect, classify the action:
@@ -94,6 +110,12 @@ Before ending a substantial run, leave a durable handoff in the existing project
 Do not store secrets, private Telegram content, decrypted state, or personal data in the checkpoint.
 
 ## 7. Provenance boundary
+
+Additional architecture reference reviewed on 2026-10-08:
+
+- OpenMinis/OpenMinis release `0-beta-build32`: incremental old-context/tool-output trimming, bounded sub-agent concurrency, explicit steer/stop, provider-disable fallback, per-provider timeouts, orphan-session cleanup and crash recovery. OpenMinis is GPL-3.0; no implementation code is copied into Hani. The rules above are independently expressed repository policy and preserve Hani's single-writer/CI/production boundaries.
+
+
 
 The ideas here are adapted from public Anthropic material with explicit open-source licensing, especially:
 
