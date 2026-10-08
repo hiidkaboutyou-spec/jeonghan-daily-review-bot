@@ -11,7 +11,6 @@ pipeline can still be useful when authenticated timeline collection is degraded.
 import math
 import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlparse
 
@@ -19,7 +18,6 @@ import requests
 
 from .models import MediaItem, Update, ensure_utc
 from .media_quality import quality_rank, x_variant_dimensions
-from .x_fxtwitter import _parse_status as _parse_fxtwitter_status
 
 SYNDICATION_STATUS_URL = "https://cdn.syndication.twimg.com/tweet-result"
 _URL_RE = re.compile(r"https?://[^\s<>]+", re.I)
@@ -263,56 +261,8 @@ def _update_from_payload(payload: dict[str, Any], ref: SharedStatusRef) -> Updat
     )
 
 
-def _fetch_fxtwitter_shared_status(ref: SharedStatusRef) -> Update:
-    """Independent no-key public status fallback, never a timeline authority."""
-    # Reject unexpected direct callers before building any request URL. Only
-    # decimal status IDs are permitted, so the path can never inject a host,
-    # slash, query or fragment. The destination host is a fixed literal.
-    if not _STATUS_ID_RE.fullmatch(ref.status_id):
-        raise XLinkIngestError("Invalid numeric status ID for public X recovery.")
-    safe_status_id = str(int(ref.status_id))
-    try:
-        response = requests.get(
-            "https://api.fxtwitter.com/2/status/" + safe_status_id,
-            headers={
-                "Accept": "application/json",
-                "User-Agent": "jeonghan-daily-review-bot/manual-link-ingest",
-            },
-            timeout=(3.0, 8.0),
-        )
-        response.raise_for_status()
-        payload = response.json()
-    except (requests.RequestException, ValueError) as exc:
-        raise XLinkIngestError("Both free public X status providers failed.") from exc
-    if not isinstance(payload, dict) or payload.get("code") != 200:
-        raise XLinkIngestError("FxTwitter did not return a valid public X status.")
-    raw = payload.get("status")
-    if not isinstance(raw, dict):
-        raise XLinkIngestError("FxTwitter returned no usable public X status.")
-    author = raw.get("author")
-    handle = str(author.get("screen_name") or "").lstrip("@").strip() if isinstance(author, dict) else ""
-    if not _HANDLE_RE.fullmatch(handle):
-        raise XLinkIngestError("FxTwitter status author is invalid.")
-    if ref.expected_handle and handle.casefold() != ref.expected_handle.casefold():
-        raise XLinkIngestError("FxTwitter status author did not match the shared link.")
-    try:
-        update = _parse_fxtwitter_status(
-            raw,
-            handle=handle,
-            start=datetime(2006, 1, 1, tzinfo=timezone.utc),
-            end=datetime.now(timezone.utc) + timedelta(days=1),
-            include_replies=True,
-        )
-    except (TypeError, ValueError, OverflowError) as exc:
-        raise XLinkIngestError("FxTwitter status metadata is malformed.") from exc
-    if update is None or update.id != ref.status_id:
-        raise XLinkIngestError("FxTwitter returned a different or invalid X post.")
-    update.raw_query = "manual_link:fxtwitter"
-    return update
-
-
 def fetch_shared_status(ref: SharedStatusRef) -> Update:
-    """Fetch a shared public post using bounded, independent keyless sources."""
+    """Fetch exactly one explicitly shared public post from X-owned syndication."""
     try:
         response = requests.get(
             SYNDICATION_STATUS_URL,
@@ -325,11 +275,13 @@ def fetch_shared_status(ref: SharedStatusRef) -> Update:
         )
         response.raise_for_status()
         payload = response.json()
-    except (requests.RequestException, ValueError):
-        return _fetch_fxtwitter_shared_status(ref)
+    except requests.RequestException as exc:
+        raise XLinkIngestError("Could not read the shared X post from public syndication.") from exc
+    except ValueError as exc:
+        raise XLinkIngestError("X syndication returned invalid JSON.") from exc
 
     if not isinstance(payload, dict) or not payload:
-        return _fetch_fxtwitter_shared_status(ref)
+        raise XLinkIngestError("X syndication returned an empty post.")
     try:
         return _update_from_payload(payload, ref)
     except XLinkIngestError:
