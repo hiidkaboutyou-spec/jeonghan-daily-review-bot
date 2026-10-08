@@ -1,17 +1,52 @@
 from __future__ import annotations
 
+import asyncio
 import unittest
-from datetime import timezone
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 from app.personal_assistant import PersonalAssistantReviewApplication, assistant_main_keyboard, parse_assistant_intent
+from app.webhook_aware_assistant import WebhookAwarePersonalAssistant
 
 
 class PersonalAssistantIntentTests(unittest.TestCase):
     def test_assistant_routes_recent_updates_without_commands(self):
         self.assertEqual(parse_assistant_intent("چه خبر؟").kind, "recent2h")
         self.assertEqual(parse_assistant_intent("آپدیت جدید چی اومده").kind, "recent2h")
+
+    def test_natural_daily_requests_are_not_two_hour_replays(self):
+        for text, expected in (
+            ("امروز چه خبر؟", "today"),
+            ("امروز چی شد؟", "today"),
+            ("همه آپدیت‌های امروز رو جمع کن", "today"),
+            ("دیروز چه خبر؟", "yesterday"),
+            ("تمام آپدیت های دیروز", "yesterday"),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(parse_assistant_intent(text).kind, expected)
+        self.assertEqual(parse_assistant_intent("چه خبر؟").kind, "recent2h")
+
+    def test_webhook_entrypoint_uses_content_day_not_short_recent_window(self):
+        app = object.__new__(WebhookAwarePersonalAssistant)
+        app.telegram = Mock()
+        app.telegram.is_admin_message.return_value = True
+        app.settings = SimpleNamespace(
+            admin_user_id=1,
+            timezone=ZoneInfo("Asia/Tehran"),
+            runtime={"content_date_timezone": "Asia/Seoul"},
+        )
+        app.state = SimpleNamespace(data={})
+        app._reply_feedback_action = Mock(return_value=None)
+        app.run_search = AsyncMock()
+        app.run_recent2h = AsyncMock()
+        with patch("app.date_requests.route_date_request", return_value=False):
+            asyncio.run(app.handle_message({"text": "امروز چه خبر؟", "from": {"id": 1}}))
+        app.run_recent2h.assert_not_awaited()
+        app.run_search.assert_awaited_once_with(
+            datetime.now(ZoneInfo("Asia/Seoul")).date().isoformat()
+        )
 
     def test_assistant_routes_24_hour_source_with_persian_digits(self):
         intent = parse_assistant_intent("۲۴ ساعت @girlsupermodel")
