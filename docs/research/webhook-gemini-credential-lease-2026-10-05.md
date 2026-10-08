@@ -59,3 +59,7 @@ Revert the four runtime/test changes in this PR. No schema, persisted state, Tel
 - Exact-head validation was green across the Daily workflow, live EN/KO/JA translation smoke, Fanfic, Maintenance, Security, CodeQL, and exact production Docker validation.
 - Railway deployment `77aa4ece-dfbc-4297-bb5f-aeda7e9248b3` built exactly `f4781ab9...`, reached `SUCCESS`, restored private state, registered the Telegram webhook, and passed `/healthz`.
 - Startup still correctly reports Gemini unavailable before the first Actions lease; the next main live wake is the acceptance event for `translation_ready`.
+
+## Policy revision proposed 2026-10-08
+
+The original 10-minute TTL documented above is **historical**. Production evidence later showed a GitHub Actions schedule gap of more than six hours while the webhook continued X retrieval but could not translate/deliver without a leased key. PR for [actions-lease-gap-2026-10-08.md](actions-lease-gap-2026-10-08.md) proposes an 8-hour **memory-only** TTL with explicit additional residency risk, deterministic expiry regression, and no stored credential. This section is a proposed policy revision until that PR is merged and the new Railway deployment is observed.
