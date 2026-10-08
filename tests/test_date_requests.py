@@ -77,6 +77,22 @@ class DateBundleRuntime(unittest.TestCase):
         self.tick()
         self.assertEqual(self.app.writer.write_group.call_count,2)
 
+    def test_current_day_stays_open_for_new_posts_and_can_be_rescanned(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        day = datetime.now(ZoneInfo("Asia/Seoul")).date().isoformat()
+        identifier = enqueue(self.app, day, "all")
+        self.tick(4)
+        job = self.app.state.data["date_requests"]["jobs"][identifier]
+        self.assertEqual(job["status"], "partial")
+        self.assertEqual(set(job["coverage"].values()), {"complete"})
+
+        enqueue(self.app, day, "all")
+        self.assertEqual(job["status"], "collecting")
+        self.assertEqual(job["pending_sources"], ["alpha", "beta"])
+        self.assertFalse(job.get("local_loaded", True))
+
     def test_partial_public_source_is_never_complete(self):
         async def partial(*args):
             self.app.collector.last_errors=['public fallback']
