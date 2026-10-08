@@ -282,6 +282,44 @@ class DateBundleRuntime(unittest.TestCase):
         unrelated.conversation_id='thread'
         self.assertEqual({u.id for u in select_updates([seed,reply,unrelated],'live')},{'seed','reply'})
 
+    def test_free_fxtwitter_recovery_keeps_reply_chain_with_missing_conversation_id(self):
+        # FxTwitter returns the reply_to_id but may omit the common
+        # conversation_id. Free public recovery must retain the whole
+        # same-author thread without inferring other authors' content.
+        seed = self.update('seed', text='Jeonghan birthday LIVE')
+        continuation = self.update('part-2', minute=1, text='He says he missed everyone')
+        continuation.reply_to_id = 'seed'
+        continuation.conversation_id = 'part-2'
+        later = self.update('part-3', minute=2, text='He talks about his cake')
+        later.reply_to_id = 'part-2'
+        later.conversation_id = 'part-3'
+        other_author = self.update('other', author='beta', minute=3, text='Unrelated')
+        other_author.reply_to_id = 'seed'
+        other_author.conversation_id = 'other'
+        disconnected = self.update('disconnected', minute=4, text='Unrelated')
+        disconnected.reply_to_id = 'unknown-post'
+        disconnected.conversation_id = 'disconnected'
+
+        actual = select_updates(
+            [later, other_author, disconnected, continuation, seed],
+            'birthday_live',
+        )
+        self.assertEqual([u.id for u in actual], ['seed', 'part-2', 'part-3'])
+
+    def test_free_reply_chain_does_not_turn_unrelated_live_into_birthday_live(self):
+        event = self.update('birth', text='Birthday LIVE of JEONGHAN')
+        normal_live = self.update('other-live', minute=1, text='Hoshi live')
+        unrelated_reply = self.update('other-part', minute=2, text='Unrelated live discussion')
+        unrelated_reply.reply_to_id = 'other-live'
+        unrelated_reply.conversation_id = 'other-part'
+        self.assertEqual(
+            [u.id for u in select_updates(
+                [event, normal_live, unrelated_reply],
+                'birthday_live',
+            )],
+            ['birth'],
+        )
+
     def test_bridge_accepts_only_fixed_schema_once_after_restart(self):
         self.app.settings.runtime={'repository_content_requests':True}
         response=Mock()
