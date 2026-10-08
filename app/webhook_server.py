@@ -28,7 +28,10 @@ DEFAULT_MAINTENANCE_TICK_SECONDS = 60
 MIN_MAINTENANCE_TICK_SECONDS = 15
 MAX_MAINTENANCE_TICK_SECONDS = 300
 MAX_EPHEMERAL_PROVIDER_SECRET_LENGTH = 512
-EPHEMERAL_PROVIDER_LEASE_TTL_SECONDS = 10 * 60
+# GitHub scheduled wakes are best-effort and can be delayed for multiple hours.
+# Keep the authenticated, memory-only Gemini lease across such gaps while bounding
+# its lifetime and clearing the writer/client on expiry or process restart.
+EPHEMERAL_PROVIDER_LEASE_TTL_SECONDS = 8 * 60 * 60
 
 _TELEGRAM_API_URL_RE = re.compile(r"https://api\.telegram\.org/bot[^/\s]+")
 _TELEGRAM_TOKEN_RE = re.compile(r"\b\d{4,}:[A-Za-z0-9_-]{8,}\b")
