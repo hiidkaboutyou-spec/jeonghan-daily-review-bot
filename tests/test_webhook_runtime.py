@@ -432,6 +432,38 @@ class WebhookRuntimeTests(unittest.TestCase):
         app.deliver_pending.assert_awaited_once()
         runtime.executor.shutdown(wait=True, cancel_futures=True)
 
+    def test_actions_scheduling_gap_keeps_queued_translation_delivery_available(self):
+        # Actions' scheduled credential wakes can be delayed for hours. A healthy
+        # always-on webhook must be able to drain already-durable updates while
+        # the last authenticated in-memory lease remains within its bounded TTL.
+        runtime = WebhookRuntime()
+        now = datetime.now(timezone.utc)
+        runtime.last_scan_at = now
+        runtime.last_provider_lease_at = now - timedelta(hours=7)
+        runtime.settings = SimpleNamespace(gemini_api_key="gemini-secret-for-test")
+        app = SimpleNamespace(
+            writer=SimpleNamespace(
+                api_key="gemini-secret-for-test",
+                _translation_provider_name="gemini",
+            ),
+            legacy_writer=None,
+            process_due_reminders=AsyncMock(),
+            run_scheduled_scan=AsyncMock(),
+            deliver_pending=AsyncMock(),
+            state=SimpleNamespace(save=Mock()),
+            settings=SimpleNamespace(state_path=Path(".state/state.json")),
+        )
+        runtime.application = app
+
+        with patch("app.date_requests.process_date_requests", new=AsyncMock()):
+            with patch.object(runtime, "_save_and_backup_if_changed"):
+                runtime.maintenance_sync()
+
+        app.run_scheduled_scan.assert_not_awaited()
+        app.deliver_pending.assert_awaited_once()
+        self.assertTrue(runtime.translation_ready())
+        runtime.executor.shutdown(wait=True, cancel_futures=True)
+
     def test_autonomous_delivery_waits_for_translation_credential(self):
         runtime = WebhookRuntime()
         previous_scan = datetime.min.replace(tzinfo=timezone.utc)
