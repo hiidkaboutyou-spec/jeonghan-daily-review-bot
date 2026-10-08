@@ -100,6 +100,21 @@ python -c "import base64,secrets; print(base64.b64encode(secrets.token_bytes(32)
 
 AO3 از HTML public pages خوانده می‌شود؛ CI به live AO3 وابسته نیست. Search pagination حداکثر 25 page دارد، requestها paced و bounded هستند و یک صفحهٔ بدون ship واجدشرایط باعث stop اشتباه نمی‌شود. Fic work/chapter/update observations و delivery receipts در همان private SQLite نگه‌داری می‌شوند.
 
+## Local human-preference export
+
+Confirmed private final edits can be exported locally as `prompt / chosen / rejected` JSONL pairs for offline evaluation or a future explicitly reviewed fine-tuning experiment:
+
+```bash
+python -m tools.export_human_preference_pairs \
+  --state .state/state.json \
+  --private-db .state/private-review.sqlite3 \
+  --out .state/exports/human-preference-pairs.jsonl
+```
+
+By default only active, non-revoked final edits already marked `calibration_eligible=eligible` are exported. The exporter verifies that the current authoritative draft still matches the fingerprint captured when the user edit began; stale/missing pairs are skipped rather than guessed.
+
+The JSONL contains private source text and user-authored final text. It stays under ignored `.state/`, is written atomically, is **not** uploaded by CI, and does not enable auto-learning or model training.
+
 ## Translation benchmark
 
 Benchmark انسانی/مدلی از workflow اصلی جداست و checkpoint/resume دارد. `429 RESOURCE_EXHAUSTED` باعث bounded exit و حفظ checkpoint می‌شود؛ completed cases دوباره تولید نمی‌شوند. سبز بودن unit tests به معنی PASS شدن human-quality gate نیست.
