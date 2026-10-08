@@ -88,8 +88,12 @@ def enqueue(app, day: str, topic: str, *, external_id: str = "") -> str:
         # Explicit repeats preserve delivery receipts. An in-progress calendar
         # day must be fetched again even if every source was previously reachable:
         # posts written since the last request are not in that old snapshot.
-        if job["status"] in {"partial", "translation_pending"}:
-            if end > datetime.now(timezone.utc):
+        if job["status"] in {"partial", "translation_pending"} or (
+            job["status"] == "complete" and end > datetime.now(timezone.utc)
+        ):
+            # A formerly in-progress day still needs a full refresh after midnight;
+            # the earlier "complete" source receipts cover only a snapshot.
+            if end > datetime.now(timezone.utc) or job.get("provisional_day", False):
                 job["pending_sources"] = handles
                 job["coverage"] = {}
                 job["local_loaded"] = False
@@ -299,6 +303,9 @@ async def _process_date_step(app):
             app.state.save()
             return
         day_still_open = end > datetime.now(timezone.utc)
+        # Persist this distinction so re-asking tomorrow fetches posts that
+        # appeared after the first snapshot instead of trusting earlier receipts.
+        job["provisional_day"] = day_still_open
         source_coverage_complete = (
             bool(job["coverage"])
             and all(status == "complete" for status in job["coverage"].values())
