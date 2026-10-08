@@ -73,6 +73,20 @@ def parse_assistant_intent(text: str) -> AssistantIntent:
     if "24 ساعت" in lowered and any(token in lowered for token in ("منبع", "سورس", "source")):
         return AssistantIntent("sources")
 
+    # The day-specific request must win over broad "چه خبر". Otherwise
+    # "امروز چه خبر؟" incorrectly becomes a two-hour replay rather than a
+    # complete (honestly partial until verified) date bundle.
+    if any(token in lowered for token in (
+        "امروز چی شد", "امروز چه خبر", "آپدیت های امروز",
+        "آپدیت‌های امروز", "اپدیت های امروز", "اپدیت‌های امروز",
+    )):
+        return AssistantIntent("today")
+    if any(token in lowered for token in (
+        "دیروز چی شد", "دیروز چه خبر", "آپدیت های دیروز",
+        "آپدیت‌های دیروز", "اپدیت های دیروز", "اپدیت‌های دیروز",
+    )):
+        return AssistantIntent("yesterday")
+
     if any(
         token in lowered
         for token in (
@@ -88,11 +102,6 @@ def parse_assistant_intent(text: str) -> AssistantIntent:
         )
     ):
         return AssistantIntent("recent2h")
-
-    if any(token in lowered for token in ("امروز چی شد", "امروز چه خبر", "آپدیت های امروز", "آپدیت‌های امروز")):
-        return AssistantIntent("today")
-    if any(token in lowered for token in ("دیروز چی شد", "آپدیت های دیروز", "آپدیت‌های دیروز")):
-        return AssistantIntent("yesterday")
 
     if any(token in lowered for token in ("وضعیت", "بات سالم", "ربات سالم", "status")):
         return AssistantIntent("dashboard")
@@ -200,14 +209,17 @@ class PersonalAssistantReviewApplication(ChannelStyleReviewApplication):
         if intent.kind == "recent2h":
             await self.run_recent2h()
             return
-        if intent.kind == "today":
-            await self.run_search(datetime.now(self.settings.timezone).date().isoformat())
-            return
-        if intent.kind == "yesterday":
-            local_day = datetime.now(self.settings.timezone).date().toordinal() - 1
-            from datetime import date
+        if intent.kind in {"today", "yesterday"}:
+            from .date_requests import request_timezone
 
-            await self.run_search(date.fromordinal(local_day).isoformat())
+            # A date bundle is indexed by its configured content calendar (KST
+            # by default), not the owner's local timezone near midnight.
+            content_day = datetime.now(request_timezone(self)).date()
+            if intent.kind == "yesterday":
+                from datetime import timedelta
+
+                content_day -= timedelta(days=1)
+            await self.run_search(content_day.isoformat())
             return
         if intent.kind == "sources":
             self.show_sources()
