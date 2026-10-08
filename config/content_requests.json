@@ -3,5 +3,10 @@
     "id": "rey-261004-birthday-live",
     "date": "2026-10-04",
     "topic": "live"
+  },
+  {
+    "id": "rey-261004-birthday-live-anchored-v2",
+    "date": "2026-10-04",
+    "topic": "birthday_live"
   }
 ]
