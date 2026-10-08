@@ -61,7 +61,7 @@ class DateBundleRuntime(unittest.TestCase):
 
     def test_real_admin_entrypoint_enqueues_and_resumes_all_sources_ordered(self):
         self.app.collector.collect_source.side_effect = [[self.update('later',minute=10), self.update('foreign','outsider')], [self.update('early','beta')]]
-        asyncio.run(self.app.handle_message({'text':'محتوای جونگهان ۲۰۲۶۱۰۰۴ لایو تولد','from':{'id':1}}))
+        asyncio.run(self.app.handle_message({'text':'محتوای جونگهان ۲۰۲۶۱۰۰۴ لایو','from':{'id':1}}))
         jobs = self.app.state.data['date_requests']['jobs']
         self.assertEqual(len(jobs),1)
         self.tick()
