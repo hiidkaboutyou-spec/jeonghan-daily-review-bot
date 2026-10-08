@@ -160,6 +160,66 @@ class XLinkIngestTests(unittest.TestCase):
         self.assertEqual(result.failed_ids, ["2100000000000000002"])
         self.assertEqual(result.requested_count, 2)
 
+    @patch("app.x_link_ingest.requests.get")
+    def test_free_fxtwitter_second_provider_recovers_explicit_link(self, get):
+        import requests
+        from unittest.mock import Mock
+
+        def response(*args, **kwargs):
+            if "cdn.syndication.twimg.com" in args[0]:
+                raise requests.Timeout("primary public syndication timed out")
+            return Mock(
+                status_code=200,
+                json=lambda: {
+                    "code": 200,
+                    "status": {
+                        "type": "status",
+                        "id": "2100000000000000001",
+                        "author": {"screen_name": "source_one", "name": "Source"},
+                        "text": "JEONGHAN birthday LIVE",
+                        "created_at": "2026-09-30T08:00:00+00:00",
+                        "media": {"all": [{"type": "photo", "url": "https://pbs.twimg.com/media/p.jpg"}]},
+                    },
+                },
+            )
+
+        get.side_effect = response
+        result = collect_shared_statuses("https://x.com/source_one/status/2100000000000000001")
+        self.assertEqual(result.failed_ids, [])
+        self.assertEqual([u.id for u in result.updates], ["2100000000000000001"])
+        self.assertEqual(result.updates[0].raw_query, "manual_link:fxtwitter")
+        self.assertEqual(len(result.updates[0].media), 1)
+        self.assertEqual(get.call_count, 2)
+        self.assertEqual(
+            get.call_args.args[0],
+            "https://api.fxtwitter.com/2/status/2100000000000000001",
+        )
+
+    @patch("app.x_link_ingest.requests.get")
+    def test_free_second_provider_rejects_wrong_status_or_author(self, get):
+        import requests
+        from unittest.mock import Mock
+
+        primary = Mock()
+        primary.raise_for_status.side_effect = requests.HTTPError("primary HTTP 503")
+        mismatched = Mock(
+            status_code=200,
+            json=lambda: {
+                "code": 200,
+                "status": {
+                    "type": "status",
+                    "id": "2100000000000000001",
+                    "author": {"screen_name": "different"},
+                    "text": "untrusted",
+                    "created_at": "2026-09-30T08:00:00+00:00",
+                },
+            },
+        )
+        get.side_effect = [primary, mismatched]
+        result = collect_shared_statuses("https://x.com/source_one/status/2100000000000000001")
+        self.assertEqual(result.updates, [])
+        self.assertEqual(result.failed_ids, ["2100000000000000001"])
+
     def test_manual_caption_uses_neutral_source_label(self):
         engine = ThemeEngine(
             {"themes": {"general": {"variants": [{"prefix": "،، 🪽", "label": "آپدیت"}]}}},
