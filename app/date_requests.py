@@ -181,7 +181,28 @@ def select_updates(updates: list[Update], topic: str) -> list[Update]:
             and (topic != BIRTHDAY_LIVE or BIRTHDAY.search(u.translation_source()))
         ]
         threads = {(u.author.casefold(), u.conversation_id) for u in seeds}
-        updates = [u for u in updates if (u.author.casefold(), u.conversation_id) in threads]
+        # Public recovery (notably FxTwitter) may preserve reply_to_id while
+        # lacking the original conversation root. Start with the existing
+        # same-author thread selection, then walk explicit reply edges. Never
+        # follow replies across authors or infer unrelated event membership.
+        included = {
+            (u.author.casefold(), u.id)
+            for u in updates
+            if (u.author.casefold(), u.conversation_id) in threads
+        }
+        children: dict[tuple[str, str], list[Update]] = {}
+        for u in updates:
+            if u.reply_to_id:
+                children.setdefault((u.author.casefold(), u.reply_to_id), []).append(u)
+        queue = list(included)
+        while queue:
+            parent = queue.pop()
+            for reply in children.get(parent, []):
+                key = (reply.author.casefold(), reply.id)
+                if key not in included:
+                    included.add(key)
+                    queue.append(key)
+        updates = [u for u in updates if (u.author.casefold(), u.id) in included]
     return sorted({u.id: u for u in updates}.values(), key=lambda u: (u.created_at, u.id))
 
 
