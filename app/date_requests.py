@@ -91,23 +91,17 @@ def enqueue(app, day: str, topic: str, *, external_id: str = "") -> str:
     ))
     if request_id in jobs:
         job = jobs[request_id]
-        # Explicit repeats preserve delivery receipts. An in-progress calendar
-        # day must be fetched again even if every source was previously reachable:
-        # posts written since the last request are not in that old snapshot.
-        if job["status"] in {"partial", "translation_pending"} or (
-            job["status"] == "complete" and end > datetime.now(timezone.utc)
-        ):
-            # A formerly in-progress day still needs a full refresh after midnight;
-            # the earlier "complete" source receipts cover only a snapshot.
-            if end > datetime.now(timezone.utc) or job.get("provisional_day", False):
-                job["pending_sources"] = handles
-                job["coverage"] = {}
-                job["local_loaded"] = False
-            else:
-                job["pending_sources"] = [
-                    h for h in handles if job.get("coverage", {}).get(h) != "complete"
-                ]
-            job["status"] = "collecting" if job["pending_sources"] else "delivering"
+        # A repeated completed or partial request explicitly asks for a fresh
+        # sweep, including late-indexed historical posts. Preserve delivered
+        # receipts so refreshes cannot resend already reviewed content.
+        if job["status"] in {"complete", "partial", "translation_pending"}:
+            job["generation"] = int(job.get("generation", 1)) + 1
+            job["pending_sources"] = handles
+            job["coverage"] = {}
+            job["observed"] = []
+            job["selected"] = []
+            job["local_loaded"] = False
+            job["status"] = "collecting"
             job["retry_after"] = ""
             job.pop("reported", None)
     else:
@@ -116,12 +110,14 @@ def enqueue(app, day: str, topic: str, *, external_id: str = "") -> str:
             "start": start.isoformat(), "end": end.isoformat(), "status": "collecting",
             "pending_sources": handles, "coverage": {}, "observed": [],
             "selected": [], "delivered": [], "translation_attempts": {},
+            "generation": 1,
         }
+    generation = jobs[request_id].get("generation", 1)
     app.state.save()
     app.telegram.send_message(
         f"درخواست {day} ({tz.key}) ثبت شد؛ همهٔ منابع فعال را بررسی می‌کنم. "
         "پست‌ها با ترجمه و لینک منبع، به ترتیب انتشار می‌آیند. وضعیت: /date_status",
-        delivery_key=f"date-request:{request_id}:accepted",
+        delivery_key=f"date-request:{request_id}:accepted:{generation}",
     )
     return request_id
 
@@ -291,7 +287,7 @@ async def _process_date_step(app):
                 + "\nترتیب: زمان انتشار پست‌ها، نه ترتیب لحظه‌های لایو."
                 + source_note + event_note
                 + "\nپوشش منابع: " + "، ".join(f"@{h}: {status_label(s)}" for h, s in job["coverage"].items()),
-                delivery_key=f"date-request:{job['id']}:overview",
+                delivery_key=f"date-request:{job['id']}:overview:{job.get('generation', 1)}",
             )
             app.state.save()
         remaining = [i for i in job["selected"] if i not in job["delivered"]]
@@ -350,7 +346,7 @@ async def _process_date_step(app):
             )
         app.telegram.send_message(
             f"{len(job['delivered'])} پستِ بستهٔ {job['day']} فرستاده شد. " + summary,
-            delivery_key=f"date-request:{job['id']}:finished:{len(job['delivered'])}",
+            delivery_key=f"date-request:{job['id']}:finished:{job.get('generation', 1)}:{len(job['delivered'])}",
         )
         app.state.save()
         return
