@@ -196,6 +196,18 @@ class XLinkIngestTests(unittest.TestCase):
         )
 
     @patch("app.x_link_ingest.requests.get")
+    def test_free_provider_never_requests_malformed_user_controlled_path(self, get):
+        from app.x_link_ingest import _fetch_fxtwitter_shared_status
+        ref = SharedStatusRef(
+            status_id="../private?url=https://example.com",
+            expected_handle="source_one",
+            original_url="https://x.com/source_one/status/invalid",
+        )
+        with self.assertRaises(XLinkIngestError):
+            _fetch_fxtwitter_shared_status(ref)
+        get.assert_not_called()
+
+    @patch("app.x_link_ingest.requests.get")
     def test_free_second_provider_rejects_wrong_status_or_author(self, get):
         import requests
         from unittest.mock import Mock
