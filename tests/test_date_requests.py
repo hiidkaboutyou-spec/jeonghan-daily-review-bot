@@ -77,6 +77,39 @@ class DateBundleRuntime(unittest.TestCase):
         self.tick()
         self.assertEqual(self.app.writer.write_group.call_count,2)
 
+    def test_repeat_completed_historical_day_collects_late_posts_without_duplicate_delivery(self):
+        # Explicit repeat after a historical day completed is a real refresh,
+        # not a silent no-op. It must fetch all sources and deliver only new IDs.
+        first = self.update('first', text='Jeonghan live')
+        late = self.update('late', minute=10, text='Jeonghan live recap')
+        seen_alpha = 0
+
+        async def collect(handle, start, end):
+            nonlocal seen_alpha
+            if handle == 'alpha':
+                seen_alpha += 1
+                return [first] if seen_alpha == 1 else [first, late]
+            return []
+
+        self.app.collector.collect_source.side_effect = collect
+        identifier = enqueue(self.app, '2026-10-04', 'live')
+        self.tick(8)
+        job = self.app.state.data['date_requests']['jobs'][identifier]
+        self.assertEqual(job['status'], 'complete')
+        self.assertEqual(job['delivered'], ['first'])
+        enqueue(self.app, '2026-10-04', 'live')
+        self.assertEqual(job['status'], 'collecting')
+        self.assertEqual(job['pending_sources'], ['alpha', 'beta'])
+        self.tick(8)
+        self.assertEqual(seen_alpha, 2)
+        self.assertEqual(job['delivered'], ['first', 'late'])
+        self.assertEqual(self.app.writer.write_group.call_count, 2)
+        keys = [c.kwargs.get('delivery_key') for c in self.app.telegram.send_message.call_args_list]
+        self.assertIn(f'date-request:{identifier}:overview:1', keys)
+        self.assertIn(f'date-request:{identifier}:overview:2', keys)
+        self.assertIn(f'date-request:{identifier}:finished:1:1', keys)
+        self.assertIn(f'date-request:{identifier}:finished:2:2', keys)
+
     def test_birthday_live_intent_and_actual_private_delivery_are_event_scoped(self):
         # The real birthday-live request must not return every unrelated live,
         # greeting, or entertainment post from the same calendar day.
