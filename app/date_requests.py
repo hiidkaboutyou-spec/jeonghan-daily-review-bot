@@ -80,17 +80,27 @@ def enqueue(app, day: str, topic: str, *, external_id: str = "") -> str:
     request_id = hashlib.sha256(f"{day}:{tz.key}:{topic}:{external_id}".encode()).hexdigest()[:20]
     namespace = app.state.data.setdefault("date_requests", {})
     jobs = namespace.setdefault("jobs", {})
+    handles = list(dict.fromkeys(
+        normalize_handle(s["handle"]) for s in app.settings.sources if s.get("enabled", True)
+    ))
     if request_id in jobs:
         job = jobs[request_id]
-        # Explicit repeat retries only incomplete sources and translations. Confirmed
-        # private receipts survive, so repeating a date never reposts its bundle.
+        # Explicit repeats preserve delivery receipts. An in-progress calendar
+        # day must be fetched again even if every source was previously reachable:
+        # posts written since the last request are not in that old snapshot.
         if job["status"] in {"partial", "translation_pending"}:
-            job["pending_sources"] = [h for h, status in job["coverage"].items() if status != "complete"]
+            if end > datetime.now(timezone.utc):
+                job["pending_sources"] = handles
+                job["coverage"] = {}
+                job["local_loaded"] = False
+            else:
+                job["pending_sources"] = [
+                    h for h in handles if job.get("coverage", {}).get(h) != "complete"
+                ]
             job["status"] = "collecting" if job["pending_sources"] else "delivering"
             job["retry_after"] = ""
             job.pop("reported", None)
     else:
-        handles = list(dict.fromkeys(normalize_handle(s["handle"]) for s in app.settings.sources if s.get("enabled", True)))
         jobs[request_id] = {
             "id": request_id, "day": day, "timezone": tz.key, "topic": topic,
             "start": start.isoformat(), "end": end.isoformat(), "status": "collecting",
@@ -288,11 +298,26 @@ async def _process_date_step(app):
                                               delivery_key=f"date-request:{job['id']}:translation-pending")
             app.state.save()
             return
-        job["status"] = "complete" if job["coverage"] and all(s == "complete" for s in job["coverage"].values()) else "partial"
+        day_still_open = end > datetime.now(timezone.utc)
+        source_coverage_complete = (
+            bool(job["coverage"])
+            and all(status == "complete" for status in job["coverage"].values())
+        )
+        job["status"] = "complete" if source_coverage_complete and not day_still_open else "partial"
+        if day_still_open:
+            summary = (
+                "این روز هنوز تمام نشده و پست‌های بعدی ممکن است اضافه شوند؛ "
+                "برای دریافت موارد جدید، همان درخواست روز را دوباره بفرست."
+            )
+        elif source_coverage_complete:
+            summary = "همهٔ منابع فعال برای این روز بررسی شدند."
+        else:
+            summary = (
+                "پوشش بعضی منابع ناقص است؛ این نتیجه را همهٔ پست‌های روز حساب نکن. "
+                "برای تلاش دوباره همان تاریخ را بفرست."
+            )
         app.telegram.send_message(
-            f"{len(job['delivered'])} پستِ بستهٔ {job['day']} فرستاده شد. "
-            + ("همهٔ منابع فعال بررسی شدند." if job["status"] == "complete" else
-               "پوشش بعضی منابع ناقص است؛ این نتیجه را همهٔ پست‌های روز حساب نکن. برای تلاش دوباره همان تاریخ را بفرست."),
+            f"{len(job['delivered'])} پستِ بستهٔ {job['day']} فرستاده شد. " + summary,
             delivery_key=f"date-request:{job['id']}:finished:{len(job['delivered'])}",
         )
         app.state.save()
