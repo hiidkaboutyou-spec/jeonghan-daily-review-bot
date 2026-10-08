@@ -61,7 +61,7 @@ class DateBundleRuntime(unittest.TestCase):
 
     def test_real_admin_entrypoint_enqueues_and_resumes_all_sources_ordered(self):
         self.app.collector.collect_source.side_effect = [[self.update('later',minute=10), self.update('foreign','outsider')], [self.update('early','beta')]]
-        asyncio.run(self.app.handle_message({'text':'محتوای جونگهان ۲۰۲۶۱۰۰۴ لایو تولد','from':{'id':1}}))
+        asyncio.run(self.app.handle_message({'text':'محتوای جونگهان ۲۰۲۶۱۰۰۴ لایو','from':{'id':1}}))
         jobs = self.app.state.data['date_requests']['jobs']
         self.assertEqual(len(jobs),1)
         self.tick()
@@ -76,6 +76,85 @@ class DateBundleRuntime(unittest.TestCase):
         enqueue(self.app,'2026-10-04','live')
         self.tick()
         self.assertEqual(self.app.writer.write_group.call_count,2)
+
+    def test_repeat_completed_historical_day_collects_late_posts_without_duplicate_delivery(self):
+        # Explicit repeat after a historical day completed is a real refresh,
+        # not a silent no-op. It must fetch all sources and deliver only new IDs.
+        first = self.update('first', text='Jeonghan live')
+        late = self.update('late', minute=10, text='Jeonghan live recap')
+        seen_alpha = 0
+
+        async def collect(handle, start, end):
+            nonlocal seen_alpha
+            if handle == 'alpha':
+                seen_alpha += 1
+                return [first] if seen_alpha == 1 else [first, late]
+            return []
+
+        self.app.collector.collect_source.side_effect = collect
+        identifier = enqueue(self.app, '2026-10-04', 'live')
+        self.tick(8)
+        job = self.app.state.data['date_requests']['jobs'][identifier]
+        self.assertEqual(job['status'], 'complete')
+        self.assertEqual(job['delivered'], ['first'])
+        enqueue(self.app, '2026-10-04', 'live')
+        self.assertEqual(job['status'], 'collecting')
+        self.assertEqual(job['pending_sources'], ['alpha', 'beta'])
+        self.tick(8)
+        self.assertEqual(seen_alpha, 2)
+        self.assertEqual(job['delivered'], ['first', 'late'])
+        self.assertEqual(self.app.writer.write_group.call_count, 2)
+        keys = [c.kwargs.get('delivery_key') for c in self.app.telegram.send_message.call_args_list]
+        self.assertIn(f'date-request:{identifier}:overview:1', keys)
+        self.assertIn(f'date-request:{identifier}:overview:2', keys)
+        self.assertIn(f'date-request:{identifier}:finished:1:1', keys)
+        self.assertIn(f'date-request:{identifier}:finished:2:2', keys)
+
+    def test_birthday_live_intent_and_actual_private_delivery_are_event_scoped(self):
+        # The real birthday-live request must not return every unrelated live,
+        # greeting, or entertainment post from the same calendar day.
+        live_seed = self.update('birthday-seed', text='JEONGHAN birthday LIVE')
+        live_seed.conversation_id = 'birthday-thread'
+        continuation = self.update('continuation', minute=1, text='He talked about his cake')
+        continuation.conversation_id = 'birthday-thread'
+        unrelated_live = self.update('unrelated-live', minute=2, text='Hoshi live replay')
+        unrelated_live.conversation_id = 'different-live'
+        greeting = self.update('birthday-greeting', minute=3, text='Happy birthday JEONGHAN!')
+        greeting.conversation_id = 'birthday-greeting'
+        korean = self.update('korean', author='beta', minute=4, text='정한 생일 라이브')
+        japanese = self.update('japanese', author='beta', minute=5, text='ジョンハン 誕生日ライブ')
+        foreign_thread = self.update('foreign-thread', author='beta', minute=6, text='Unrelated message')
+        foreign_thread.conversation_id = 'birthday-thread'
+        self.app.collector.collect_source.side_effect = [
+            [unrelated_live, live_seed, continuation, greeting],
+            [korean, japanese, foreign_thread],
+        ]
+        asyncio.run(self.app.handle_message({
+            'text': 'تمام آپدیت‌های لایو تولد جونگهان ۲۶۱۰۰۴ رو به ترتیب بفرست',
+            'from': {'id': 1},
+        }))
+        job = next(iter(self.app.state.data['date_requests']['jobs'].values()))
+        self.assertEqual(job['topic'], 'birthday_live')
+        self.tick(12)
+        self.assertEqual(job['selected'], [
+            'birthday-seed', 'continuation', 'korean', 'japanese',
+        ])
+        self.assertEqual(job['delivered'], job['selected'])
+        self.assertEqual(job['status'], 'complete')
+        self.assertEqual(self.app.writer.write_group.call_count, 4)
+
+    def test_birthday_live_is_not_a_general_birthday_or_general_live_search(self):
+        updates = [
+            self.update('wishes', text='Happy birthday JEONGHAN'),
+            self.update('other-live', minute=1, text='Joshua went live'),
+            self.update('event', minute=2, text='Jeonghan birthday live'),
+        ]
+        self.assertEqual(
+            [u.id for u in select_updates(updates, 'birthday_live')], ['event']
+        )
+        self.assertEqual(
+            [u.id for u in select_updates(updates, 'live')], ['other-live', 'event']
+        )
 
     def test_current_day_stays_open_for_new_posts_and_can_be_rescanned(self):
         from datetime import datetime
