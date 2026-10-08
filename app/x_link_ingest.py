@@ -22,7 +22,6 @@ from .media_quality import quality_rank, x_variant_dimensions
 from .x_fxtwitter import _parse_status as _parse_fxtwitter_status
 
 SYNDICATION_STATUS_URL = "https://cdn.syndication.twimg.com/tweet-result"
-FXTWITTER_SINGLE_STATUS_URL = "https://api.fxtwitter.com/2/status/{status_id}"
 _URL_RE = re.compile(r"https?://[^\s<>]+", re.I)
 _HANDLE_RE = re.compile(r"^[A-Za-z0-9_]{1,15}$")
 _STATUS_ID_RE = re.compile(r"^\d{5,30}$")
@@ -266,9 +265,15 @@ def _update_from_payload(payload: dict[str, Any], ref: SharedStatusRef) -> Updat
 
 def _fetch_fxtwitter_shared_status(ref: SharedStatusRef) -> Update:
     """Independent no-key public status fallback, never a timeline authority."""
+    # Reject unexpected direct callers before building any request URL. Only
+    # decimal status IDs are permitted, so the path can never inject a host,
+    # slash, query or fragment. The destination host is a fixed literal.
+    if not _STATUS_ID_RE.fullmatch(ref.status_id):
+        raise XLinkIngestError("Invalid numeric status ID for public X recovery.")
+    safe_status_id = str(int(ref.status_id))
     try:
         response = requests.get(
-            FXTWITTER_SINGLE_STATUS_URL.format(status_id=ref.status_id),
+            "https://api.fxtwitter.com/2/status/" + safe_status_id,
             headers={
                 "Accept": "application/json",
                 "User-Agent": "jeonghan-daily-review-bot/manual-link-ingest",
