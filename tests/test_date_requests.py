@@ -93,6 +93,21 @@ class DateBundleRuntime(unittest.TestCase):
         self.assertEqual(job["pending_sources"], ["alpha", "beta"])
         self.assertFalse(job.get("local_loaded", True))
 
+    def test_provisional_snapshot_is_rescanned_after_the_day_ends(self):
+        identifier = enqueue(self.app, "2026-10-04", "all")
+        job = self.app.state.data["date_requests"]["jobs"][identifier]
+        job.update({
+            "status": "partial",
+            "coverage": {"alpha": "complete", "beta": "complete"},
+            "pending_sources": [],
+            "provisional_day": True,
+            "local_loaded": True,
+        })
+        enqueue(self.app, "2026-10-04", "all")
+        self.assertEqual(job["status"], "collecting")
+        self.assertEqual(job["pending_sources"], ["alpha", "beta"])
+        self.assertFalse(job["local_loaded"])
+
     def test_partial_public_source_is_never_complete(self):
         async def partial(*args):
             self.app.collector.last_errors=['public fallback']
