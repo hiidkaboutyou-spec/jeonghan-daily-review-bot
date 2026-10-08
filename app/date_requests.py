@@ -26,6 +26,8 @@ DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "012345678901
 DATE_TOKEN = re.compile(r"\b(?:20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}|20\d{6}|\d{6})\b")
 BRIDGE_URL = "https://raw.githubusercontent.com/hiidkaboutyou-spec/jeonghan-daily-review-bot/main/config/content_requests.json"
 LIVE = re.compile(r"(?i)(\blive\b|라이브|생방|ライブ|لایو)")
+BIRTHDAY = re.compile(r"(?i)(\bbirthday\b|\bb[ -]?day\b|생일|誕生日|تولد)")
+BIRTHDAY_LIVE = "birthday_live"
 CATEGORIES = {"live": "لایو", "weverse": "ویورس", "instagram": "اینستاگرام", "general": "سایر آپدیت‌ها",
               "brand": "برند", "airport": "فرودگاه", "concert": "اجرا", "birthday": "تولد"}
 CATEGORIES.update({"jeonghan_instagram": "اینستاگرام جونگهان", "member_instagram": "اینستاگرام اعضا", "fansign": "فنساین"})
@@ -61,7 +63,11 @@ def route_date_request(app, text: str) -> bool:
     if window is None:
         app.telegram.send_message("تاریخ معتبر نیست. مثال: /date 261004 لایو تولد")
         return True
-    topic = "live" if LIVE.search(normalized) else "all"
+    has_live = bool(LIVE.search(normalized))
+    topic = (
+        BIRTHDAY_LIVE if has_live and BIRTHDAY.search(normalized)
+        else "live" if has_live else "all"
+    )
     try:
         enqueue(app, window[0].astimezone(request_timezone(app)).date().isoformat(), topic)
     except ValueError:
@@ -72,7 +78,7 @@ def route_date_request(app, text: str) -> bool:
 def enqueue(app, day: str, topic: str, *, external_id: str = "") -> str:
     tz = request_timezone(app)
     window = parse_date_query(day, tz)
-    if window is None or topic not in {"all", "live"}:
+    if window is None or topic not in {"all", "live", BIRTHDAY_LIVE}:
         raise ValueError("Invalid date request")
     start, end = window
     if start > datetime.now(timezone.utc):
@@ -154,7 +160,7 @@ def sync_repository_requests(app):
                 continue
             if not isinstance(entry["date"], str) or not re.fullmatch(r"20\d{2}-\d{2}-\d{2}", entry["date"]):
                 continue
-            if not isinstance(entry["topic"], str) or entry["topic"] not in {"all", "live"}:
+            if not isinstance(entry["topic"], str) or entry["topic"] not in {"all", "live", BIRTHDAY_LIVE}:
                 continue
             try:
                 enqueue(app, entry["date"], entry["topic"], external_id=identifier)
@@ -170,8 +176,14 @@ def sync_repository_requests(app):
 def select_updates(updates: list[Update], topic: str) -> list[Update]:
     for update in updates:
         update.category = detect_category(update)
-    if topic == "live":
-        seeds = [u for u in updates if LIVE.search(u.translation_source())]
+    if topic in {"live", BIRTHDAY_LIVE}:
+        # No generic live or birthday greeting may be mistaken for the requested
+        # broadcast. Preserve same-author replies in the same source conversation.
+        seeds = [
+            u for u in updates
+            if LIVE.search(u.translation_source())
+            and (topic != BIRTHDAY_LIVE or BIRTHDAY.search(u.translation_source()))
+        ]
         threads = {(u.author.casefold(), u.conversation_id) for u in seeds}
         updates = [u for u in updates if (u.author.casefold(), u.conversation_id) in threads]
     return sorted({u.id: u for u in updates}.values(), key=lambda u: (u.created_at, u.id))
@@ -261,10 +273,23 @@ async def _process_date_step(app):
             job["selected"] = [u.id for u in selected]
             job["status"] = "delivering"
             counts = Counter(u.category for u in selected)
+            source_counts = Counter(u.author.casefold() for u in selected)
+            event_note = (
+                "\nفیلتر رویداد: فقط موارد دارای اشارهٔ روشن به لایو تولد "
+                "و ادامهٔ همان رشتهٔ منبع؛ محتوای بدون نشانه ممکن است جا بماند."
+                if job["topic"] == BIRTHDAY_LIVE else ""
+            )
+            source_note = (
+                "\nاز منابع: " + "، ".join(
+                    f"@{handle}: {count}" for handle, count in sorted(source_counts.items())
+                )
+            ) if source_counts else ""
             app.telegram.send_message(
-                f"بستهٔ {job['day']} · {len(selected)} پست\n"
-                + " · ".join(f"{CATEGORIES.get(category, category)}: {count}" for category, count in counts.items())
+                f"بستهٔ {job['day']} · {len(selected)} پست"
+                + (" · لایو تولد جونگهان" if job["topic"] == BIRTHDAY_LIVE else "")
+                + "\n" + " · ".join(f"{CATEGORIES.get(category, category)}: {count}" for category, count in counts.items())
                 + "\nترتیب: زمان انتشار پست‌ها، نه ترتیب لحظه‌های لایو."
+                + source_note + event_note
                 + "\nپوشش منابع: " + "، ".join(f"@{h}: {status_label(s)}" for h, s in job["coverage"].items()),
                 delivery_key=f"date-request:{job['id']}:overview",
             )
