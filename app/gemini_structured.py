@@ -10,6 +10,7 @@ remaining fail-closed when neither contains a usable JSON object.
 
 import json
 import logging
+import re
 import time
 from typing import Any
 
@@ -18,6 +19,7 @@ from .ai import (
     gemini_retryable_provider_failure,
     gemini_shared_failure_kind,
     gemini_should_try_next_model,
+    reset_expired_provider_cooldown,
 )
 
 logger = logging.getLogger(__name__)
@@ -223,6 +225,7 @@ def generate_json_v2(
     back to parsing ``response.text``. No source/prompt text is copied into
     diagnostics.
     """
+    reset_expired_provider_cooldown(self)
     circuit = str(getattr(self, "_gemini_circuit_open", "") or "")
     if circuit:
         diagnostics = getattr(self, "last_diagnostics", None)
@@ -240,9 +243,10 @@ def generate_json_v2(
 
     all_models = list(self._model_candidates())
     unavailable_models = set(getattr(self, "_gemini_unavailable_models", set()) or set())
-    candidates = [model for model in all_models if model not in unavailable_models]
+    transient_models = set(getattr(self, "_gemini_transient_models", set()) or set())
+    candidates = [model for model in all_models if model not in unavailable_models | transient_models]
     if not candidates:
-        self._gemini_circuit_open = "quota"
+        self._gemini_circuit_open = "provider_unavailable" if transient_models else "quota"
         return None
 
     for model in candidates:
@@ -295,6 +299,17 @@ def generate_json_v2(
             exc = final_error
             shared_failure = gemini_shared_failure_kind(exc)
             model_specific = gemini_should_try_next_model(exc)
+            provider_failure = (
+                bool(re.search(r"\b(?:500|502|503|504)\b", str(exc)))
+                and shared_failure not in {"authentication", "quota"}
+            )
+            if provider_failure:
+                # A persistent server-side outage can be model-specific. After
+                # the bounded same-model retry, use only the existing candidates
+                # and skip this failing endpoint for the rest of this process.
+                transient_models.add(model)
+                self._gemini_transient_models = transient_models
+                self._gemini_transient_retry_after = time.monotonic() + 1200.0
             if shared_failure == "quota":
                 # Gemini quotas are model-dependent. Retire this model for the
                 # current process and try each configured free fallback at most
@@ -321,8 +336,19 @@ def generate_json_v2(
                 response=response,
             )
             logger.warning("Gemini %s model %s failed: %s", purpose, model, v1._safe_error(exc))
+            if provider_failure:
+                remaining = [candidate for candidate in all_models if candidate not in unavailable_models | transient_models]
+                if remaining:
+                    if isinstance(getattr(self, "last_diagnostics", None), dict):
+                        self.last_diagnostics["generation_model_failover"] = {
+                            "temporarily_unavailable": sorted(transient_models),
+                            "next": remaining[0],
+                        }
+                    continue
+                self._gemini_circuit_open = "provider_unavailable"
+                break
             if shared_failure == "quota":
-                remaining = [candidate for candidate in all_models if candidate not in unavailable_models]
+                remaining = [candidate for candidate in all_models if candidate not in unavailable_models | transient_models]
                 if remaining:
                     if isinstance(getattr(self, "last_diagnostics", None), dict):
                         self.last_diagnostics["generation_model_failover"] = {
@@ -332,7 +358,7 @@ def generate_json_v2(
                     continue
                 self._gemini_circuit_open = "quota"
             elif model_specific:
-                remaining = [candidate for candidate in all_models if candidate not in unavailable_models]
+                remaining = [candidate for candidate in all_models if candidate not in unavailable_models | transient_models]
                 if remaining:
                     if isinstance(getattr(self, "last_diagnostics", None), dict):
                         self.last_diagnostics["generation_model_failover"] = {

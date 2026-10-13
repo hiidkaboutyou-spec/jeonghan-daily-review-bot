@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -53,6 +54,8 @@ def gemini_shared_failure_kind(exc: Exception) -> str:
 
 def gemini_retryable_provider_failure(exc: Exception) -> bool:
     """Return true for short-lived provider failures worth one same-model retry."""
+    if gemini_shared_failure_kind(exc) in {"authentication", "quota"}:
+        return False
     value = f"{type(exc).__name__}: {exc}".casefold()
     markers = (
         "503",
@@ -63,6 +66,7 @@ def gemini_retryable_provider_failure(exc: Exception) -> bool:
         "internal server error",
         "502 bad gateway",
         "504 gateway timeout",
+        "504 deadline_exceeded",
     )
     return any(marker in value for marker in markers)
 
@@ -74,6 +78,15 @@ class GroupCopy:
     bodies: dict[str, str]
 
 
+def reset_expired_provider_cooldown(writer: object) -> None:
+    deadline = float(getattr(writer, "_gemini_transient_retry_after", 0.0) or 0.0)
+    if deadline and time.monotonic() >= deadline:
+        writer._gemini_transient_models = set()
+        writer._gemini_transient_retry_after = 0.0
+        if getattr(writer, "_gemini_circuit_open", "") == "provider_unavailable":
+            writer._gemini_circuit_open = ""
+
+
 class CaptionWriter:
     def __init__(self, api_key: str, model: str, memory: StyleMemory):
         self.api_key = api_key
@@ -82,6 +95,7 @@ class CaptionWriter:
         self._client = None
 
     def _client_or_none(self):
+        reset_expired_provider_cooldown(self)
         if getattr(self, "_gemini_circuit_open", ""):
             return None
         if not self.api_key:
