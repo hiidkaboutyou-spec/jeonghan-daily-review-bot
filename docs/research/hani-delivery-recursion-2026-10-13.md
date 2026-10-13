@@ -1,0 +1,13 @@
+# Delivery recursion investigation and repair — 2026-10-13
+
+Goal: stop queued/private delivery from recursively redispatching an in-flight Telegram command while preserving retry-safe offsets and receipts.
+
+Preflight: main b1351efc13291457c82538931c0784b4d1e9b3ce. Open PRs inspected; none overlap this poller. The latest inspected Daily run 38390027061 succeeded but did not expose a traceback for the owner's reported RecursionError. Machine-local Project Memory was unavailable; repository/GitHub evidence is authoritative. Followed evidence-first-engineering, hani-production-acceptance and agent-session-safety.
+
+Confirmed local failure path: PrivateReviewApplication.deliver_updates polls after every five groups. TelegramSafeReviewApplication advances its offset only after the handler returns. When the handler itself delivers six or more groups, that inner poll fetches and dispatches the same unconfirmed command again. This can recurse through handler -> delivery -> polling -> handler. The concrete WebhookAwarePersonalAssistant regression observed two handler invocations at offset 0 before repair; a bounded sentinel stops the reproduction before stack exhaustion. Both success and transient-failure regressions failed before the fix and passed afterward. This establishes a real recursion path; without the original production traceback, it does not prove this was the only source of the owner's error.
+
+Repair: an instance-local poll guard prevents nested/concurrent polling on the same application while the outer poll is processing handlers. A finally block releases the guard, including cancellation/failure. The existing one-pass poller retains timeout forwarding, offset confirmation, transient retry and poison handling. Automatic scheduled delivery still polls normally when no command is in flight. No durable schema, queue, collector, provider, receipt or schedule changes. Commands arriving during a command-triggered long delivery wait for the next outer poll rather than being acknowledged early.
+
+Validation: focused concrete-production six-group delivery regressions passed (2). Dependency install, pip check, compileall and app --check passed. Full-suite and exact-head CI results must be recorded after completion. Routine verification uses synthetic data and mocked Telegram; no real messages or private data were used. Owner-visible live delivery remains unverified until a real main execution/user request exercises it.
+
+Rollback: revert the poller guard and its tests. Unsent items retain the existing durable queue; nothing is purged or marked delivered by this repair.
