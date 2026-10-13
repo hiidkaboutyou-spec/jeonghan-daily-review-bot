@@ -224,10 +224,17 @@ class TelegramAuditTests(unittest.TestCase):
         self.assertNotIn(secret, str(ctx.exception))
         self.assertIsNone(ctx.exception.__cause__)
 
-    def test_over_limit_messages_fail_explicitly_instead_of_truncating(self):
+    def test_over_limit_messages_are_split_without_truncating_or_live_network(self):
         bot = TelegramBot("fake", 1, -100)
-        with self.assertRaises(TelegramError):
-            bot.send_message("x" * 4097)
+        bot.api = Mock(side_effect=[{"message_id": 1}, {"message_id": 2}])
+        text = "x" * 4097
+        sent = bot.send_message(text)
+        parts = [call.kwargs["data"]["text"] for call in bot.api.call_args_list]
+        self.assertEqual([part.split("\n\n", 1)[0] for part in parts], ["بخش 1 از 2", "بخش 2 از 2"])
+        self.assertEqual("".join(part.split("\n\n", 1)[1] for part in parts), text)
+        self.assertEqual(len(parts), 2)
+        self.assertTrue(all(len(part) <= 4096 for part in parts))
+        self.assertEqual(sent["message_id"], 2)
 
 
 class StyleAuditTests(unittest.TestCase):
