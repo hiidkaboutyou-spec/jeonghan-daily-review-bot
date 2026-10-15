@@ -23,6 +23,20 @@ class TelegramSafeReviewApplication(MediaDedupReviewApplication):
     """
 
     async def process_telegram_updates(self, *, long_poll_seconds: int = 0) -> int:
+        # Large private deliveries poll between groups. A command-triggered
+        # delivery must not fetch its own still-unconfirmed Telegram update:
+        # the offset advances only after that command has finished successfully.
+        if getattr(self, "_telegram_poll_in_progress", False):
+            return 0
+        self._telegram_poll_in_progress = True
+        try:
+            return await self._process_telegram_updates_once(
+                long_poll_seconds=long_poll_seconds,
+            )
+        finally:
+            self._telegram_poll_in_progress = False
+
+    async def _process_telegram_updates_once(self, *, long_poll_seconds: int = 0) -> int:
         # Production overrides the base poller to preserve retry-safe offsets.
         # Accept the interactive window's timeout here without bypassing that
         # safety layer; keep the legacy transport call for one-shot callers.

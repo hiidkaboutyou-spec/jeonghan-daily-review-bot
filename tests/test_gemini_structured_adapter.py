@@ -196,6 +196,50 @@ class GeminiStructuredAdapterTests(unittest.TestCase):
             "transient_retry:RuntimeError",
         )
 
+    def test_persistent_provider_failure_uses_existing_fallback_and_skips_failed_model(self):
+        for code in ("503 UNAVAILABLE high demand", "504 DEADLINE_EXCEEDED"):
+            with self.subTest(code=code):
+                writer = _Writer(["gemini-primary", "gemini-free-fallback"])
+                response = _Response(parsed={"items": [{"id": "A", "body": "ترجمه"}]})
+                generate = Mock(side_effect=[RuntimeError(code), RuntimeError(code), response, response])
+                client = SimpleNamespace(models=SimpleNamespace(generate_content=generate))
+                with patch("app.gemini_structured.time.sleep"):
+                    self.assertIsNotNone(_call(writer, client))
+                    self.assertIsNotNone(_call(writer, client))
+                self.assertEqual([c.kwargs["model"] for c in generate.call_args_list],
+                                 ["gemini-primary", "gemini-primary", "gemini-free-fallback", "gemini-free-fallback"])
+                self.assertFalse(getattr(writer, "_gemini_circuit_open", ""))
+
+    def test_all_provider_models_unavailable_is_bounded_and_not_reported_as_quota(self):
+        writer = _Writer(["gemini-primary", "gemini-free-fallback"])
+        client = _Client(error=RuntimeError("503 UNAVAILABLE high demand"))
+        with patch("app.gemini_structured.time.sleep"):
+            self.assertIsNone(_call(writer, client))
+            self.assertIsNone(_call(writer, client))
+        self.assertEqual(client.models.calls, 4)
+        self.assertEqual(writer._gemini_circuit_open, "provider_unavailable")
+
+    def test_provider_cooldown_reopens_after_twenty_minutes_in_long_lived_writer(self):
+        writer = CaptionWriter("synthetic-key", "gemini-primary", SimpleNamespace())
+        writer._client = object()
+        writer._gemini_circuit_open = "provider_unavailable"
+        writer._gemini_transient_models = {"gemini-primary"}
+        writer._gemini_transient_retry_after = 1300.0
+        with patch("app.ai.time.monotonic", return_value=1299.0):
+            self.assertIsNone(writer._client_or_none())
+        with patch("app.ai.time.monotonic", return_value=1300.0):
+            self.assertIs(writer._client_or_none(), writer._client)
+        self.assertEqual(writer._gemini_transient_models, set())
+        self.assertEqual(writer._gemini_circuit_open, "")
+
+    def test_authentication_failure_never_rotates_models(self):
+        writer = _Writer(["gemini-primary", "gemini-free-fallback"])
+        client = _Client(error=RuntimeError("401 api key unavailable"))
+        with patch("app.gemini_structured.time.sleep"):
+            self.assertIsNone(_call(writer, client))
+        self.assertEqual(client.models.calls, 1)
+        self.assertEqual(writer._gemini_circuit_open, "authentication")
+
     def test_production_pacing_spaces_request_starts_below_provider_rpm(self):
         writer = _Writer()
         writer._gemini_min_request_interval_seconds = 3.5
