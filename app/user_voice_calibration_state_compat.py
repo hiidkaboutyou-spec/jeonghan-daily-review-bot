@@ -199,21 +199,34 @@ def prune_voice_state(event_state: dict[str, Any], calibration: Any) -> None:
     source["text_persisted"] = False
 
 
+def _compat_chain_has(function: Any, marker: str) -> bool:
+    """Return whether this compatibility layer already exists in the wrapper chain."""
+    seen: set[int] = set()
+    while callable(function) and id(function) not in seen:
+        if getattr(function, marker, False):
+            return True
+        seen.add(id(function))
+        function = getattr(function, "__wrapped__", None)
+    return False
+
+
 def install(event_fusion: Any, calibration: Any) -> None:
     """Compose with existing Event/Timeline/Translation/Style sanitizer; no new DB."""
     current_sanitize = event_fusion._sanitize_event_state
-    if not getattr(current_sanitize, "_user_voice_calibration_state_compat_installed", False):
-        def sanitize(raw):
-            clean = current_sanitize(raw)
+    if not _compat_chain_has(current_sanitize, "_user_voice_calibration_state_compat_installed"):
+        def sanitize(raw, _previous=current_sanitize):
+            clean = _previous(raw)
             clean["voice_calibration"] = sanitize_voice_state(raw, calibration)
             return clean
+        sanitize.__wrapped__ = current_sanitize
         sanitize._user_voice_calibration_state_compat_installed = True
         event_fusion._sanitize_event_state = sanitize
 
     current_prune = event_fusion._prune
-    if not getattr(current_prune, "_user_voice_calibration_state_compat_installed", False):
-        def prune(event_state):
-            current_prune(event_state)
+    if not _compat_chain_has(current_prune, "_user_voice_calibration_state_compat_installed"):
+        def prune(event_state, _previous=current_prune):
+            _previous(event_state)
             prune_voice_state(event_state, calibration)
+        prune.__wrapped__ = current_prune
         prune._user_voice_calibration_state_compat_installed = True
         event_fusion._prune = prune
