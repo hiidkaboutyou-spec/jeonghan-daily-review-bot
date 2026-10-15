@@ -34,7 +34,7 @@ class StateCompatInstallIdempotenceTests(unittest.TestCase):
             DIRECT_STYLE_RULES_MODE="shadow",
         )
         planner = SimpleNamespace(
-            _fresh_forward_ready_fields=lambda: {},
+            _fresh_forward_ready_fields=lambda: {"forward_ready_packages": {}},
             _prune_forward_ready=lambda state: state.setdefault("forward_pruned", 0) or None,
         )
         calibration = SimpleNamespace(
