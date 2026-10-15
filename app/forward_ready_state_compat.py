@@ -149,21 +149,34 @@ def _sanitize(raw: object, planner: Any) -> dict[str, Any]:
     return clean
 
 
+def _compat_chain_has(function: Any, marker: str) -> bool:
+    """Return whether this compatibility layer already exists in the wrapper chain."""
+    seen: set[int] = set()
+    while callable(function) and id(function) not in seen:
+        if getattr(function, marker, False):
+            return True
+        seen.add(id(function))
+        function = getattr(function, "__wrapped__", None)
+    return False
+
+
 def install(event_fusion: Any, planner: Any) -> None:
     current_sanitize = event_fusion._sanitize_event_state
-    if not getattr(current_sanitize, "_forward_ready_state_compat_installed", False):
-        def sanitize(raw):
-            clean = current_sanitize(raw)
+    if not _compat_chain_has(current_sanitize, "_forward_ready_state_compat_installed"):
+        def sanitize(raw, _previous=current_sanitize):
+            clean = _previous(raw)
             clean.update(_sanitize(raw, planner))
             return clean
+        sanitize.__wrapped__ = current_sanitize
         sanitize._forward_ready_state_compat_installed = True
         event_fusion._sanitize_event_state = sanitize
 
     current_prune = event_fusion._prune
-    if not getattr(current_prune, "_forward_ready_state_compat_installed", False):
-        def prune(event_state):
-            current_prune(event_state)
+    if not _compat_chain_has(current_prune, "_forward_ready_state_compat_installed"):
+        def prune(event_state, _previous=current_prune):
+            _previous(event_state)
             planner._prune_forward_ready(event_state)
+        prune.__wrapped__ = current_prune
         prune._forward_ready_state_compat_installed = True
         event_fusion._prune = prune
 
