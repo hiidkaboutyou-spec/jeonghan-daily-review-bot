@@ -72,3 +72,116 @@ The earlier long-poll change tested the base `Application` path. Production used
 Superpowers can be useful in the agent environment, but it is optional. Repository-owned skills remain authoritative for this project and must work even when the external plugin is absent.
 
 No package, service, secret, runtime dependency, or production network call is added by this harness.
+
+
+## Implementation record
+
+### Canonical result
+
+The evidence-first engineering harness was implemented in PR #148 and squash-merged to `main`.
+
+- PR: `#148 chore: add evidence-first engineering harness`
+- merged commit: `71628cbeccd5281917286b74c30298dbc0ba5e00`
+- canonical branch after merge: `main`
+- runtime impact: none; this change is developer/agent process infrastructure only.
+
+### Files added or changed
+
+- `.agents/skills/evidence-first-engineering/SKILL.md`
+  - requires repository/GitHub preflight before mutation;
+  - separates symptom, root-cause hypothesis and acceptance evidence;
+  - requires reproduction/equivalent evidence before a bug fix;
+  - requires primary/upstream research when platform/API/dependency behavior is material;
+  - requires regression-first implementation;
+  - uses a verification ladder from focused regression to post-merge evidence;
+  - forbids claiming more than the strongest proven evidence level.
+
+- `.agents/skills/hani-production-acceptance/SKILL.md`
+  - requires the concrete production application path for Telegram behavior;
+  - requires real shared-X-link flow validation;
+  - requires cursor/completeness evidence for X collection;
+  - requires production translation smoke plus separate human/editorial quality evidence;
+  - requires media delivery/idempotency checks when media changes;
+  - requires state/recovery/restart checks when persistence changes;
+  - requires a real post-merge `main` run before production verification for runtime/workflow changes.
+
+- `AGENTS.md`
+  - now makes the evidence-first contract mandatory for substantive bugs, features, refactors, dependency/tool choices, performance/reliability work, and any task that may end with a completion claim;
+  - explicitly distinguishes: implemented -> PR-head verified -> merged -> post-merge main verified -> owner-visible confirmed.
+
+- `tools/validate_agent_harness.py`
+  - validates required skill presence;
+  - validates skill frontmatter names/descriptions;
+  - validates that `AGENTS.md` activates the required skills;
+  - validates that the mandatory evidence-first contract remains present.
+
+- `.github/workflows/agent-harness.yml`
+  - runs only for agent-contract/tooling changes;
+  - validates the repository-owned harness without touching production state or live Telegram delivery.
+
+- this research note
+  - records upstream research, adoption/rejection decisions and durable handoff.
+
+### External research and adoption decisions
+
+Reviewed:
+- current `openai/plugins` packaging for Codex plugins;
+- Superpowers `6.3.0`, upstream `obra/superpowers`, MIT;
+- `agentsmd/agents.md`, MIT;
+- GitHub Spec Kit;
+- the deprecated `openai/skills` catalog, which now points to the Plugins repository.
+
+Decision:
+- adapt the useful Superpowers methods into repository-owned rules;
+- do not vendor the whole framework into the production repository;
+- do not add any runtime package/service/secret;
+- keep Superpowers optional in the external agent environment;
+- keep repository-owned skills authoritative even when Superpowers is absent.
+
+### Why this change was needed
+
+The 2026-09-30 Telegram long-poll regression demonstrated the gap:
+
+- a base-class path was tested;
+- production used an override in the concrete runtime composition;
+- the narrow tests therefore did not prove the production path.
+
+The new acceptance contract explicitly requires checking overrides/wrappers/subclasses/entrypoints and testing the same concrete boundary that failed.
+
+### Verification evidence
+
+On the final PR head `ea8c26347693ba05e0329a025e8c9df89a6145f8`, all 10 observed workflows completed successfully:
+
+- Agent Harness Contract;
+- Workflow Security Lint;
+- Hani Workflow Safety;
+- Nightly Jeonghan Fanfic Digest;
+- Render Production Validation;
+- Hani CodeQL;
+- Jeonghan Daily Review Bot;
+- Hani Maintenance Diagnostics;
+- Channel Style Translation Benchmark;
+- Hani Security Diagnostics.
+
+After merge, the dedicated Agent Harness Contract also completed successfully on `main@71628cbeccd5281917286b74c30298dbc0ba5e00` as run `36701931950`.
+
+Because this PR changes only developer/agent instructions and validation, not bot runtime behavior, no owner-visible Telegram acceptance step is introduced by this PR itself.
+
+### External plugin state
+
+Superpowers was surfaced as an optional ChatGPT/Codex plugin candidate. It was **not** silently installed or treated as a project dependency. Any installation/connection remains a separate user-authorized environment action.
+
+### Ongoing rule
+
+Future work on this repository should leave a durable record of:
+- root cause or product goal;
+- research used;
+- adopt/adapt/reject decisions;
+- exact changed surfaces;
+- regression/acceptance coverage;
+- CI actually run;
+- what is and is not proven;
+- rollback/migration notes;
+- exact next frontier.
+
+The repository/GitHub state remains implementation authority; chat memory is not sufficient proof.
