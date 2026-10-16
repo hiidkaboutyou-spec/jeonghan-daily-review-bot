@@ -364,7 +364,7 @@ RELEVANT CHANNEL GLOSSARY (terminology/spelling only, never factual evidence):
 {json.dumps(glossary, ensure_ascii=False)}
 
 CHANNEL STYLE DNA:
-{json.dumps(compact_profile, ensure_ascii=False)}
+{profile_json}
 
 CHANNEL VOICE PROFILE (writing guidance only; never reject or alter SOURCE facts):
 {voice_guidance or "No additional voice guidance loaded; continue with CHANNEL STYLE DNA."}
