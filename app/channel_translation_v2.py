@@ -48,6 +48,15 @@ from .gemini_structured import last_generation_block_reason
 
 logger = logging.getLogger(__name__)
 
+# Bound repeated style context without truncating the authoritative source text.
+TOKEN_OPTIMIZER_VERSION = "context-budget-v1"
+MAX_STYLE_PROFILE_CHARS = 2200
+MAX_VOICE_GUIDANCE_CHARS = 900
+MAX_GLOSSARY_ENTRIES = 10
+MAX_PAIRED_DEMONSTRATIONS = 3
+MAX_HISTORICAL_EXCERPTS = 2
+
+
 
 def speaker_contract(item) -> list[dict[str, str]]:
     """Source-grounded turn scaffold; never invent a speaker for unlabeled prose."""
@@ -128,6 +137,26 @@ def entity_failures(source: str, output: str) -> list[str]:
     ):
         return ["missing canonical source entity: جونگهان"]
     return []
+
+
+def _compact_glossary(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep only spelling/context fields needed by the translator."""
+    compact: list[dict[str, Any]] = []
+    for entry in entries[:MAX_GLOSSARY_ENTRIES]:
+        if not isinstance(entry, dict):
+            continue
+        item = {}
+        for key in ("canonical_form", "alternatives", "category"):
+            if key in entry:
+                value = entry[key]
+                if isinstance(value, list):
+                    value = [str(x)[:80] for x in value[:6]]
+                else:
+                    value = str(value)[:160]
+                item[key] = value
+        if item:
+            compact.append(item)
+    return compact
 
 
 def _canonicalize_group(group: EventGroup, copy: GroupCopy) -> GroupCopy:
@@ -258,32 +287,43 @@ class ChannelStyleCaptionWriter(_BaseWriter):
             "precise": "نزدیک‌تر به منبع و کم‌حاشیه‌تر، اما همچنان فارسی طبیعی کانال.",
         }.get(mode, "طبیعی و دقیق مثل همین کانال.")
 
-        source_items = [
-            {
+        # Complete source text is authoritative and never clipped. Media URLs
+        # and duplicated speaker scaffolding are not translation context; delivery
+        # already owns media, so sending it here repeatedly wastes input tokens.
+        source_items = []
+        for item in group.updates:
+            payload = {
                 "id": item.id,
-                "author": item.author,
                 "text": item.translation_source(),
-                "speaker_turns": speaker_contract(item),
                 "language": item.lang,
-                "url": item.url,
-                "media": [{"kind": media.kind, "url": media.url} for media in item.media],
-                "quoted_media": [
-                    {"kind": media.kind, "url": media.url} for media in item.quoted_media
-                ],
             }
-            for item in group.updates
-        ]
+            if analysis.has_dialogue:
+                payload["speaker_turns"] = speaker_contract(item)
+            source_items.append(payload)
         compact_profile = {
             key: self.memory.profile.get(key)
             for key in ("register", "syntax", "lexicon", "emotion", "formatting", "code_switching", "dialogue", "explanation")
             if self.memory.profile.get(key) is not None
         }
-        voice_guidance = _load_voice_profile(getattr(self.memory, "root", ROOT))
+        profile_json = json.dumps(compact_profile, ensure_ascii=False)
+        if len(profile_json) > MAX_STYLE_PROFILE_CHARS:
+            profile_json = profile_json[:MAX_STYLE_PROFILE_CHARS] + "…"
+        voice_guidance = _load_voice_profile(getattr(self.memory, "root", ROOT))[:MAX_VOICE_GUIDANCE_CHARS]
         self.last_diagnostics["voice_profile_loaded"] = bool(voice_guidance)
         paired_examples = translation_demonstrations(
             analysis.content_type, analysis.source_language
-        )
-        historical_style = compact_style_examples(examples, limit=3)
+        )[:MAX_PAIRED_DEMONSTRATIONS]
+        historical_style = compact_style_examples(examples, limit=MAX_HISTORICAL_EXCERPTS)
+        glossary = _compact_glossary(glossary)
+        self.last_diagnostics["token_optimizer"] = {
+            "version": TOKEN_OPTIMIZER_VERSION,
+            "source_items_complete": True,
+            "style_profile_chars": len(profile_json),
+            "voice_guidance_chars": len(voice_guidance),
+            "historical_examples_sent": len(historical_style),
+            "paired_demonstrations_sent": len(paired_examples),
+            "glossary_entries_sent": len(glossary),
+        }
         canonical_entities = []
         if source_names_jeonghan("\n".join(item.translation_source() for item in group.updates)):
             canonical_entities.append(
@@ -311,7 +351,7 @@ class ChannelStyleCaptionWriter(_BaseWriter):
             + NATURAL_PERSIAN_RULES
         )
         prompt = f"""
-SOURCE ITEMS:
+SOURCE ITEMS (complete; do not infer omitted facts from style context):
 {json.dumps(source_items, ensure_ascii=False)}
 
 CURRENT SOURCE FACT LEDGER:
@@ -324,7 +364,7 @@ RELEVANT CHANNEL GLOSSARY (terminology/spelling only, never factual evidence):
 {json.dumps(glossary, ensure_ascii=False)}
 
 CHANNEL STYLE DNA:
-{json.dumps(compact_profile, ensure_ascii=False)}
+{profile_json}
 
 CHANNEL VOICE PROFILE (writing guidance only; never reject or alter SOURCE facts):
 {voice_guidance or "No additional voice guidance loaded; continue with CHANNEL STYLE DNA."}
