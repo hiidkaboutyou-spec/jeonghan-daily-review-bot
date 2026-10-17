@@ -17,7 +17,7 @@ import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, AsyncMock, patch
-from app.date_requests import enqueue, process_date_requests, route_date_request, select_updates, sync_repository_requests
+from app.date_requests import _process_date_step, enqueue, process_date_requests, route_date_request, select_updates, sync_repository_requests
 from app.archive_store import ArchiveStore
 from app.state import StateStore
 from app.models import Update
@@ -131,6 +131,30 @@ class DateBundleRuntime(unittest.TestCase):
         self.assertFalse(self.app.state.data.get('date_requests', {}).get('jobs'))
         asyncio.run(self.app.handle_message({'text':'/source alpha 20261005 20261004','from':{'id':1}}))
         self.assertFalse(self.app.state.data.get('date_requests', {}).get('jobs'))
+
+    def test_active_source_range_holds_general_delivery_queue_until_report_finishes(self):
+        general = self.update('general-pending')
+        self.app.state.queue_updates([general])
+        identifier = enqueue(self.app, '2026-10-04', 'all', source='alpha')
+        asyncio.run(self.app.deliver_pending())
+        self.assertEqual(len(self.app.state.data['pending_delivery']), 1)
+        self.assertFalse(self.app.state.is_seen(general.id))
+        self.assertEqual(self.app.writer.write_group.call_count, 0)
+
+        self.app.state.data['date_requests']['jobs'][identifier]['status'] = 'complete'
+        asyncio.run(self.app.deliver_pending())
+        self.assertTrue(self.app.state.is_seen(general.id))
+        asyncio.run(self.app.deliver_pending())
+        self.assertEqual(self.app.state.data['pending_delivery'], [])
+
+    def test_source_range_jobs_take_priority_over_older_unscoped_requests(self):
+        unscoped_id = enqueue(self.app, '2026-10-04', 'all')
+        scoped_id = enqueue(self.app, '2026-10-04', 'all', source='alpha')
+        asyncio.run(_process_date_step(self.app))
+        self.assertEqual(self.app.collector.collect_source.await_args.args[0], 'alpha')
+        jobs = self.app.state.data['date_requests']['jobs']
+        self.assertEqual(jobs[unscoped_id]['pending_sources'], ['alpha', 'beta'])
+        self.assertEqual(jobs[scoped_id]['pending_sources'], [])
 
     def test_birthday_live_intent_and_actual_private_delivery_are_event_scoped(self):
         # The real birthday-live request must not return every unrelated live,

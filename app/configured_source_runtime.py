@@ -95,6 +95,12 @@ def _install_application_guards() -> None:
 
     async def deliver_pending(self):
         _purge_external_pending(self)
+        # Keep a requested source-only date range contiguous in the private chat.
+        # The durable queue remains untouched and resumes after the last scoped
+        # daily bundle completes.
+        from .date_requests import active_source_requests
+        if active_source_requests(self):
+            return
         return await original_deliver_pending(self)
 
     async def run_source24(self, value: str):

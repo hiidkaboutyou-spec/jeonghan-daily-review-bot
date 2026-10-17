@@ -40,6 +40,15 @@ def status_label(status):
     return "ناموفق" if status.startswith("failed:") else STATUSES.get(status, status)
 
 
+def active_source_requests(app):
+    """Source-scoped requests own delivery order until their daily bundles finish."""
+    jobs = getattr(app.state, "data", {}).get("date_requests", {}).get("jobs", {}).values()
+    return [
+        job for job in jobs
+        if job.get("source_filter") and job.get("status") in {"collecting", "delivering"}
+    ]
+
+
 def request_timezone(app):
     return ZoneInfo((getattr(app.settings, "runtime", {}) or {}).get("content_date_timezone", "Asia/Seoul"))
 
@@ -276,7 +285,8 @@ async def process_date_requests(app):
 
 async def _process_date_step(app):
     jobs = app.state.data.get("date_requests", {}).get("jobs", {})
-    for job in list(jobs.values()):
+    source_jobs = active_source_requests(app)
+    for job in source_jobs or list(jobs.values()):
         if job["status"] not in {"collecting", "delivering"}:
             continue
         retry = job.get("retry_after")
