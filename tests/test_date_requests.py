@@ -110,6 +110,28 @@ class DateBundleRuntime(unittest.TestCase):
         self.assertIn(f'date-request:{identifier}:finished:1:1', keys)
         self.assertIn(f'date-request:{identifier}:finished:2:2', keys)
 
+    def test_admin_source_range_creates_source_scoped_daily_bundles(self):
+        chosen = self.update('chosen', author='alpha', text='Jeonghan update')
+        chosen_next = self.update('chosen-next', author='alpha', text='Jeonghan update')
+        chosen_next.created_at = __import__('datetime').datetime(2026,10,5,1,tzinfo=timezone.utc)
+        foreign = self.update('foreign', author='beta', text='Jeonghan update')
+        self.app.collector.collect_source = AsyncMock(side_effect=[[chosen, foreign], [chosen_next, foreign]])
+        asyncio.run(self.app.handle_message({'text':'/source @alpha 20261004 20261005','from':{'id':1}}))
+        jobs = list(self.app.state.data['date_requests']['jobs'].values())
+        self.assertEqual([j['day'] for j in jobs], ['2026-10-04', '2026-10-05'])
+        self.assertTrue(all(j['source_filter'] == 'alpha' and j['pending_sources'] == ['alpha'] for j in jobs))
+        self.assertEqual(self.app.telegram.send_message.call_count, 1)
+        self.tick(20)
+        self.assertEqual([j['status'] for j in jobs], ['complete', 'complete'])
+        self.assertEqual([j['delivered'] for j in jobs], [['chosen'], ['chosen-next']])
+        self.assertEqual([call.args[0] for call in self.app.collector.collect_source.await_args_list], ['alpha', 'alpha'])
+
+    def test_source_request_rejects_unconfigured_handles_and_reverse_ranges(self):
+        asyncio.run(self.app.handle_message({'text':'/source outsider 20261004 20261005','from':{'id':1}}))
+        self.assertFalse(self.app.state.data.get('date_requests', {}).get('jobs'))
+        asyncio.run(self.app.handle_message({'text':'/source alpha 20261005 20261004','from':{'id':1}}))
+        self.assertFalse(self.app.state.data.get('date_requests', {}).get('jobs'))
+
     def test_birthday_live_intent_and_actual_private_delivery_are_event_scoped(self):
         # The real birthday-live request must not return every unrelated live,
         # greeting, or entertainment post from the same calendar day.
@@ -323,13 +345,14 @@ class DateBundleRuntime(unittest.TestCase):
     def test_bridge_accepts_only_fixed_schema_once_after_restart(self):
         self.app.settings.runtime={'repository_content_requests':True}
         response=Mock()
-        response.iter_content.return_value=[b'[{"id":"bad","date":"2026-99-99","topic":"live"},{"id":"request-1","date":"2026-10-04","topic":"live"}]']
+        response.iter_content.return_value=[b'[{"id":"bad","date":"2026-99-99","topic":"live"},{"id":"request-1","date":"2026-10-04","topic":"live","source":"alpha"}]']
         with patch('app.date_requests.requests.get',return_value=response) as get:
             sync_repository_requests(self.app)
             self.app.state=StateStore(self.app.state.path)
             self.app.state.data['date_requests']['bridge_checked_at']=''
             sync_repository_requests(self.app)
         self.assertEqual(len(self.app.state.data['date_requests']['jobs']),1)
+        self.assertEqual(next(iter(self.app.state.data['date_requests']['jobs'].values()))['source_filter'], 'alpha')
         self.assertIn('/main/config/content_requests.json',get.call_args.args[0])
 
     def test_actual_webhook_maintenance_advances_jobs_and_isolates_job_errors(self):

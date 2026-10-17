@@ -49,9 +49,47 @@ def route_date_request(app, text: str) -> bool:
         return False
     normalized = text.translate(DIGITS)
     command = normalized.split(maxsplit=1)[0].split("@")[0].lower()
+    if command == "/source":
+        parts = normalized.split()
+        if len(parts) != 4:
+            app.telegram.send_message("قالب درخواست: /source نام‌منبع تاریخ‌شروع تاریخ‌پایان\nمثال: /source haniwadda 20261009 20261017")
+            return True
+        handle = normalize_handle(parts[1])
+        configured = {
+            normalize_handle(source["handle"]).casefold()
+            for source in app.settings.sources if source.get("enabled", True)
+        }
+        if handle.casefold() not in configured:
+            app.telegram.send_message(f"منبع @{handle} در منابع فعال بات نیست؛ فقط منبع فعالِ ثبت‌شده قابل درخواست است.")
+            return True
+        first, last = parse_date_query(parts[2], request_timezone(app)), parse_date_query(parts[3], request_timezone(app))
+        if first is None or last is None:
+            app.telegram.send_message("تاریخ معتبر نیست. مثال: /source haniwadda 20261009 20261017")
+            return True
+        first_day = first[0].astimezone(request_timezone(app)).date()
+        last_day = last[0].astimezone(request_timezone(app)).date()
+        span = (last_day - first_day).days
+        if span < 0 or span >= 31:
+            app.telegram.send_message("بازه باید رو به جلو و حداکثر ۳۱ روز باشد.")
+            return True
+        if last[0] > datetime.now(timezone.utc):
+            app.telegram.send_message("این بازه هنوز نرسیده؛ محتوای آینده در دسترس نیست.")
+            return True
+        for offset in range(span + 1):
+            day = (first_day + timedelta(days=offset)).isoformat()
+            enqueue(app, day, "all", source=handle, acknowledge=False)
+        app.telegram.send_message(
+            f"درخواست فقط از @{handle} برای {first_day.isoformat()} تا {last_day.isoformat()} ثبت شد؛ "
+            "پست‌ها با ترجمه و لینک منبع، به ترتیب انتشار می‌آیند. وضعیت: /date_status"
+        )
+        return True
     if command == "/date_status":
         jobs = app.state.data.get("date_requests", {}).get("jobs", {})
-        lines = [f"{j['day']} · {status_label(j['status'])} · {len(j.get('delivered', []))}/{len(j.get('selected', []))}" for j in jobs.values()]
+        lines = [
+            f"{j['day']}" + (f" · @{j['source_filter']}" if j.get("source_filter") else "")
+            + f" · {status_label(j['status'])} · {len(j.get('delivered', []))}/{len(j.get('selected', []))}"
+            for j in jobs.values()
+        ]
         app.telegram.send_message("\n".join(lines[-20:]) or "درخواست تاریخ‌داری ثبت نشده.")
         return True
     if normalized.startswith("/") and command != "/date":
@@ -75,7 +113,7 @@ def route_date_request(app, text: str) -> bool:
     return True
 
 
-def enqueue(app, day: str, topic: str, *, external_id: str = "") -> str:
+def enqueue(app, day: str, topic: str, *, external_id: str = "", source: str = "", acknowledge: bool = True) -> str:
     tz = request_timezone(app)
     window = parse_date_query(day, tz)
     if window is None or topic not in {"all", "live", BIRTHDAY_LIVE}:
@@ -83,12 +121,17 @@ def enqueue(app, day: str, topic: str, *, external_id: str = "") -> str:
     start, end = window
     if start > datetime.now(timezone.utc):
         raise ValueError("Future content is unavailable")
-    request_id = hashlib.sha256(f"{day}:{tz.key}:{topic}:{external_id}".encode()).hexdigest()[:20]
-    namespace = app.state.data.setdefault("date_requests", {})
-    jobs = namespace.setdefault("jobs", {})
-    handles = list(dict.fromkeys(
+    enabled_handles = list(dict.fromkeys(
         normalize_handle(s["handle"]) for s in app.settings.sources if s.get("enabled", True)
     ))
+    if source:
+        source = normalize_handle(source)
+        if source.casefold() not in {item.casefold() for item in enabled_handles}:
+            raise ValueError("Requested source is not enabled")
+    request_id = hashlib.sha256(f"{day}:{tz.key}:{topic}:{source.casefold()}:{external_id}".encode()).hexdigest()[:20]
+    namespace = app.state.data.setdefault("date_requests", {})
+    jobs = namespace.setdefault("jobs", {})
+    handles = [source] if source else enabled_handles
     if request_id in jobs:
         job = jobs[request_id]
         # A repeated completed or partial request explicitly asks for a fresh
@@ -106,7 +149,7 @@ def enqueue(app, day: str, topic: str, *, external_id: str = "") -> str:
             job.pop("reported", None)
     else:
         jobs[request_id] = {
-            "id": request_id, "day": day, "timezone": tz.key, "topic": topic,
+            "id": request_id, "day": day, "timezone": tz.key, "topic": topic, "source_filter": source,
             "start": start.isoformat(), "end": end.isoformat(), "status": "collecting",
             "pending_sources": handles, "coverage": {}, "observed": [],
             "selected": [], "delivered": [], "translation_attempts": {},
@@ -114,11 +157,13 @@ def enqueue(app, day: str, topic: str, *, external_id: str = "") -> str:
         }
     generation = jobs[request_id].get("generation", 1)
     app.state.save()
-    app.telegram.send_message(
-        f"درخواست {day} ({tz.key}) ثبت شد؛ همهٔ منابع فعال را بررسی می‌کنم. "
-        "پست‌ها با ترجمه و لینک منبع، به ترتیب انتشار می‌آیند. وضعیت: /date_status",
-        delivery_key=f"date-request:{request_id}:accepted:{generation}",
-    )
+    if acknowledge:
+        app.telegram.send_message(
+            f"درخواست {day} ({tz.key}) ثبت شد؛ "
+            + (f"فقط @{source} را بررسی می‌کنم. " if source else "همهٔ منابع فعال را بررسی می‌کنم. ")
+            + "پست‌ها با ترجمه و لینک منبع، به ترتیب انتشار می‌آیند. وضعیت: /date_status",
+            delivery_key=f"date-request:{request_id}:accepted:{generation}",
+        )
     return request_id
 
 
@@ -149,7 +194,7 @@ def sync_repository_requests(app):
             raise ValueError("Invalid queue")
         accepted = namespace.setdefault("bridge_accepted", [])
         for entry in entries:
-            if not isinstance(entry, dict) or set(entry) != {"id", "date", "topic"}:
+            if not isinstance(entry, dict) or set(entry) not in ({"id", "date", "topic"}, {"id", "date", "topic", "source"}):
                 continue
             identifier = entry["id"]
             if not isinstance(identifier, str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,80}", identifier) or identifier in accepted:
@@ -158,8 +203,11 @@ def sync_repository_requests(app):
                 continue
             if not isinstance(entry["topic"], str) or entry["topic"] not in {"all", "live", BIRTHDAY_LIVE}:
                 continue
+            source = entry.get("source", "")
+            if source and (not isinstance(source, str) or not re.fullmatch(r"@?[A-Za-z0-9_]{1,15}", source)):
+                continue
             try:
-                enqueue(app, entry["date"], entry["topic"], external_id=identifier)
+                enqueue(app, entry["date"], entry["topic"], external_id=identifier, source=source)
             except ValueError:
                 continue  # One invalid/future request must not block later entries.
             accepted.append(identifier)
@@ -239,7 +287,10 @@ async def _process_date_step(app):
             local = list(app.archive_db.date_window(start, end))
             local.extend(u for raw in app.state.data.get("archive", {}).values()
                          if (u := Update.from_dict(raw)) and start <= u.created_at < end)
+            wanted_source = job.get("source_filter", "").casefold()
             for update in _configured_only(app.collector, local):
+                if wanted_source and update.author.casefold() != wanted_source:
+                    continue
                 app.archive_db.index_update(update)
                 app.state.archive_update(update)
                 if update.id not in job["observed"]:
@@ -286,6 +337,9 @@ async def _process_date_step(app):
             return  # Bound work on the existing webhook worker; resume next tick.
         if job["status"] == "collecting":
             updates = [u for identifier in job["observed"] if (u := _job_update(app, identifier))]
+            wanted_source = job.get("source_filter", "").casefold()
+            if wanted_source:
+                updates = [u for u in updates if u.author.casefold() == wanted_source]
             selected = select_updates(_configured_only(app.collector, updates), job["topic"])
             job["selected"] = [u.id for u in selected]
             job["status"] = "delivering"
@@ -305,6 +359,7 @@ async def _process_date_step(app):
                 f"بستهٔ {job['day']} · {len(selected)} پست"
                 + (" · لایو تولد جونگهان" if job["topic"] == BIRTHDAY_LIVE else "")
                 + "\n" + " · ".join(f"{CATEGORIES.get(category, category)}: {count}" for category, count in counts.items())
+                + (f"\nفقط منبع درخواستی: @{wanted_source}" if wanted_source else "")
                 + "\nترتیب: زمان انتشار پست‌ها، نه ترتیب لحظه‌های لایو."
                 + source_note + event_note
                 + "\nپوشش منابع: " + "، ".join(f"@{h}: {status_label(s)}" for h, s in job["coverage"].items()),
@@ -319,7 +374,7 @@ async def _process_date_step(app):
                 job["status"] = "partial"
                 app.state.save()
                 return
-            if not _configured_only(app.collector, [update]):
+            if (job.get("source_filter") and update.author.casefold() != job["source_filter"].casefold()) or not _configured_only(app.collector, [update]):
                 job["selected"].remove(identifier)
                 job["coverage"][update.author] = "disabled"
                 app.state.save()

@@ -2,6 +2,8 @@
 
 A date request now creates a durable private bundle rather than eight search candidates. Use `/date 261004 لایو تولد`, `/date 20261004`, or ordinary Persian such as `محتوای جونگهان ۲۶۱۰۰۴ رو بفرست`. `/date_status` shows progress. Date-picker and `/search` date arguments enter the same bundle path. Invalid dates do not become unbounded searches. Future dates are rejected.
 
+For a bounded source-only range, an admin can use `/source haniwadda 20261009 20261017`. The requested handle must match an enabled configured X source; unknown and disabled handles are rejected. Inclusive ranges are split into durable one-day bundles (maximum 31 days), use the same configured-author gate, translation, ordering, receipt, retry and completeness behavior as date requests, and visibly identify the selected source in `/date_status`. The current day is provisional until it ends. A private bundle reports partial coverage when authenticated retrieval cannot prove a complete timeline.
+
 Event days use `runtime.content_date_timezone`, configured as **Asia/Seoul**; timestamps are converted to half-open UTC bounds. This is explicit in the acknowledgement. The general UI timezone remains Asia/Tehran. Supported scopes are the whole date and live coverage. Live selection requires an explicit multilingual live marker; other posts from the same author and conversation are included as thread context. A plain Weverse text post is not evidence of a live. Additional free-form topic filtering and private Telegram-channel ingestion are not implemented here.
 
 ## Collection and organization
@@ -22,7 +24,7 @@ Jobs, coverage, observed IDs, selected IDs, and acknowledged deliveries survive 
 {"id":"rey-261004-birthday-live","date":"2026-10-04","topic":"live"}
 ```
 
-Only these three fields are accepted. IDs are bounded; dates are validated; `topic` is `all` or `live`. There are no chat IDs, tokens, source text, arbitrary URLs, or executable instructions in this public queue. An ID is accepted once across restarts. A new public ID requests a new bundle; repeating a bot date request retries that bot request. A branch or draft PR is not a live dispatch. This is a repository bridge, not automatic access to other ChatGPT conversations or Telegram accounts.
+An optional `source` field can scope an entry to one enabled configured source, for example `{"id":"rey-source-261009","date":"2026-10-09","topic":"all","source":"haniwadda"}`. Entries remain one date each; a range can be represented by separate daily entries. IDs are bounded; dates are validated; `topic` is `all`, `live`, or `birthday_live`; source handles are validated against the enabled configuration. There are no chat IDs, tokens, source text, arbitrary URLs, or executable instructions in this public queue. An ID is accepted once across restarts. A new public ID requests a new bundle; repeating a bot date request retries that bot request. A branch or draft PR is not a live dispatch. This is a repository bridge, not automatic access to other ChatGPT conversations or Telegram accounts.
 
 ## Translation root cause and repair
 
