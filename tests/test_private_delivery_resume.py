@@ -14,6 +14,7 @@ from app.models import EventGroup, MediaItem, Update
 from app.private_runtime import PrivateReviewApplication
 from app.state import StateStore
 from app.telegram import TelegramError, TelegramPermanentError
+from app.webhook_aware_assistant import WebhookAwarePersonalAssistant
 
 
 class PrivateDeliveryResumeTests(unittest.TestCase):
@@ -180,6 +181,54 @@ class PrivateDeliveryResumeTests(unittest.TestCase):
             warning = app.telegram.send_message.call_args_list[1]
             self.assertIn(update.url, warning.args[0])
             self.assertEqual(warning.kwargs["delivery_key"], f"media-unavailable:{update.id}")
+
+    def test_permanent_media_rejection_falls_back_to_text_and_continues_batch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            first = self.update("media-rejected", 1)
+            first.media = [MediaItem(kind="photo", url="https://pbs.twimg.com/media/rejected.jpg")]
+            second = self.update("after-rejection", 2)
+            groups = [
+                EventGroup(key=f"single:{item.id}", category="general", title="old", updates=[item])
+                for item in (first, second)
+            ]
+            # Production GitHub Actions and Railway use this final subclass, whose
+            # inherited delivery method is composed with the runtime wrappers.
+            app = WebhookAwarePersonalAssistant.__new__(WebhookAwarePersonalAssistant)
+            app.state = StateStore(Path(temp) / "state.json")
+            app.settings = SimpleNamespace(themes={"themes": {"general": {}}}, sources=[])
+            app.source_first_queue = Mock()
+            app.source_first_queue.sync.return_value = "session"
+            app.archive_db = Mock()
+            app.inbox = Mock()
+            app._deliver_private_media = AsyncMock(
+                side_effect=[TelegramPermanentError("media rejected"), True]
+            )
+            app.writer = Mock()
+            app.writer.write_group.side_effect = [
+                GroupCopy("عنوان", "general", {first.id: "ترجمه اول"}),
+                GroupCopy("عنوان", "general", {second.id: "ترجمه دوم"}),
+            ]
+            app.themes = Mock()
+            app.themes.caption.side_effect = ["کپشن اول", "کپشن دوم"]
+            app.telegram = Mock()
+            app.telegram.send_message.return_value = {"message_id": 10}
+
+            with patch("app.private_runtime.organize_updates", return_value=groups):
+                asyncio.run(app.deliver_updates([first, second], force=False))
+
+            sent_text = [call.args[0] for call in app.telegram.send_message.call_args_list]
+            self.assertIn("کپشن اول", sent_text)
+            self.assertIn("کپشن دوم", sent_text)
+            media_notice = next(
+                call for call in app.telegram.send_message.call_args_list
+                if call.kwargs.get("delivery_key") == f"media-unavailable:{first.id}"
+            )
+            self.assertIn(first.url, media_notice.args[0])
+            self.assertTrue(app.state.is_seen(first.id))
+            self.assertTrue(app.state.is_seen(second.id))
+            lifecycle = app.state.data["update_lifecycle"][first.id]
+            self.assertEqual(lifecycle["media_status"], "terminal_failed")
+            self.assertEqual(lifecycle["status"], "delivered_text_media_failed")
 
     def test_webhook_owned_delivery_never_calls_get_updates_between_groups(self):
         with tempfile.TemporaryDirectory() as temp:
