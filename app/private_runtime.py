@@ -16,7 +16,7 @@ from .private_telegram import PrivateReviewTelegramBot, telegram_file_identity
 from .private_ui import date_picker_keyboard, source_page_keyboard
 from .review_inbox import ReviewInboxStore
 from .style import ensure_rtl_line
-from .telegram import TelegramError, draft_keyboard, inline_keyboard, main_keyboard
+from .telegram import TelegramError, TelegramPermanentError, draft_keyboard, inline_keyboard, main_keyboard
 from .translation_safety import translation_unavailable
 from .x_client import XCollectionError
 
@@ -377,10 +377,23 @@ class PrivateReviewApplication(Application):
 
             for update, draft, delivery_key in prepared:
                 if update.media:
-                    media_delivered = await self._deliver_private_media(update)
+                    try:
+                        media_delivered = await self._deliver_private_media(update)
+                    except TelegramPermanentError:
+                        # A permanent media rejection must not poison the whole
+                        # batch. Preserve the text/link path and let later drafts
+                        # proceed; transient Telegram failures still retry.
+                        media_delivered = False
+                        self.state.record_update_state(
+                            update,
+                            status="pending_delivery",
+                            stage="telegram_delivery",
+                            media_status="terminal_failed",
+                            reason="media_permanent_rejection",
+                        )
                     if media_delivered is False:
                         self.telegram.send_message(
-                            "⚠️ مدیای این آپدیت دیگر از X دانلود نشد؛ متن را فرستادم و خود پست از این لینک باز می‌شود:\n"
+                            "⚠️ مدیای این آپدیت ارسال نشد؛ متن را فرستادم و خود پست از این لینک باز می‌شود:\n"
                             + update.url,
                             delivery_key=f"media-unavailable:{update.id}",
                         )
