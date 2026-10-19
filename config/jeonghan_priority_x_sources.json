@@ -1,6 +1,7 @@
 {
   "description": "Additional X sources for Jeonghan Daily Review Bot. Keep only Jeonghan-related posts or posts matching Jeonghan angel emoji markers.",
   "sources": [
+    {"handle":"hanniezones","label":"hanniezones","enabled":true,"priority":1,"include_replies":true,"mode":"full_feed"},
     {"handle":"haniwadda","label":"haniwadda","enabled":true,"priority":10,"include_replies":true,"mode":"full_feed"},
     {"handle":"anshelhan","label":"anshelhan","enabled":true,"priority":10,"include_replies":true,"mode":"full_feed"},
     {"handle":"ayecheol","label":"ayecheol","enabled":true,"priority":15,"include_replies":true,"mode":"keyword_filter"},
