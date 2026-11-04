@@ -285,3 +285,14 @@ GitHub scheduled workflows run from the default branch. To confirm the exact com
 5. remember a scheduled workflow can be delayed and therefore may not start at the exact cron minute.
 
 Never infer the production SHA from the time alone.
+
+
+## Start Hani fresh without replaying old updates
+
+Use **Actions → Jeonghan Daily Review Bot → Run workflow → `start-fresh`** when the owner wants to abandon the automatic delivery backlog and receive only posts created after that run starts. This one-time live mode:
+- marks queued automatic updates as already handled and clears only `pending_delivery`;
+- sets a fresh collection floor, so overlapping scans cannot re-queue pre-start posts;
+- preserves the Telegram update offset, archive, private-review database, and existing drafts;
+- automatically uses Telegram polling for that run.
+
+A workflow rerun with the same GitHub run ID is idempotent and will not clear updates collected after the first attempt. The collection floor is removed after an authenticated complete scan. If X authentication is degraded, the floor remains in force while the existing bounded recovery continues; source completeness still depends on X access being restored.
