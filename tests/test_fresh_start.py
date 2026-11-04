@@ -34,7 +34,7 @@ class FreshStartTests(unittest.TestCase):
             store.queue_updates([old_a, old_b])
 
             started = datetime(2026, 11, 4, 12, tzinfo=timezone.utc)
-            self.assertEqual(store.apply_fresh_start("run-123", started), 2)
+            self.assertEqual(store.apply_fresh_start("campaign:fresh-start", started), 2)
             self.assertEqual(store.data["pending_delivery"], [])
             self.assertTrue(store.is_seen("old-a"))
             self.assertTrue(store.is_seen("old-b"))
@@ -43,7 +43,7 @@ class FreshStartTests(unittest.TestCase):
 
             new_item = _update("new", started + timedelta(minutes=1))
             store.queue_updates([new_item])
-            self.assertEqual(store.apply_fresh_start("run-123", started), 0)
+            self.assertEqual(store.apply_fresh_start("campaign:fresh-start", started), 0)
             self.assertEqual(
                 [item["id"] for item in store.data["pending_delivery"]],
                 ["new"],
@@ -51,7 +51,8 @@ class FreshStartTests(unittest.TestCase):
 
             store.save()
             restored = StateStore(Path(temp) / "state.json")
-            self.assertEqual(restored.data["fresh_start_run_id"], "run-123")
+            self.assertEqual(restored.data["fresh_start_run_id"], "campaign:fresh-start")
+            self.assertIn("campaign:fresh-start", restored.data["fresh_start_tokens"])
             self.assertEqual(restored.data["fresh_start_since"], started.isoformat())
             self.assertEqual([item["id"] for item in restored.data["pending_delivery"]], ["new"])
 

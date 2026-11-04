@@ -34,24 +34,24 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
     """
 
     async def run(self) -> int:
-        fresh_start_token = ""
+        fresh_start_tokens = []
+        campaign_id = os.getenv("HANI_FRESH_START_CAMPAIGN", "").strip()
+        if campaign_id:
+            fresh_start_tokens.append(f"campaign:{campaign_id}")
         if os.getenv("HANI_FRESH_START", "").strip() == "1":
             run_id = os.getenv("GITHUB_RUN_ID", "").strip()
             if not run_id:
                 raise RuntimeError("HANI_FRESH_START requires a GitHub Actions run ID.")
-            fresh_start_token = f"run:{run_id}"
-        else:
-            campaign_id = os.getenv("HANI_FRESH_START_CAMPAIGN", "").strip()
-            if campaign_id:
-                fresh_start_token = f"campaign:{campaign_id}"
-        if fresh_start_token:
-            discarded = self.state.apply_fresh_start(fresh_start_token)
-            self.state.save()
+            fresh_start_tokens.append(f"run:{run_id}")
+        for token in fresh_start_tokens:
+            discarded = self.state.apply_fresh_start(token)
             logger.warning(
                 "Fresh start token %s applied; discarded %s queued automatic updates.",
-                fresh_start_token,
+                token,
                 discarded,
             )
+        if fresh_start_tokens:
+            self.state.save()
         if github_actions_polling_only():
             # Render/Koyeb are intentionally not part of this deployment. Remove any
             # stale webhook without dropping queued updates, then use Telegram
