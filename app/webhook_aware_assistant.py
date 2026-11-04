@@ -34,6 +34,17 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
     """
 
     async def run(self) -> int:
+        if os.getenv("HANI_FRESH_START", "").strip() == "1":
+            run_id = os.getenv("GITHUB_RUN_ID", "").strip()
+            if not run_id:
+                raise RuntimeError("HANI_FRESH_START requires a GitHub Actions run ID.")
+            discarded = self.state.apply_fresh_start(run_id)
+            self.state.save()
+            logger.warning(
+                "Fresh start applied for workflow run %s; discarded %s queued automatic updates.",
+                run_id,
+                discarded,
+            )
         if github_actions_polling_only():
             # Render/Koyeb are intentionally not part of this deployment. Remove any
             # stale webhook without dropping queued updates, then use Telegram
@@ -268,6 +279,9 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
         # re-read across several 12-minute maintenance ticks.
         overlap = timedelta(hours=2) if degraded_last else timedelta(minutes=30)
         start = max(last - overlap, now - timedelta(hours=lookback))
+        fresh_start_since = self._state_datetime("fresh_start_since")
+        if fresh_start_since:
+            start = max(start, fresh_start_since)
         if getattr(self.collector, "provider_preflight_blocked", lambda: False)():
             logger.warning(
                 "Scheduled X scan skipped because the immediately preceding provider probe was offline."
@@ -282,7 +296,11 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
             self._record_x_scan_failure(now)
             return True
 
-        fresh = [item for item in updates if not self.state.is_seen(item.id)]
+        fresh = [
+            item for item in updates
+            if not self.state.is_seen(item.id)
+            and (fresh_start_since is None or item.created_at >= fresh_start_since)
+        ]
         fresh.sort(key=lambda item: (item.created_at, item.id))
         # Retrieval completeness is determined by the source collector, not by a
         # delivery cap. Queue every fresh item from a complete/partial collection;
@@ -313,6 +331,7 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
             return True
 
         self.state.data["last_auto_run"] = now.isoformat()
+        self.state.data["fresh_start_since"] = ""
         self.state.data["last_degraded_scan_at"] = ""
         self.state.data["last_x_error_notice"] = ""
         self.state.data["last_failed_sources"] = []

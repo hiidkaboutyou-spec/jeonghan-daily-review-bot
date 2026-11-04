@@ -28,6 +28,8 @@ class StateStore:
             "telegram_failures": {},
             "last_auto_run": "",
             "last_auto_attempt": "",
+            "fresh_start_since": "",
+            "fresh_start_run_id": "",
             "last_degraded_scan_at": "",
             "last_x_error_notice": "",
             "polling_mode_checked": "",
@@ -99,6 +101,8 @@ class StateStore:
         for key in (
             "last_auto_run",
             "last_auto_attempt",
+            "fresh_start_since",
+            "fresh_start_run_id",
             "last_degraded_scan_at",
             "last_x_error_notice",
             "polling_mode_checked",
@@ -176,6 +180,36 @@ class StateStore:
     @telegram_offset.setter
     def telegram_offset(self, value: int) -> None:
         self.data["telegram_offset"] = int(value)
+
+    def apply_fresh_start(self, run_id: str, now: datetime | None = None) -> int:
+        """Discard automatic backlog once and start collection at this timestamp."""
+        token = str(run_id or "").strip()
+        if not token:
+            raise ValueError("A workflow run ID is required for a fresh start.")
+        if str(self.data.get("fresh_start_run_id", "")) == token:
+            return 0
+
+        timestamp = now or datetime.now(timezone.utc)
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        stamp = timestamp.astimezone(timezone.utc).isoformat()
+
+        seen = self.data.setdefault("seen", {})
+        discarded_ids: set[str] = set()
+        for item in self.data.get("pending_delivery", []):
+            if not isinstance(item, dict):
+                continue
+            update_id = str(item.get("id", "")).strip()
+            if update_id:
+                seen[update_id] = stamp
+                discarded_ids.add(update_id)
+
+        self.data["pending_delivery"] = []
+        self.data["last_auto_run"] = stamp
+        self.data["last_auto_attempt"] = stamp
+        self.data["fresh_start_since"] = stamp
+        self.data["fresh_start_run_id"] = token
+        return len(discarded_ids)
 
     def record_telegram_failure(self, update_id: int, error_type: str) -> int:
         """Record only bounded technical metadata; never store exception messages/secrets."""
