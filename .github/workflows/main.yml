@@ -292,6 +292,7 @@ jobs:
           GEMINI_MODEL: gemini-3.5-flash-lite
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           HANI_FRESH_START: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'start-fresh' && '1' || '' }}
+          HANI_FRESH_START_CAMPAIGN: ${{ (github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && 'fresh-start-2026-11-04' || '' }}
           ASSISTANT_RUNTIME_MODE: ${{ (github.event_name == 'workflow_dispatch' && (inputs.telegram_transport == 'polling' || inputs.mode == 'start-fresh')) && 'github_actions_polling' || 'github_actions_auto' }}
         shell: bash
         run: |

@@ -34,15 +34,22 @@ class WebhookAwarePersonalAssistant(PersonalAssistantReviewApplication):
     """
 
     async def run(self) -> int:
+        fresh_start_token = ""
         if os.getenv("HANI_FRESH_START", "").strip() == "1":
             run_id = os.getenv("GITHUB_RUN_ID", "").strip()
             if not run_id:
                 raise RuntimeError("HANI_FRESH_START requires a GitHub Actions run ID.")
-            discarded = self.state.apply_fresh_start(run_id)
+            fresh_start_token = f"run:{run_id}"
+        else:
+            campaign_id = os.getenv("HANI_FRESH_START_CAMPAIGN", "").strip()
+            if campaign_id:
+                fresh_start_token = f"campaign:{campaign_id}"
+        if fresh_start_token:
+            discarded = self.state.apply_fresh_start(fresh_start_token)
             self.state.save()
             logger.warning(
-                "Fresh start applied for workflow run %s; discarded %s queued automatic updates.",
-                run_id,
+                "Fresh start token %s applied; discarded %s queued automatic updates.",
+                fresh_start_token,
                 discarded,
             )
         if github_actions_polling_only():
